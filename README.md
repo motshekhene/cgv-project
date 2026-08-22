@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-If something breaks after pulling new changes from the team, try running `npm install` again first — someone may have added something new.
+If something breaks after pulling new changes from the team, try running `npm install` again first,  someone may have added something new.
 
 ## A few rules (please follow these)
 
@@ -42,7 +42,7 @@ Same rule in `index.html`:
 <script type="module" src="./src/main.js"></script>
 ```
 
-**Why:** our game won't live at the very top of the website — it'll be inside a folder (something like `.../motshekhene-group/`). A path starting with `/` skips past that folder and points to the wrong place. It works fine on your own laptop while testing, then breaks the moment it's uploaded to the real server — so this is easy to miss until it's too late. Anyone loading a model, texture, or sound will personally hit this rule, not just one person.
+**Why:** our game won't live at the very top of the website — it'll be inside a folder (something like `.../motshekhene-group/`). A path starting with `/` skips past that folder and points to the wrong place. It works fine on your own laptop while testing, then breaks the moment it's uploaded to the real server, so this is easy to miss until it's too late. Anyone loading a model, texture, or sound will personally hit this rule, not just one person.
 
 ### 2. Filenames: lowercase, no spaces
 
