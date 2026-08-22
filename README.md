@@ -48,9 +48,9 @@ Same rule in `index.html`:
 
 Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitive (Windows/Mac aren't, so this bug hides during development and only appears once hosted).
 
-### 3. Commit and push often
+### 3. Commit and push often to your individual branches as usual
 
-Small changes are fine — don't sit on big, unpushed changes for days.
+Small changes are fine, don't sit on big, unpushed changes for days.
 
 ### 4. When in doubt, ask before pushing to `main`
 
