@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>BLACKOUT Protocol — Level 2 (REDLINE) Alpha</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #05070a; font-family: 'Segoe UI', system-ui, sans-serif; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 16px; left: 16px; color: #d7e2ea;
+    background: rgba(5,10,15,0.55); border: 1px solid rgba(120,200,255,0.25);
+    padding: 12px 16px; border-radius: 6px; font-size: 13px; line-height: 1.6;
+    backdrop-filter: blur(4px); pointer-events: none;
+  }
+  #hud b { color: #7fd8ff; }
+  #state {
+    position: fixed; top: 16px; right: 16px; color: #ffb37a;
+    background: rgba(5,10,15,0.55); border: 1px solid rgba(255,150,80,0.3);
+    padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.5px; pointer-events: none;
+  }
+  #controls {
+    position: fixed; bottom: 16px; left: 16px; color: #8fa3b0;
+    font-size: 12px; background: rgba(5,10,15,0.5); padding: 8px 12px;
+    border-radius: 6px; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div><b>Speed:</b> <span id="speedVal">0</span></div>
+  <div><b>Distance to Handler:</b> <span id="distVal">0</span> m</div>
+  <div><b>Heat:</b> <span id="heatVal">0</span>%</div>
+  <div><b>Health:</b> <span id="healthVal">100</span></div>
+</div>
+<div id="state">HANDLER: APPROACH</div>
+<div id="controls">W/S accelerate/brake · A/D steer · SHIFT boost</div>
+
+<script type="module" src="./src/levels/level2/main.js"></script>
+</body>
+</html>
