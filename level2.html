@@ -24,10 +24,25 @@
     font-size: 12px; background: rgba(5,10,15,0.5); padding: 8px 12px;
     border-radius: 6px; pointer-events: none;
   }
+  /* telegraph readability cue — ramps in during the ram wind-up so the
+     player can feel it's coming even at the edge of their vision */
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(255,40,40,0.9) 100%);
+    transition: opacity 0.08s linear;
+  }
+  #event {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -160%);
+    font-family: 'Segoe UI', system-ui, sans-serif; font-weight: 700;
+    font-size: 30px; letter-spacing: 3px; opacity: 0; pointer-events: none;
+    text-shadow: 0 0 12px rgba(0,0,0,0.8);
+  }
 </style>
 </head>
 <body>
 
+<div id="vignette"></div>
+<div id="event"></div>
 <div id="hud">
   <div><b>Speed:</b> <span id="speedVal">0</span></div>
   <div><b>Distance to Handler:</b> <span id="distVal">0</span> m</div>

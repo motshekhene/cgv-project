@@ -66,7 +66,13 @@ function setKey(code, val) {
 // ---------- Instantiate ----------
 const car = new VehicleController(scene);
 const handler = new HandlerAI(scene, car);
-handler.onAttackResolved = () => car.takeDamage(12); // placeholder ram damage
+handler.onAttackResolved = () => {
+  car.takeDamage(12); // placeholder ram damage
+  flashEvent('RAMMED', '#ff5555');
+};
+handler.onAttackMissed = () => {
+  flashEvent('DODGED', '#66e0ff');
+};
 
 // ---------- Chase camera ----------
 function updateCamera() {
@@ -84,6 +90,17 @@ const distEl = document.getElementById('distVal');
 const heatEl = document.getElementById('heatVal');
 const healthEl = document.getElementById('healthVal');
 const stateEl = document.getElementById('state');
+const vignetteEl = document.getElementById('vignette');
+const eventEl = document.getElementById('event');
+
+// brief on-screen callout when a ram lands or gets dodged
+let eventTimer = 0;
+function flashEvent(text, color) {
+  eventEl.textContent = text;
+  eventEl.style.color = color;
+  eventEl.style.opacity = '1';
+  eventTimer = 1.1;
+}
 
 // ---------- Main loop ----------
 const clock = new THREE.Clock();
@@ -92,7 +109,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
 
   car.update(dt, input);
-  const { dist, state } = handler.update(dt);
+  const { dist, state, telegraphT } = handler.update(dt);
   updateCamera();
 
   speedEl.textContent = Math.round(Math.abs(car.speed) * 3.6);
@@ -101,6 +118,15 @@ function animate() {
   healthEl.textContent = Math.round(car.health);
   stateEl.textContent = 'HANDLER: ' + state;
   stateEl.style.color = state === 'TELEGRAPH' ? '#ff5555' : '#ffb37a';
+
+  // vignette ramps in across the telegraph window — readable peripheral cue
+  // that doesn't require staring at the state label.
+  vignetteEl.style.opacity = state === 'TELEGRAPH' ? (0.15 + telegraphT * 0.45).toFixed(2) : '0';
+
+  if (eventTimer > 0) {
+    eventTimer -= dt;
+    eventEl.style.opacity = Math.min(1, eventTimer / 0.3).toFixed(2);
+  }
 
   renderer.render(scene, camera);
 }
