@@ -14,7 +14,8 @@ game.registerLevel("level02", () => new Level02());
 game.onLevelChanged = (name) => console.log("[game] level:", name);
 game.onPaused = (v) => console.log("[game]", v ? "paused" : "resumed");
 
-await game.setLevel("level01");
+const wanted = new URLSearchParams(location.search).get("level");
+await game.setLevel(game.levels.has(wanted) ? wanted : "level01");
 game.start();
 
 // handy while developing — open the console and poke at it
