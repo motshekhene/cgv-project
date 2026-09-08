@@ -30,6 +30,8 @@ export class GameState {
     this.bestDistance = 0;
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
     this.deaths = 0;
+
+    this.handlerState = 'IDLE';
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
