@@ -16,6 +16,8 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  * What changed vs. the shell:
  *   floorMat / wallMat        → real materials + the speed-warp ShaderMaterial on walls
  *   colour-only materials     → procedural albedo/normal/roughness maps (level1/subwayTextures.js)
+ *   constant speed            → baseSpeed ramps with distance + boost/stamina, so Shader 1 sweeps
+ *   static security gate      → Interlude I slam: telegraph strobe, fall, impact, sting, camera shake
  *   single directional light  → hemi + key + a few point lights (emergency strips) + fog tuned cyan
  *   (nothing)                 → pipes, platform ledge, ticket-barrier obstacles, security gate, service bay
  *   (nothing)                 → AudioSystem: ambience, footsteps tied to stride, gate/train stings
@@ -26,12 +28,33 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  */
 const LANE_X = [-2.4, 0, 2.4];
 
+// --- security gate (Interlude I) ---
+const GATE_Z = -230;
+const GATE_OPEN_Y = 6.9; // bars retracted above the ceiling underside (6.75)
+const GATE_WARN_RANGE = 48; // metres out where the amber telegraph starts
+const GATE_TRIGGER_Z = GATE_Z - 3; // slams once Kai is just past it, sealing the tunnel behind him
+
+// --- boost / stamina tuning ---
+const BOOST_DRAIN = 28; // stamina per second while boosting
+const BOOST_REGEN = 22; // stamina per second while not
+const BOOST_UNLOCK = 0.45; // fraction of the pool needed to boost again after running dry
+
 export class Level01 extends Level {
   constructor() {
     super("level01");
     this.z = 0;
-    this.speed = 12;
-    this.maxSpeed = 24; // used only to normalise the speed-warp shader uniform
+    // Speed is no longer a constant. baseSpeed ramps with distance and boost
+    // stacks on top, so Shader 1's uSpeed actually sweeps its range across the
+    // level instead of sitting on one value the whole way down.
+    this.baseSpeed = 11;
+    this.boostSpeed = 0;
+    this.speed = this.baseSpeed;
+    this.maxSpeed = 30; // normalisation ceiling for the speed-warp uniform
+    this.boosting = false;
+    // Once stamina runs dry the boost locks out until it has regenerated to
+    // BOOST_UNLOCK. Without this, spendStamina() fails and succeeds on
+    // alternating frames and the boost (and the FOV kick) flickers at 30 Hz.
+    this._boostLocked = false;
     this.lane = 1;
     this.laneFrom = 1;
     this.laneT = 1;
@@ -43,10 +66,21 @@ export class Level01 extends Level {
     this.securityGate = null;
     this.serviceVehicle = null;
 
+    // gate slam animation — driven in _updateGate(), not an AnimationMixer,
+    // because it's one axis of one group and physics reads better here
+    this._gatePhase = "open"; // 'open' | 'warning' | 'slamming' | 'closed'
+    this._gateY = GATE_OPEN_Y;
+    this._gateVel = 0;
+    this._gateImpacts = 0;
+    this._gateFlash = 0;
+    this._shake = 0; // camera shake, decays over ~0.6s after the slam
+
     this._audio = null;
     this._audioReady = false;
     this._strideDistance = 0;
-    this._strideInterval = 0.42; // world units between footstep triggers
+    // one stride ≈ 1.6 m of ground covered, so the footstep rate rises with
+    // the speed ramp on its own instead of needing its own curve
+    this._strideInterval = 1.6;
   }
 
   init(scene, assets, input, state) {
@@ -92,6 +126,10 @@ export class Level01 extends Level {
     this.root.add(this.player);
 
     this._tmp = new THREE.Vector3();
+
+    // the boost FOV kick writes to the shared camera, so remember the value
+    // Game set and hand it back in teardown()
+    this._baseFov = this.game && this.game.camera ? this.game.camera.fov : 62;
 
     // Audio listener needs the active camera, which Game.js owns. If
     // this.game.camera isn't set yet at this point, update() will pick
@@ -189,29 +227,126 @@ export class Level01 extends Level {
     }
   }
 
-  /** Sector seal near the end of the tunnel — Interlude I animates this closing; geometry/placement only, no animation here. */
+  /** Sector seal near the end of the tunnel. Starts retracted into the ceiling; _updateGate() slams it shut behind Kai as Interlude I. */
   _buildSecurityGate(mats) {
     const gateGroup = new THREE.Group();
-    gateGroup.position.set(0, 0, -230);
+    gateGroup.position.set(0, 0, GATE_Z);
 
     // gateMat keeps the orange emissive glow; the maps add scratched,
     // worn paint on top of it
+
+    // The bars live in their own sub-group so the slam animates one y offset
+    // rather than eight bar positions, and so userData/collision code can
+    // still treat gateGroup as the gate.
+    const slide = new THREE.Group();
+    slide.position.y = GATE_OPEN_Y;
 
     const barCount = 8;
     for (let i = 0; i < barCount; i++) {
       const bar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 6, 0.15), mats.gateMat);
       bar.position.set(-6.2 + (i / (barCount - 1)) * 12.4, 3, 0);
-      gateGroup.add(bar);
+      bar.castShadow = true;
+      slide.add(bar);
     }
+    gateGroup.add(slide);
 
-    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 16, 2);
+    // housing the bars retract into, so the open gate reads as a mechanism
+    // waiting to fire rather than an empty doorway
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.6, 0.5), mats.gateMat);
+    housing.position.set(0, 6.6, 0);
+    housing.castShadow = true;
+    gateGroup.add(housing);
+
+    // Reach is deliberately long: Kai is already past the gate when it fires,
+    // so the impact flash washing the tunnel around him is the only part of
+    // the slam he can actually see. The strobe telegraph is what he sees
+    // coming, the flash and the sting are what he gets on the way out.
+    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 30, 2);
     gateLight.position.set(0, 4, 1);
     gateGroup.add(gateLight);
 
     gateGroup.userData.isSecurityGate = true;
-    gateGroup.userData.open = true; // Interlude I closes it
+    gateGroup.userData.open = true; // _updateGate() flips this when it fires
     this.securityGate = gateGroup;
+    this._gateSlide = slide;
+    this._gateLight = gateLight;
+    this._gateLightBase = 1.4;
+    this._gateMaterial = mats.gateMat;
     this.root.add(gateGroup);
+  }
+
+  /**
+   * Interlude I: the sector seal slams down once Kai is past it, cutting the
+   * tunnel off behind him. Phases:
+   *
+   *   open     → retracted, nothing to do
+   *   warning  → amber strobe telegraph as he closes on it
+   *   slamming → accelerating fall, then impacts that rebound like steel
+   *   closed   → settled, light bleeds back to a steady glow
+   *
+   * Each impact fires the gate_slam sting and shoves the camera; the first
+   * one hits hardest.
+   */
+  _updateGate(dt) {
+    if (this._gatePhase === "closed") {
+      // ease the flash out and let the bars sit
+      this._gateFlash = Math.max(0, this._gateFlash - dt * 2.4);
+      this._gateLight.intensity = this._gateLightBase + this._gateFlash * 9;
+      this._gateMaterial.emissiveIntensity = 0.6 + this._gateFlash * 1.4;
+      return;
+    }
+
+    if (this._gatePhase === "open" && this.z - GATE_Z < GATE_WARN_RANGE) {
+      this._gatePhase = "warning";
+    }
+
+    if (this._gatePhase === "warning") {
+      // telegraph: strobe the housing light so the slam is readable, not a
+      // cheap shock — the player should see it coming
+      const strobe = 0.5 + 0.5 * Math.sin(performance.now() * 0.019);
+      this._gateLight.intensity = this._gateLightBase + strobe * 2.8;
+      this._gateMaterial.emissiveIntensity = 0.6 + strobe * 0.9;
+
+      if (this.z <= GATE_TRIGGER_Z) {
+        this._gatePhase = "slamming";
+        this.securityGate.userData.open = false;
+      }
+      return;
+    }
+
+    // --- slamming: heavy steel under gravity, with rebounds ---
+    if (this._gatePhase !== "slamming") return; // still open and out of range
+
+    this._gateVel += 34 * dt;
+    this._gateY -= this._gateVel * dt;
+    this._gateFlash = Math.max(0, this._gateFlash - dt * 2.4);
+
+    if (this._gateY <= 0) {
+      this._gateY = 0;
+      const impact = this._gateVel;
+      this._gateImpacts++;
+
+      if (this._gateImpacts === 1) {
+        if (this._audio) this._audio.playOneShot("gateSlam", { volume: 0.85 });
+        this._shake = 0.45;
+        this._gateFlash = 1;
+      } else {
+        this._shake = Math.max(this._shake, 0.14);
+        this._gateFlash = Math.max(this._gateFlash, 0.35);
+      }
+
+      // rebound twice, then settle
+      if (this._gateImpacts <= 2 && impact > 6) {
+        this._gateVel = -impact * 0.22;
+      } else {
+        this._gateVel = 0;
+        this._gatePhase = "closed";
+      }
+    }
+
+    this._gateSlide.position.y = this._gateY;
+    this._gateLight.intensity = this._gateLightBase + this._gateFlash * 9;
+    this._gateMaterial.emissiveIntensity = 0.6 + this._gateFlash * 1.4;
   }
 
   /** The maintenance bay + parked vehicle that Level 2 picks up from. */
@@ -269,6 +404,27 @@ export class Level01 extends Level {
 
     if (!this._audioReady) this._ensureAudio();
 
+    // --- speed: distance ramp + boost, both feeding Shader 1 ---
+    // The tunnel gets faster the deeper Kai goes. Capped so the ramp alone
+    // tops out around 20 and boost still has headroom under maxSpeed.
+    this.baseSpeed = 11 + Math.min(9, -this.z * 0.035);
+
+    // boost burns the shared stamina pool so 3B's HUD reads it for free
+    const wantsBoost = input.isDown("boost");
+    if (this._boostLocked && state.stamina >= state.maxStamina * BOOST_UNLOCK) {
+      this._boostLocked = false;
+    }
+    this.boosting = wantsBoost && !this._boostLocked && state.spendStamina(BOOST_DRAIN * dt);
+    // held the key but the pool just ran out — lock it until it recovers
+    if (wantsBoost && !this.boosting && !this._boostLocked) this._boostLocked = true;
+    if (!this.boosting) state.regenStamina(BOOST_REGEN, dt);
+
+    const boostTarget = this.boosting ? 10 : 0;
+    // attack faster than release, so boost feels responsive but bleeds off
+    const boostRate = this.boosting ? 3.4 : 2.0;
+    this.boostSpeed += (boostTarget - this.boostSpeed) * (1 - Math.exp(-boostRate * dt));
+    this.speed = this.baseSpeed + this.boostSpeed;
+
     // forward motion
     this.z -= this.speed * dt;
     state.distance = -this.z;
@@ -308,6 +464,9 @@ export class Level01 extends Level {
 
     this.player.position.set(x, this.y, this.z);
 
+    // Interlude I — may set this._shake, so run it before the camera
+    this._updateGate(dt);
+
     // shadow camera follows so shadows stay inside it
     this.key.position.set(x + 6, 14, this.z + 10);
     this.key.target.position.set(x, 0, this.z - 6);
@@ -318,11 +477,30 @@ export class Level01 extends Level {
     cam.position.lerp(this._tmp, 1 - Math.exp(-9 * dt));
     cam.lookAt(x * 0.7, 1.5, this.z - 9);
 
+    // boost widens the FOV — cheapest honest way to sell acceleration.
+    // Restored in teardown() since the camera belongs to Game, not the level.
+    const fovTarget = this._baseFov + (this.boostSpeed / 10) * 7;
+    if (Math.abs(cam.fov - fovTarget) > 0.01) {
+      cam.fov += (fovTarget - cam.fov) * (1 - Math.exp(-5 * dt));
+      cam.updateProjectionMatrix();
+    }
+
+    // camera shake from the gate impact, applied after the lerp so it does
+    // not fight the follow maths. Squared falloff lands harder up front.
+    if (this._shake > 0) {
+      this._shake = Math.max(0, this._shake - dt * 1.6);
+      const amp = this._shake * this._shake * 0.7;
+      cam.position.x += (Math.random() * 2 - 1) * amp;
+      cam.position.y += (Math.random() * 2 - 1) * amp;
+    }
+
     // --- shader 1: speed-warp, driven by current forward speed ---
-    updateSpeedWarp(this.wallMaterial, dt, THREE.MathUtils.clamp(this.speed / this.maxSpeed, 0, 1));
+    const normalizedSpeed = THREE.MathUtils.clamp(this.speed / this.maxSpeed, 0, 1);
+    state.normalizedSpeed = normalizedSpeed; // HUD / other levels can read it
+    updateSpeedWarp(this.wallMaterial, dt, normalizedSpeed);
 
     // strip lights pulse a little faster as speed rises
-    const pulse = 1.0 + Math.sin(performance.now() * 0.004 * (1 + this.speed / this.maxSpeed)) * 0.15;
+    const pulse = 1.0 + Math.sin(performance.now() * 0.004 * (1 + normalizedSpeed)) * 0.15;
     for (const light of this.stripLights) light.intensity = 1.1 * pulse;
 
     // --- footsteps: trigger on stride distance, only while grounded ---
@@ -330,7 +508,7 @@ export class Level01 extends Level {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
-        this._audio.playFootstep({ volume: 0.4 });
+        this._audio.playFootstep({ volume: 0.4, dt });
       }
     }
   }
@@ -340,6 +518,11 @@ export class Level01 extends Level {
       this._audio.teardown();
       this._audio = null;
       this._audioReady = false;
+    }
+    // hand the shared camera back exactly as Game set it up
+    if (this.game && this.game.camera) {
+      this.game.camera.fov = this._baseFov;
+      this.game.camera.updateProjectionMatrix();
     }
     this.scene.fog = null;
     super.teardown();

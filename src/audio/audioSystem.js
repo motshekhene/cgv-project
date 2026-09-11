@@ -151,9 +151,14 @@ export class AudioSystem {
    * animation event in the player controller — decoupled with a small
    * cooldown so it can also be called every frame if it's easier for
    * whoever wires up the controller.
+   *
+   * Pass `dt` so the cooldown is real seconds. Without it the cooldown
+   * drains per call rather than per second, so a caller that fires more
+   * than 60 times a second (a stride timer at speed) throttles itself by
+   * frame rate instead of by time.
    */
-  playFootstep({ pitchVariance = 0.15, volume = 0.5, minInterval = 0.18 } = {}) {
-    this._footstepCooldown -= 1 / 60; // safe default if caller doesn't pass dt
+  playFootstep({ pitchVariance = 0.15, volume = 0.5, minInterval = 0.18, dt = 1 / 60 } = {}) {
+    this._footstepCooldown -= dt;
     const buffer = this._getBuffer('footstep');
     if (!buffer) return;
     if (this._footstepCooldown > 0) return;
