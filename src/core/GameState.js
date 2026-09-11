@@ -42,6 +42,11 @@ export class GameState {
     this.handlerState = 'IDLE';
     this.handlerGap = 0; // metres between Kai and the Handler
     this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
+
+    // Why the run ended, so the fail screen can say it instead of guessing.
+    // Level 01 has two losses — "he catches you, or the southbound does".
+    // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
+    this.failCause = null;
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -56,6 +61,7 @@ export class GameState {
     this.normalizedSpeed = 0;
     this.handlerState = 'IDLE';
     this.handlerGap = 0;
+    this.failCause = null;
     this.alive = true;
   }
 
