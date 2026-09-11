@@ -32,6 +32,7 @@ export class GameState {
     this.deaths = 0;
 
     this.handlerState = 'IDLE';
+    this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -43,6 +44,7 @@ export class GameState {
     this.stamina = this.maxStamina;
     this.boostHeat = 0;
     this.distance = 0;
+    this.normalizedSpeed = 0;
     this.alive = true;
   }
 
