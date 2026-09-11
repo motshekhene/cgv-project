@@ -31,7 +31,11 @@ export class GameState {
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
     this.deaths = 0;
 
+    // The pursuer. Level 01's only currency is distance, so handlerGap IS the
+    // health bar for that level — the run ends when it reaches 0.
+    // handlerState: 'IDLE' | 'CLOSING' | 'LOSING_GROUND' | 'CAUGHT'
     this.handlerState = 'IDLE';
+    this.handlerGap = 0; // metres between Kai and the Handler
     this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
   }
 
@@ -45,6 +49,8 @@ export class GameState {
     this.boostHeat = 0;
     this.distance = 0;
     this.normalizedSpeed = 0;
+    this.handlerState = 'IDLE';
+    this.handlerGap = 0;
     this.alive = true;
   }
 

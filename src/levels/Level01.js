@@ -18,13 +18,21 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  *   colour-only materials     → procedural albedo/normal/roughness maps (level1/subwayTextures.js)
  *   constant speed            → baseSpeed ramps with distance + boost/stamina, so Shader 1 sweeps
  *   static security gate      → Interlude I slam: telegraph strobe, fall, impact, sting, camera shake
+ *   obstacles were scenery    → clipping one stumbles Kai and hands the Handler three metres
+ *   no pursuer                → the Handler: 15 m head start, constant-speed follower, fail state at 0
  *   single directional light  → hemi + key + a few point lights (emergency strips) + fog tuned cyan
  *   (nothing)                 → pipes, platform ledge, ticket-barrier obstacles, security gate, service bay
  *   (nothing)                 → AudioSystem: ambience, footsteps tied to stride, gate/train stings
  *
- * Obstacles and the security gate are placed with userData flags so
- * whoever wires up collision (you / 3A) can just read them off
- * this.obstacles / this.securityGate — I haven't touched collision logic.
+ * Level 01's economy comes straight off the pitch: "the only currency is
+ * distance", "every clipped barrier hands him three metres", and the health
+ * bar does not appear until level 02. So nothing here calls state.damage() —
+ * mistakes are paid for in metres of gap, and the run ends when the gap
+ * reaches zero.
+ *
+ * this.finished is set on a catch, but NOTHING IN Game._frame() READS IT yet,
+ * so a catch currently stops Kai and goes quiet instead of showing a fail
+ * screen. That hook is shared-systems work, not Level 01's.
  */
 const LANE_X = [-2.4, 0, 2.4];
 
@@ -38,6 +46,36 @@ const GATE_TRIGGER_Z = GATE_Z - 3; // slams once Kai is just past it, sealing th
 const BOOST_DRAIN = 28; // stamina per second while boosting
 const BOOST_REGEN = 22; // stamina per second while not
 const BOOST_UNLOCK = 0.45; // fraction of the pool needed to boost again after running dry
+
+// --- obstacle clipping ---
+// Barriers are BoxGeometry(1, 1, 0.4) sitting on the floor at y = 0.5, and
+// Kai is a capsule of radius 0.34 whose base rests 0.31 above the rig origin.
+const PLAYER_RADIUS = 0.34;
+const PLAYER_FEET_Y = 0.31;
+const OBSTACLE_TOP_Y = 1.0;
+const CLIP_HALF_X = 0.5 + PLAYER_RADIUS; // barrier half-width + capsule radius
+const CLIP_HALF_Z = 0.2 + PLAYER_RADIUS; // barrier half-depth + capsule radius
+
+// --- the Handler ---
+// "He does not run faster than you. He just never slows down." So he is a
+// constant-speed follower matched to Kai's cruise, not an AI — there is no
+// state machine here for whoever owns the pursuer to collide with.
+const HANDLER_START_GAP = 15; // metres, straight off the pitch
+const HANDLER_MAX_GAP = 60; // boosting must not make him irrelevant
+const HANDLER_LIGHT_RANGE = 40; // gap at which his glow starts to register
+// A clip costs the pitch's three metres. It is charged as a debt in metres
+// that is paid off as a speed deficit, rather than as a straight subtraction
+// from the gap: the stumble the player feels and the ground they lose are then
+// the same thing. Debt is only decremented by the deficit actually applied, so
+// the total is exactly CLIP_PENALTY regardless of frame rate. Decaying a m/s
+// deficit directly instead would leak ~3.06 m at 60 fps and ~3.17 m at 20 fps.
+const CLIP_PENALTY = 3;
+const STUMBLE_TAU = 0.45; // seconds; recovery time constant
+// Constant creep, m/s, on top of matching Kai's cruise. Zero means a clean run
+// holds the gap forever and only mistakes threaten it, which is what the pitch
+// describes. Raise it if playtests say a clean run has no tension — nothing
+// else reads this.
+const HANDLER_CREEP = 0;
 
 export class Level01 extends Level {
   constructor() {
@@ -55,6 +93,13 @@ export class Level01 extends Level {
     // BOOST_UNLOCK. Without this, spendStamina() fails and succeeds on
     // alternating frames and the boost (and the FOV kick) flickers at 30 Hz.
     this._boostLocked = false;
+    // Handler pursuit — the whole of level 01's tension
+    this.gap = HANDLER_START_GAP;
+    this.caught = false;
+    this._stumbleDebt = 0; // metres of ground still owed from clipping a barrier
+    // speed the shader/lights follow, smoothed so the streaks ease rather than
+    // snapping when Kai stumbles or gets caught
+    this._displaySpeed = 11;
     this.lane = 1;
     this.laneFrom = 1;
     this.laneT = 1;
@@ -109,6 +154,7 @@ export class Level01 extends Level {
     this._buildObstacles(mats);
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
+    this._buildHandler();
 
     // the player rig — camera hangs off a pivot on the rig, never on the mesh
     this.player = new THREE.Group();
@@ -203,7 +249,7 @@ export class Level01 extends Level {
     }
   }
 
-  /** Greyboxed ticket barriers / trolleys along the lanes — collision is 1A/3A's to wire up, these just exist with userData flags. */
+  /** Greyboxed ticket barriers / trolleys along the lanes — _clipObstacles() charges the pitch's three metres against these; userData flags are there for whoever adds more. */
   _buildObstacles(mats) {
     const barrierGeo = new THREE.BoxGeometry(1, 1, 0.4);
 
@@ -377,6 +423,109 @@ export class Level01 extends Level {
     this.root.add(serviceGroup);
   }
 
+  /**
+   * The Handler, greyboxed. "On foot he is a shape at the edge of the tunnel
+   * lights" — so he is a dark capsule plus an amber glow, amber because the
+   * palette rule is cyan everywhere and amber only where something is about
+   * to hurt you.
+   *
+   * He sits behind the camera pivot, so the silhouette itself is not visible
+   * until the look-back camera exists (input.lookBack is already bound and
+   * unread). What the player actually reads is his light washing the tunnel
+   * from behind and his breathing getting closer, which needs no new camera.
+   *
+   * Deliberately NOT shadow-casting: the risk slide budgets one shadow-casting
+   * light per level and the key light already spends it.
+   */
+  _buildHandler() {
+    const group = new THREE.Group();
+
+    const coat = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.42, 1.15, 6, 12),
+      new THREE.MeshStandardMaterial({ color: 0x090c11, roughness: 0.95, metalness: 0 }),
+    );
+    coat.position.y = 1.15;
+    group.add(coat);
+
+    const glow = new THREE.PointLight(0xff8a3d, 0, 30, 2);
+    glow.position.set(0, 2.1, 0.4);
+    group.add(glow);
+
+    group.position.set(0, 0, HANDLER_START_GAP);
+    group.userData.isHandler = true;
+
+    this.handler = group;
+    this.handlerLight = glow;
+    this._handlerLightBase = 3.4;
+    this.root.add(group);
+  }
+
+  /**
+   * Did Kai clip a barrier this frame? Unlike a blocking test this never moves
+   * him — the pitch's economy is that a clip costs ground, not progress, so he
+   * runs on through and pays for it in gap.
+   *
+   * The band is swept against prevZ rather than tested at the end position: at
+   * maxSpeed on a clamped 0.05 s frame he covers 1.5 m, more than the 1.08 m
+   * deep band, so a position-only test would miss the hit entirely on a
+   * stuttering frame.
+   *
+   * @param {number} x lane-interpolated x for this frame
+   * @param {number} prevZ this.z before this frame's forward integration
+   * @returns {THREE.Mesh|null} the barrier he clipped, or null if he got past clean
+   */
+  _clipObstacles(x, prevZ) {
+    for (const barrier of this.obstacles) {
+      if (barrier.userData.clipped) continue; // already paid for this one
+
+      const nearFace = barrier.position.z + CLIP_HALF_Z;
+      const farFace = barrier.position.z - CLIP_HALF_Z;
+      // he travels down -z, so he is level with it only once this frame ends
+      // at or beyond the near face having started before the far one
+      if (this.z > nearFace) continue;
+      if (prevZ <= farFace) continue;
+
+      if (Math.abs(x - barrier.position.x) >= CLIP_HALF_X) continue; // dodged by lane
+      if (this.y + PLAYER_FEET_Y >= OBSTACLE_TOP_Y) continue; // jumped it
+
+      barrier.userData.clipped = true;
+      return barrier;
+    }
+    return null;
+  }
+
+  /**
+   * Advances the pursuit. The gap only moves because Kai is faster or slower
+   * than the Handler's cruise, so boost buys metres and stumbling spends them
+   * — there is no separate bookkeeping to disagree with the physics.
+   */
+  _updateHandler(dt, state) {
+    if (!this.caught) {
+      const handlerSpeed = this.baseSpeed + HANDLER_CREEP;
+      this.gap = Math.min(HANDLER_MAX_GAP, this.gap + (this.speed - handlerSpeed) * dt);
+
+      if (this.gap <= 0) {
+        this.gap = 0;
+        this.caught = true;
+        this.finished = true; // no reader in Game yet — see the header note
+        state.alive = false;
+        state.handlerState = "CAUGHT";
+        this._shake = 0.6;
+        if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
+      } else {
+        state.handlerState = this.speed < handlerSpeed ? "CLOSING" : "LOSING_GROUND";
+      }
+    }
+
+    state.handlerGap = this.gap;
+    this.handler.position.z = this.z + this.gap;
+
+    // squared so he is a faint wash for most of the run and a real presence
+    // only once he is genuinely close
+    const closeness = 1 - THREE.MathUtils.clamp(this.gap / HANDLER_LIGHT_RANGE, 0, 1);
+    this.handlerLight.intensity = this._handlerLightBase * closeness * closeness;
+  }
+
   /** Grabs the game camera for the AudioListener once it exists — safe to call every frame until it succeeds. */
   _ensureAudio() {
     if (this._audioReady) return;
@@ -391,11 +540,23 @@ export class Level01 extends Level {
         ambience: "assets/audio/level01/subway_ambience.mp3",
         footstep: "assets/audio/shared/footstep_concrete.mp3",
         gateSlam: "assets/audio/level01/gate_slam.mp3",
+        impact: "assets/audio/shared/impact_thud.mp3",
+        handlerBreath: "assets/audio/level01/handler_breath.mp3",
+        handlerCatch: "assets/audio/level01/handler_catch.mp3",
         train: "assets/audio/level01/train_rumble.mp3",
         music_l1: "assets/audio/level01/music_downline.mp3",
       })
       .then(() => {
         this._audio.playAmbience("ambience", { volume: 0.35 });
+        // his breathing rides on the silhouette, so the listener's distance
+        // model does the tension for free as the gap closes
+        if (this.handler) {
+          this._audio.attachPositional(this.handler, "handlerBreath", {
+            volume: 0.9,
+            refDistance: 8,
+            maxDistance: HANDLER_LIGHT_RANGE,
+          });
+        }
       });
   }
 
@@ -423,11 +584,26 @@ export class Level01 extends Level {
     // attack faster than release, so boost feels responsive but bleeds off
     const boostRate = this.boosting ? 3.4 : 2.0;
     this.boostSpeed += (boostTarget - this.boostSpeed) * (1 - Math.exp(-boostRate * dt));
-    this.speed = this.baseSpeed + this.boostSpeed;
 
-    // forward motion
+    // Pay down any stumble debt. The deficit is proportional to what is left
+    // owed, so recovery is exponential with STUMBLE_TAU, and the debt only
+    // drops by the deficit that actually landed — so the speed floor delays
+    // the payment rather than cancelling part of it.
+    const wantedDeficit = this._stumbleDebt / STUMBLE_TAU;
+    const cruise = this.baseSpeed + this.boostSpeed;
+    this.speed = Math.max(this.baseSpeed * 0.25, cruise - wantedDeficit);
+    this._stumbleDebt = Math.max(0, this._stumbleDebt - (cruise - this.speed) * dt);
+    if (this._stumbleDebt < 0.001) this._stumbleDebt = 0;
+
+    if (this.caught) {
+      this.speed = 0;
+      this.boostSpeed = 0;
+    }
+
+    // forward motion — barriers are checked against this further down, once
+    // this frame's lane and jump state are known
+    const prevZ = this.z;
     this.z -= this.speed * dt;
-    state.distance = -this.z;
 
     // lanes
     if (input.pressed("left") && this.lane > 0) {
@@ -462,7 +638,22 @@ export class Level01 extends Level {
       }
     }
 
+    // --- obstacles: a clip costs ground, not health ---
+    const clipped = this._clipObstacles(x, prevZ);
+    if (clipped) {
+      // the stumble debt IS the three metres; do not also subtract from the
+      // gap or the barrier gets charged twice
+      this._stumbleDebt += CLIP_PENALTY;
+      this.boostSpeed = 0;
+      this._shake = Math.max(this._shake, 0.35);
+      if (this._audio) this._audio.playOneShot("impact", { volume: 0.6 });
+    }
+
+    state.distance = -this.z;
     this.player.position.set(x, this.y, this.z);
+
+    // the pursuit reads this.z, so it has to run after the clip is applied
+    this._updateHandler(dt, state);
 
     // Interlude I — may set this._shake, so run it before the camera
     this._updateGate(dt);
@@ -495,7 +686,10 @@ export class Level01 extends Level {
     }
 
     // --- shader 1: speed-warp, driven by current forward speed ---
-    const normalizedSpeed = THREE.MathUtils.clamp(this.speed / this.maxSpeed, 0, 1);
+    // follows a smoothed speed so a stumble or a catch eases the streaks down
+    // rather than cutting them in a single frame
+    this._displaySpeed += (this.speed - this._displaySpeed) * (1 - Math.exp(-8 * dt));
+    const normalizedSpeed = THREE.MathUtils.clamp(this._displaySpeed / this.maxSpeed, 0, 1);
     state.normalizedSpeed = normalizedSpeed; // HUD / other levels can read it
     updateSpeedWarp(this.wallMaterial, dt, normalizedSpeed);
 
@@ -504,7 +698,7 @@ export class Level01 extends Level {
     for (const light of this.stripLights) light.intensity = 1.1 * pulse;
 
     // --- footsteps: trigger on stride distance, only while grounded ---
-    if (!this.airborne && this._audio) {
+    if (!this.airborne && !this.caught && this._audio) {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
