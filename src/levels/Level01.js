@@ -18,6 +18,13 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  *   colour-only materials     → procedural albedo/normal/roughness maps (level1/subwayTextures.js)
  *   constant speed            → baseSpeed ramps with distance + boost/stamina, so Shader 1 sweeps
  *   static security gate      → Interlude I slam: telegraph strobe, fall, impact, sting, camera shake
+ *   the slam was off-screen   → the camera takes itself and swings round to watch it land
+ *   fixed chase camera        → input.lookBack (mouse2 / C) orbits the camera to face the way he came
+ *   the Handler vanished at the seal → he runs up to the bars, hits them, and stays there lit
+ *   the seal only held if he was 3 m back → the bars now come down between them at ANY gap
+ *   one long linear speed creep → four gears: slow / medium / fast / super fast
+ *   reaching the vehicle froze the game → it hands off to level 02 (Redline) and the chase continues
+ *   (nothing)                 → the southbound: an oncoming train filling two of three lanes. Instant loss.
  *   obstacles were scenery    → clipping one stumbles Kai and hands the Handler three metres
  *   4 hand-placed barriers    → ~80 seeded placements of the three kinds the pitch names
  *   no pursuer                → the Handler: 15 m head start, constant-speed follower, fail state at 0
@@ -30,8 +37,12 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  * Level 01's economy comes straight off the pitch: "the only currency is
  * distance", "every clipped barrier hands him three metres", and the health
  * bar does not appear until level 02. So nothing here calls state.damage() —
- * mistakes are paid for in metres of gap, and the run ends when the gap
- * reaches zero.
+ * mistakes are paid for in metres of gap.
+ *
+ * The southbound is the one exception, and the pitch is explicit about why:
+ * "HE CATCHES YOU, OR THE SOUTHBOUND DOES". A train is not a mistake you pay
+ * three metres for, so it ends the run outright. state.failCause says which of
+ * the two got you.
  *
  * @1A the slide is implemented here. input.slide was already bound in
  * Input.js but nothing read it, and the ceiling ducts below are impossible
@@ -39,10 +50,13 @@ import { createSubwayMaterials } from "./level1/subwayTextures.js";
  * one timer in update(), so lift it straight out when you build the real
  * controller — nothing else depends on where it lives.
  *
- * this.finished is now set on both outcomes (caught, or reaching the
- * vehicle), but NOTHING IN Game._frame() READS IT yet, so either ending
- * currently just stops Kai instead of showing a fail/win screen. That hook is
- * shared-systems work, not Level 01's.
+ * this.finished is set on both outcomes, and NOTHING IN Game._frame() READS IT.
+ * That no longer matters for the win — reaching the vehicle now calls
+ * game.setLevel('level02') itself, so the run continues into Redline instead of
+ * freezing on a box. It still matters for the LOSS: being caught stops Kai and
+ * sets state.alive = false, but nothing draws a fail screen, so R (Game's own
+ * restart binding) is currently the only way out. That hook is shared-systems
+ * work, not Level 01's.
  */
 const LANE_X = [-2.4, 0, 2.4];
 
@@ -74,8 +88,57 @@ const SHELL_CENTER_Z = TUNNEL_START_Z - TUNNEL_LENGTH / 2;
 const MAP_REPEAT_Z = TUNNEL_LENGTH / 4; // one texture repeat per 4 m, same as the materials
 
 const SPEED_BASE = 11;
-const SPEED_GAIN = 11; // ramp tops out at SPEED_BASE + SPEED_GAIN = 22 m/s
-const SPEED_RAMP_END = 2000; // metres the ramp is spread over
+
+/**
+ * Four gears, not one long creep.
+ *
+ * The old model was SPEED_BASE + a single linear ramp to 22 m/s over 2 km,
+ * which is technically "not constant" and reads as constant: 5.5 m/s of change
+ * per kilometre is below the threshold where you notice you got faster.
+ *
+ * These are knots in a piecewise curve, smoothstepped WITHIN each segment. The
+ * smoothstep is the whole point — it eases out at the top of a gear so the
+ * tunnel settles into a cruise, then surges into the next one. Four distinct
+ * sensations instead of one slow drift:
+ *
+ *   0–300 m     11 m/s    slow    — flat, and long enough to find the controls
+ *   300–700      → 16       medium  — first surge; obstacles start mattering
+ *   700–1500     → 22       fast    — the old ceiling is now only third gear
+ *   1500–2500    → 30       super   — tops out ~650 m before the seal
+ *
+ * The knots are deliberately front-loaded. A first draft put them at 900 /
+ * 1800 / 2900 and the whole run only came out 7 s quicker, because holding
+ * 11 m/s for the first 300 m then easing gently upwards left the 300–900 m
+ * stretch actually SLOWER than the old linear ramp had been. Pulling each knot
+ * in means the only stretch below the old curve is the opening 300 m, which is
+ * the bit that is supposed to be slow.
+ *
+ * The Handler runs at baseSpeed too, so the pursuit balance is untouched: the
+ * gap still only moves on a clip or a boost, at every gear.
+ */
+const SPEED_GEARS = [
+  { at: 0, speed: SPEED_BASE },
+  { at: 300, speed: SPEED_BASE },
+  { at: 700, speed: 16 },
+  { at: 1500, speed: 22 },
+  { at: 2500, speed: 30 },
+];
+const SPEED_TOP = SPEED_GEARS[SPEED_GEARS.length - 1].speed;
+const BOOST_TOP = 10; // m/s boost adds on top of whatever gear he is in
+
+/** Base speed at `distance` metres in, walking the gear table above. */
+function speedForDistance(distance) {
+  if (distance <= SPEED_GEARS[0].at) return SPEED_GEARS[0].speed;
+  for (let i = 1; i < SPEED_GEARS.length; i++) {
+    const a = SPEED_GEARS[i - 1];
+    const b = SPEED_GEARS[i];
+    if (distance < b.at) {
+      const t = THREE.MathUtils.smoothstep(distance, a.at, b.at);
+      return THREE.MathUtils.lerp(a.speed, b.speed, t);
+    }
+  }
+  return SPEED_TOP;
+}
 
 // --- emergency strips ---
 // These are pooled, not placed. 30 strips over 600 m meant 10 point lights;
@@ -98,11 +161,69 @@ const STRIP_LIGHT_POOL = 4;
 const GATE_Z = -3150; // near the end, so the slam reads as the way out closing
 const GATE_OPEN_Y = 6.9; // bars retracted above the ceiling underside (6.75)
 const GATE_WARN_RANGE = 48; // metres out where the amber telegraph starts
-const GATE_TRIGGER_Z = GATE_Z - 3; // slams once Kai is just past it, sealing the tunnel behind him
+// Fires the instant Kai crosses the gate PLANE, not three metres past it.
+// That three metres was the whole reason the seal was unreliable: the Handler
+// sits at Kai's z + gap, so a trigger at GATE_Z - 3 meant he was only behind
+// the bars if the gap happened to exceed ~3.3 m, and a player being chased
+// closely — the one case worth watching — got no seal at all. Firing at the
+// plane means any gap above zero puts him on the approach side, and a gap of
+// zero is a catch, so there is no gap left where it can fail.
+const GATE_TRIGGER_Z = GATE_Z;
+
+// --- the look-back camera ---
+// The camera pivot orbits the player about his own Y axis: 0 rad is the usual
+// chase position behind him, PI rad is in FRONT of him looking back down the
+// tunnel. Blending through the side gives a whip pan rather than a cut.
+const CAM_RADIUS = 7.4; // matches the original pivot offset, so forward view is unchanged
+const CAM_RADIUS_BACK = 5.6; // pulled in when facing backwards, so Kai still frames
+const CAM_HEIGHT = 2.5;
+const CAM_HEIGHT_BACK = 3.0; // lifted so the view is over his shoulder, not through him
+const LOOK_SWING_RATE = 5.4; // per second; ~0.35 s to complete the swing
+// The gate slams behind Kai, so without taking the camera the whole interlude
+// is an amber flash on the walls. The pitch sanctions exactly this: "the camera
+// is only taken away from you at the exact moment you win." Long enough to see
+// the bars fall (0.64 s), both rebounds, and the Handler arrive at them.
+const AUTO_LOOK_TIME = 2.4;
+
+// --- the southbound ---
+// "HE CATCHES YOU, OR THE SOUTHBOUND DOES." This is not a mistake you pay
+// three metres for — it is the run. It fills two of the three lanes, which
+// keeps it inside the existing lane system and is the read players already
+// have, and the surviving lane is always an outer one so the blocked pair is
+// a single contiguous box.
+const TRAIN_TRIGGERS = [-800, -1700, -2550]; // Kai's z when each southbound is dispatched
+const TRAIN_SPAWN_AHEAD = 300; // metres down-tunnel it appears — well past the 165 m fog wall
+const TRAIN_SPEED = 24;
+const TRAIN_CARS = 3;
+const TRAIN_CAR_LEN = 15;
+const TRAIN_CAR_GAP = 0.8;
+const TRAIN_LEN = TRAIN_CARS * TRAIN_CAR_LEN + (TRAIN_CARS - 1) * TRAIN_CAR_GAP;
+const TRAIN_HALF_X = 1.9; // covers two lane centres and leaves 0.86 m of clearance in the third
+const TRAIN_CENTER_OFFSET = 1.2; // so the box spans -0.7..3.1 (or the mirror), hugging one wall
+const TRAIN_TOP_Y = 3.6; // a jump apex only lifts Kai's feet to 2.07, so it is not jumpable
+const TRAIN_DESPAWN_BEHIND = 70; // metres past Kai before the pool is recycled
+// Obstacles are deleted from this window past each trigger. Where Kai and the
+// train actually meet depends on his speed — 94 m past the trigger at the base
+// 11 m/s, 171 m at a boosted 32 — and a barrier sitting in the one surviving
+// lane inside that window would be unsurvivable through no fault of the player.
+// The far edge is set past the meeting point on purpose: at 32 m/s the rake
+// clears the 165 m fog wall while its nose is still 242 m past the trigger, and
+// a train visibly passing THROUGH a barrier is worse than an empty stretch.
+const TRAIN_ZONE_NEAR = 55;
+const TRAIN_ZONE_FAR = 250;
 
 // --- the way out ---
 const BAY_Z = -3260; // service bay, ~110 m past the seal: a beat to breathe
-const ESCAPE_Z = BAY_Z - 3; // touching the vehicle ends the run
+// Fires at the mouth of the bay rather than at the vehicle, because he needs
+// ~7 m to pull up from full speed and stopping ten metres past the thing you
+// were running for reads as an overshoot, not an arrival.
+const ESCAPE_Z = BAY_Z + 4;
+const ESCAPE_DECEL = 34; // m/s^2; ~0.65 s and 7 m to a standstill
+// He pulls up in 0.65 s, so this is the beat AFTER that: long enough to read
+// the bay, the work light and the vehicle he is about to steal before Redline
+// takes over. Reaching the vehicle is not an ending, it is the handoff — level
+// 02 is the same chase in a van.
+const ESCAPE_HANDOFF_TIME = 2.2;
 
 // --- boost / stamina tuning ---
 const BOOST_DRAIN = 28; // stamina per second while boosting
@@ -142,7 +263,13 @@ const OBSTACLE_KINDS = {
 const OBSTACLE_FIRST_Z = -140; // a calm runway to find the controls in
 const OBSTACLE_LAST_Z = GATE_Z + 90; // stop short of the seal so Interlude I is clean
 const OBSTACLE_GAP_START = 58; // metres between sites at the top of the level...
-const OBSTACLE_GAP_END = 26; // ...and by the end. This is the difficulty ramp.
+// ...and by the end. This is the difficulty ramp, and it is spacing in METRES
+// while difficulty is really spacing in SECONDS. 26 m was 1.18 s of reaction
+// time at the old 22 m/s ceiling; at the new 30 m/s top gear the same 26 m is
+// 0.87 s, and 0.65 s boosting, which is under human reaction time for a lane
+// read. 34 m restores ~1.13 s at top gear, so the last gear is faster without
+// also being unreadable — the speed is the difficulty, not the ambush.
+const OBSTACLE_GAP_END = 34;
 const OBSTACLE_SEED = 20260911;
 // Meshes kept alive per kind. The busiest 240 m window of the generated course
 // wants 9 barriers, so 8 was one short and the ninth silently went undrawn.
@@ -157,6 +284,9 @@ const OBSTACLE_AHEAD = 210; // ...and ahead, past the fog wall
 const HANDLER_START_GAP = 15; // metres, straight off the pitch
 const HANDLER_MAX_GAP = 24; // boosting must not make him irrelevant
 const HANDLER_LIGHT_RANGE = 30; // gap at which his glow starts to register
+const HANDLER_BAR_STANDOFF = 1.3; // where he ends up once the bars stop him
+const HANDLER_SEAL_SPEED = 26; // he closes the last stretch to the bars at this
+const HANDLER_SEALED_GLOW = 0.9; // fraction of full glow held at the bars, so he stays visible
 // A clip costs the pitch's three metres. It is charged as a debt in metres
 // that is paid off as a speed deficit, rather than as a straight subtraction
 // from the gap: the stumble the player feels and the ground they lose are then
@@ -175,15 +305,15 @@ export class Level01 extends Level {
   constructor() {
     super("level01");
     this.z = 0;
-    // Speed is no longer a constant. baseSpeed ramps with distance and boost
-    // stacks on top, so Shader 1's uSpeed actually sweeps its range across the
-    // level instead of sitting on one value the whole way down.
+    // Speed is no longer a constant, and no longer one linear creep either:
+    // baseSpeed steps through SPEED_GEARS with distance and boost stacks on
+    // top, so Shader 1's uSpeed sweeps its whole range across the level.
     this.baseSpeed = SPEED_BASE;
     this.boostSpeed = 0;
     this.speed = this.baseSpeed;
-    // normalisation ceiling for the speed-warp uniform: the ramp's cap plus a
-    // full boost, so uSpeed only reaches 1.0 boosting at the end of the level
-    this.maxSpeed = SPEED_BASE + SPEED_GAIN + 10;
+    // normalisation ceiling for the speed-warp uniform: top gear plus a full
+    // boost, so uSpeed only reaches 1.0 boosting in the last gear
+    this.maxSpeed = SPEED_TOP + BOOST_TOP;
     this.boosting = false;
     // Once stamina runs dry the boost locks out until it has regenerated to
     // BOOST_UNLOCK. Without this, spendStamina() fails and succeeds on
@@ -191,9 +321,16 @@ export class Level01 extends Level {
     this._boostLocked = false;
     // Handler pursuit — the whole of level 01's tension
     this.gap = HANDLER_START_GAP;
+    // caught means "the run is lost", whichever of the two got him; failCause
+    // is what tells them apart
     this.caught = false;
+    this.failCause = null;
     this.escaped = false;
+    this._escapeSpeed = 0; // the speed he arrived at the bay with, ramped to 0
+    this._handOff = 0; // counts down once he has stopped, then Redline takes over
+    this._handedOff = false;
     this._handlerSealed = false;
+    this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
     this._stumbleDebt = 0; // metres of ground still owed from clipping a barrier
     // speed the shader/lights follow, smoothed so the streaks ease rather than
@@ -212,6 +349,18 @@ export class Level01 extends Level {
     this.obstacles = [];
     this.securityGate = null;
     this.serviceVehicle = null;
+
+    // the southbound — one pooled rake reused for every event, since two are
+    // never on the track at once
+    this.train = null;
+    this._trainEvents = [];
+    this._trainIdx = 0;
+    this._trainActive = false;
+    this._trainCenterX = 0; // which pair of lanes the live rake is filling
+
+    // look-back camera: 0 is the chase view, 1 is facing the way he came
+    this._lookBack = 0;
+    this._autoLook = 0; // seconds of scripted look-back still owed
 
     // gate slam animation — driven in _updateGate(), not an AnimationMixer,
     // because it's one axis of one group and physics reads better here
@@ -254,6 +403,10 @@ export class Level01 extends Level {
     // tiled for this level's runway rather than the shell's original 600 m
     const mats = createSubwayMaterials({ tunnelLength: TUNNEL_LENGTH });
     this._buildTunnel(mats);
+    // trains before obstacles: _buildTrain plans where the southbounds are
+    // dispatched, and the course generator deletes placements inside those
+    // windows so a train is never stacked on a barrier
+    this._buildTrain(mats);
     this._buildObstacles(mats);
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
@@ -271,11 +424,15 @@ export class Level01 extends Level {
     this.player.add(body);
 
     this.camPivot = new THREE.Object3D();
-    this.camPivot.position.set(0, 2.5, 7.4);
+    this.camPivot.position.set(0, CAM_HEIGHT, CAM_RADIUS);
     this.player.add(this.camPivot);
     this.root.add(this.player);
 
     this._tmp = new THREE.Vector3();
+    // look target scratch: the forward aim point, and the one behind him it
+    // blends toward during a look-back
+    this._tmpAim = new THREE.Vector3();
+    this._tmpBack = new THREE.Vector3();
 
     // the boost FOV kick writes to the shared camera, so remember the value
     // Game set and hand it back in teardown()
@@ -455,6 +612,11 @@ export class Level01 extends Level {
       z -= step * (0.85 + rng() * 0.3); // jitter, so the course isn't a metronome
     }
 
+    // Carve the southbound windows back out. Anything left in there could sit
+    // in the one surviving lane, and a duct is worse still — sliding gets you
+    // under the duct but not under the train, so the site would have no answer.
+    this.obstacles = this.obstacles.filter((o) => !this._inTrainZone(o.z));
+
     // --- the visual pool ---
     // The duct gets a tinted clone of the vehicle maps plus a faint amber
     // emissive, which is the palette rule doing work: amber only ever appears
@@ -534,6 +696,149 @@ export class Level01 extends Level {
       const pool = this._obstacleMeshes[kind];
       for (let i = used[kind]; i < pool.length; i++) pool[i].visible = false;
     }
+  }
+
+  /**
+   * The southbound. Plans where the trains are dispatched, then builds ONE rake
+   * and reuses it — the triggers are far enough apart that two are never on the
+   * track at the same time, so a pool of one is the whole pool.
+   *
+   * Unlike the barriers this is a moving hazard, so it gets its own swept test
+   * in _updateTrain() rather than living in this.obstacles.
+   */
+  _buildTrain(mats) {
+    // Planned first, because _buildObstacles() deletes placements inside these
+    // windows and it runs after this.
+    const rng = makeRng(OBSTACLE_SEED ^ 0x5bd1);
+    this._trainEvents = TRAIN_TRIGGERS.map((triggerZ) => ({
+      triggerZ,
+      // Only an OUTER lane can be the survivor. If the middle one were clear,
+      // the two blocked lanes would not be adjacent and the train would have to
+      // be two boxes with a Kai-sized hole between them.
+      clearLane: rng() < 0.5 ? 0 : 2,
+    }));
+
+    const group = new THREE.Group();
+
+    // grimier than the maintenance vehicle, so the two don't read as one prop
+    const shell = mats.vehicleMat.clone();
+    shell.color = new THREE.Color(0x39434f);
+
+    const carGeo = new THREE.BoxGeometry(TRAIN_HALF_X * 2, 3.4, TRAIN_CAR_LEN);
+    const glassGeo = new THREE.BoxGeometry(0.06, 0.7, TRAIN_CAR_LEN - 3);
+    const glassMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
+
+    // the group's origin is the NOSE, since that is the end that matters; the
+    // cars hang backwards off it down -z
+    for (let i = 0; i < TRAIN_CARS; i++) {
+      const zc = -(TRAIN_CAR_LEN / 2 + i * (TRAIN_CAR_LEN + TRAIN_CAR_GAP));
+      const car = new THREE.Mesh(carGeo, shell);
+      car.position.set(0, 1.8, zc); // spans y 0.1..3.5, under the 3.6 collision top
+      car.castShadow = true;
+      group.add(car);
+
+      // lit windows: these are what actually streak as it goes past, and the
+      // streak is most of what sells the speed of the pass
+      for (const side of [-1, 1]) {
+        const glass = new THREE.Mesh(glassGeo, glassMat);
+        glass.position.set(side * (TRAIN_HALF_X + 0.02), 2.3, zc);
+        group.add(glass);
+      }
+    }
+
+    // Headlamps, deliberately fog: false. The fog wall is at 165 m and the
+    // train is dispatched from 300 m, so fogged lamps would give no warning at
+    // all until it emerged from the haze ~3.6 s out. Unfogged they read as two
+    // hot dots far down the tunnel, which is how you spot a train coming.
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0, fog: false });
+    for (const off of [-1.5, 1.5]) {
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.12), lampMat);
+      lamp.position.set(off, 1.25, 0.08);
+      group.add(lamp);
+    }
+
+    // The near-field blast. This is the cue that tells you WHICH wall it is
+    // hugging, because the near wall washes far brighter than the far one.
+    const head = new THREE.PointLight(0xfff2d0, 0, 95, 2);
+    head.position.set(0, 1.8, 2.2);
+    group.add(head);
+
+    group.visible = false;
+    group.userData.isTrain = true;
+    this.train = group;
+    this.trainLight = head;
+    this.root.add(group);
+  }
+
+  /** True if z sits inside any southbound's danger window, where obstacles must not be. */
+  _inTrainZone(z) {
+    for (const ev of this._trainEvents) {
+      if (z <= ev.triggerZ - TRAIN_ZONE_NEAR && z >= ev.triggerZ - TRAIN_ZONE_FAR) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Dispatches, drives and tests the southbound.
+   *
+   * @returns {boolean} true on the frame Kai is hit — which ends the run,
+   *   rather than costing three metres like a barrier does.
+   */
+  _updateTrain(dt, x, prevZ) {
+    if (
+      !this._trainActive &&
+      this._trainIdx < this._trainEvents.length &&
+      this.z <= this._trainEvents[this._trainIdx].triggerZ
+    ) {
+      const ev = this._trainEvents[this._trainIdx++];
+      // clear lane 0 means the rake hugs the +x wall, and the mirror for lane 2
+      this._trainCenterX = ev.clearLane === 0 ? TRAIN_CENTER_OFFSET : -TRAIN_CENTER_OFFSET;
+      this.train.position.set(this._trainCenterX, 0, this.z - TRAIN_SPAWN_AHEAD);
+      this.train.visible = true;
+      this._trainActive = true;
+      if (this._audio) this._audio.playOneShot("train", { volume: 0.5 });
+    }
+
+    if (!this._trainActive) return false;
+
+    const prevNose = this.train.position.z;
+    const nose = prevNose + TRAIN_SPEED * dt; // it comes the other way, up +z
+    this.train.position.z = nose;
+
+    // headlamp swells as it closes, so the pass is a blast rather than a
+    // constant glow. Squared, for the same reason the Handler's is.
+    const closeness = 1 - THREE.MathUtils.clamp((this.z - nose) / 120, 0, 1);
+    this.trainLight.intensity = 0.4 + closeness * closeness * 5.5;
+
+    // recycled once the whole rake is clear behind him
+    if (nose - TRAIN_LEN > this.z + TRAIN_DESPAWN_BEHIND) {
+      this.train.visible = false;
+      this.trainLight.intensity = 0;
+      this._trainActive = false;
+      return false;
+    }
+
+    if (this.caught || this.escaped) return false;
+
+    // Both are moving, and toward each other, so test in the relative frame: g
+    // is Kai's z minus the nose's and can only ever decrease. He is inside the
+    // rake while g is within [-(TRAIN_LEN + pad), +pad], so this frame is a hit
+    // if that band falls anywhere between g at the start and g at the end.
+    // Closing speed peaks at 32 + 24 = 56 m/s, which is 2.8 m on a clamped
+    // 0.05 s frame, so an end-position test would miss the nose outright.
+    const pad = PLAYER_RADIUS;
+    const gStart = prevZ - prevNose;
+    const gEnd = this.z - nose;
+    if (gEnd > pad) return false; // not reached yet
+    if (gStart < -(TRAIN_LEN + pad)) return false; // already behind him
+
+    if (Math.abs(x - this._trainCenterX) >= TRAIN_HALF_X + pad) return false; // in the clear lane
+    // stated rather than assumed: nothing in the level lifts his feet to 3.6,
+    // so this never saves him, but the test belongs here not in a comment
+    const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+    if (feet >= TRAIN_TOP_Y) return false;
+
+    return true;
   }
 
   /** Sector seal near the end of the tunnel. Starts retracted into the ceiling; _updateGate() slams it shut behind Kai as Interlude I. */
@@ -619,6 +924,12 @@ export class Level01 extends Level {
       if (this.z <= GATE_TRIGGER_Z) {
         this._gatePhase = "slamming";
         this.securityGate.userData.open = false;
+        // Take the camera. The gate is 3 m BEHIND him when it fires, so with the
+        // camera left where it is the entire interlude is an amber flash on the
+        // walls — which is exactly what it looked like. The pitch sanctions
+        // this one grab: "the camera is only taken away from you at the exact
+        // moment you win."
+        this._autoLook = AUTO_LOOK_TIME;
       }
       return;
     }
@@ -690,14 +1001,15 @@ export class Level01 extends Level {
 
   /**
    * The Handler, greyboxed. "On foot he is a shape at the edge of the tunnel
-   * lights" — so he is a dark capsule plus an amber glow, amber because the
+   * lights" — so he is a dark figure plus an amber glow, amber because the
    * palette rule is cyan everywhere and amber only where something is about
    * to hurt you.
    *
-   * He sits behind the camera pivot, so the silhouette itself is not visible
-   * until the look-back camera exists (input.lookBack is already bound and
-   * unread). What the player actually reads is his light washing the tunnel
-   * from behind and his breathing getting closer, which needs no new camera.
+   * He sits behind the camera, so the look-back swing in update() is what makes
+   * him visible at all. Two things had to change for that to be worth doing:
+   * his coat was 0x090c11, near enough to black that he was a hole in the
+   * tunnel rather than a figure; and his light sat ON him, which lights the
+   * walls but leaves the figure flat. Set back behind him it rims him instead.
    *
    * Deliberately NOT shadow-casting: the risk slide budgets one shadow-casting
    * light per level and the key light already spends it.
@@ -705,15 +1017,35 @@ export class Level01 extends Level {
   _buildHandler() {
     const group = new THREE.Group();
 
-    const coat = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.42, 1.15, 6, 12),
-      new THREE.MeshStandardMaterial({ color: 0x090c11, roughness: 0.95, metalness: 0 }),
-    );
+    const coatMat = new THREE.MeshStandardMaterial({
+      color: 0x1b2431,
+      roughness: 0.92,
+      metalness: 0.05,
+    });
+
+    const coat = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 1.15, 6, 12), coatMat);
     coat.position.y = 1.15;
     group.add(coat);
 
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), coatMat);
+    head.position.y = 1.98;
+    group.add(head);
+
+    // His torch, facing the way he is running. fog: false, so it stays a single
+    // hot dot at any range — which means looking back always finds him, even
+    // pinned at the bars a hundred metres back with the fog closed over him.
+    const torch = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffb066, fog: false }),
+    );
+    torch.position.set(0.3, 1.55, -0.42);
+    group.add(torch);
+
+    // Set BEHIND him (greater z) rather than on him: from Kai's side of the
+    // tunnel that backlights the figure into a silhouette, which is what the
+    // pitch describes, and it still washes the tunnel the same amount.
     const glow = new THREE.PointLight(0xff8a3d, 0, 30, 2);
-    glow.position.set(0, 2.1, 0.4);
+    glow.position.set(0, 2.4, 1.8);
     group.add(glow);
 
     group.position.set(0, 0, HANDLER_START_GAP);
@@ -774,20 +1106,47 @@ export class Level01 extends Level {
    */
   _updateHandler(dt, state) {
     // Interlude I takes him out of the race: "He doesn't make it. The seal
-    // locks." He is always at least HANDLER_START_GAP behind when the gate
-    // fires, so he is always on the wrong side of it.
-    if (!this._handlerSealed && this._gatePhase === "closed") {
+    // locks." The seal begins the moment the bars start FALLING rather than
+    // once they have settled, because the point of the beat is watching him
+    // arrive at them — pinning him only after the rebounds teleported him the
+    // last twenty metres behind the impact flash, which is why it looked like
+    // he simply blinked out.
+    //
+    // It is now UNCONDITIONAL. There used to be a `_handlerThrough` escape
+    // hatch for the case where he was already past the bars' plane when they
+    // fired, and it was reachable whenever the gap was under ~3.3 m — i.e.
+    // exactly when he was close enough to be worth looking at. Worse, the
+    // pursuit below is gated on `!this.escaped`, so a Handler who came through
+    // had his gap frozen at the bay while the last line of this method kept
+    // welding his z to Kai's: he slid to a halt three metres behind a stopped
+    // player and stood there. Both of them parked at the vehicle, forever.
+    //
+    // GATE_TRIGGER_Z is now the gate plane itself, so a Handler at Kai's z plus
+    // any positive gap is on the approach side by construction. He is sealed,
+    // every time, at any gap.
+    if (!this._handlerSealed && (this._gatePhase === "slamming" || this._gatePhase === "closed")) {
       this._handlerSealed = true;
       state.handlerState = "SEALED";
+      // Where he comes to rest. Normally the standoff in front of the bars, but
+      // never further back than he already is: a Handler who was 1 m off Kai's
+      // heels is inside the standoff already, and walking him backwards to it
+      // would be a visible pop with the camera swung round watching him.
+      this._handlerBarZ = Math.min(this.handler.position.z, GATE_Z + HANDLER_BAR_STANDOFF);
     }
 
     if (this._handlerSealed) {
-      // pinned at the bars, so the last stretch to the vehicle is safe and the
-      // HUD's gap reads as him falling away behind the seal
-      this.handler.position.z = GATE_Z + 2;
+      // He keeps running until the bars stop him and then STAYS there, lit, so
+      // the interlude reads as him being cut off. Zeroing his light here is
+      // what made the seal look like a disappearing act.
+      this.handler.position.z = Math.max(
+        this._handlerBarZ,
+        this.handler.position.z - HANDLER_SEAL_SPEED * dt,
+      );
       this.gap = Math.max(0, this.handler.position.z - this.z);
       state.handlerGap = this.gap;
-      this.handlerLight.intensity = 0;
+      // held, not faded with distance: he is the thing the camera has just been
+      // swung round to look at
+      this.handlerLight.intensity = this._handlerLightBase * HANDLER_SEALED_GLOW;
       return;
     }
 
@@ -798,8 +1157,10 @@ export class Level01 extends Level {
       if (this.gap <= 0) {
         this.gap = 0;
         this.caught = true;
+        this.failCause = "handler";
         this.finished = true; // no reader in Game yet — see the header note
         state.alive = false;
+        state.failCause = "handler";
         state.handlerState = "CAUGHT";
         this._shake = 0.6;
         if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
@@ -815,6 +1176,44 @@ export class Level01 extends Level {
     // only once he is genuinely close
     const closeness = 1 - THREE.MathUtils.clamp(this.gap / HANDLER_LIGHT_RANGE, 0, 1);
     this.handlerLight.intensity = this._handlerLightBase * closeness * closeness;
+  }
+
+  /**
+   * Hands the run to Redline. The service vehicle is the literal bridge between
+   * the two levels — level 02 is Kai driving the thing parked in this bay — so
+   * the chase continues rather than stopping on a win screen.
+   *
+   * Two hazards, both handled here rather than in Game.js:
+   *
+   *   1. setLevel() calls teardown() on THIS level, and we are inside its own
+   *      update(). Disposing our geometry with our own stack frame still live
+   *      would leave the rest of update() writing to freed objects, so the swap
+   *      is deferred to a microtask — it lands after Game._frame() has finished
+   *      rendering, between frames.
+   *   2. setLevel() assigns this.level BEFORE awaiting init(), so an async
+   *      init would leave Game updating a half-built level. Pausing across the
+   *      swap closes that window; Level02's init is currently synchronous, but
+   *      that is not a promise anyone made us.
+   */
+  _startLevel02() {
+    const game = this.game;
+    if (!game || !game.levels || !game.levels.has("level02")) {
+      // running level 01 on its own, e.g. from a test page. Stay put rather
+      // than throwing out of a rAF callback.
+      console.warn("[level01] reached the vehicle, but no level02 is registered");
+      return;
+    }
+
+    game.setPaused(true);
+    Promise.resolve().then(async () => {
+      try {
+        await game.setLevel("level02");
+      } catch (err) {
+        console.error("[level01] handoff to level02 failed", err);
+      } finally {
+        game.setPaused(false);
+      }
+    });
   }
 
   /** Grabs the game camera for the AudioListener once it exists — safe to call every frame until it succeeds. */
@@ -856,12 +1255,11 @@ export class Level01 extends Level {
 
     if (!this._audioReady) this._ensureAudio();
 
-    // --- speed: distance ramp + boost, both feeding Shader 1 ---
-    // The tunnel gets faster the deeper Kai goes. The ramp is spread over
-    // SPEED_RAMP_END so it plays out across the whole runway instead of topping
-    // out in the first 250 m and leaving the rest of the level at one speed.
-    this.baseSpeed =
-      SPEED_BASE + Math.min(SPEED_GAIN, (-this.z * SPEED_GAIN) / SPEED_RAMP_END);
+    // --- speed: the gear table + boost, both feeding Shader 1 ---
+    // A single linear ramp to 22 m/s over 2 km was "not constant" on paper and
+    // constant in the hand. speedForDistance() steps him through four gears
+    // instead, easing within each one so every change of gear is felt.
+    this.baseSpeed = speedForDistance(-this.z);
 
     // boost burns the shared stamina pool so 3B's HUD reads it for free
     const wantsBoost = input.isDown("boost");
@@ -873,7 +1271,7 @@ export class Level01 extends Level {
     if (wantsBoost && !this.boosting && !this._boostLocked) this._boostLocked = true;
     if (!this.boosting) state.regenStamina(BOOST_REGEN, dt);
 
-    const boostTarget = this.boosting ? 10 : 0;
+    const boostTarget = this.boosting ? BOOST_TOP : 0;
     // attack faster than release, so boost feels responsive but bleeds off
     const boostRate = this.boosting ? 3.4 : 2.0;
     this.boostSpeed += (boostTarget - this.boostSpeed) * (1 - Math.exp(-boostRate * dt));
@@ -892,9 +1290,14 @@ export class Level01 extends Level {
       this.speed = 0;
       this.boostSpeed = 0;
     } else if (this.escaped) {
-      // he reaches the vehicle and pulls up; the camera flourish through the
-      // bars is 3A's, this just stops him somewhere sensible
-      this.speed = Math.max(0, this.speed - 26 * dt);
+      // He reaches the bay and pulls up; the camera flourish through the bars is
+      // 3A's, this just stops him somewhere sensible. The ramp has to live in
+      // its own field: this.speed is recomputed from cruise every frame just
+      // above, so subtracting from it in place only ever took ESCAPE_DECEL * dt
+      // off FULL speed and he coasted out through the end of the tunnel
+      // at ~21.6 m/s instead of ever stopping.
+      this._escapeSpeed = Math.max(0, this._escapeSpeed - ESCAPE_DECEL * dt);
+      this.speed = this._escapeSpeed;
       this.boostSpeed = 0;
     }
 
@@ -965,17 +1368,50 @@ export class Level01 extends Level {
       if (this._audio) this._audio.playOneShot("impact", { volume: 0.6 });
     }
 
+    // --- the southbound: the other way to lose ---
+    // Runs even once he is dead, so the rake carries on over him and recycles
+    // itself instead of parking on screen.
+    if (this._updateTrain(dt, x, prevZ)) {
+      this.caught = true;
+      this.failCause = "southbound";
+      this.finished = true; // no reader in Game yet — see the header note
+      state.alive = false;
+      state.failCause = "southbound";
+      this._shake = 1;
+      if (this._audio) this._audio.playOneShot("impact", { volume: 1 });
+    }
+
     state.distance = -this.z;
     this.player.position.set(x, this.y, this.z);
 
     // --- the way out ---
-    // Reaching the vehicle is the win. Level 01 previously had no ending at
-    // all, so Kai ran out through the end of the geometry forever.
+    // Reaching the vehicle is not an ending, it is the handoff: level 02 is the
+    // same chase in the van parked in this bay. Level 01 previously had no
+    // ending at all, so Kai ran out through the end of the geometry forever;
+    // then it had one that stopped him dead on a box with no way forward.
     if (!this.caught && !this.escaped && this.z <= ESCAPE_Z) {
       this.escaped = true;
+      this._escapeSpeed = this.speed; // hand the ramp the speed he arrived with
+      this._handOff = ESCAPE_HANDOFF_TIME;
       this.finished = true; // no reader in Game yet — see the header note
       state.handlerState = "SEALED";
     }
+
+    // a beat at the vehicle, then Redline
+    if (this.escaped && !this._handedOff) {
+      this._handOff -= dt;
+      if (this._handOff <= 0) {
+        this._handedOff = true;
+        this._startLevel02();
+      }
+    }
+
+    // Interlude I — must run BEFORE _updateHandler, which reads this._gatePhase
+    // to decide whether he is sealed. The other way round it saw the previous
+    // frame's phase, and that one frame of lag was ~0.4 m of Kai's travel: it is
+    // half the reason the seal used to need a 3 m gap to work at all. Also sets
+    // this._shake, so it has to stay ahead of the camera either way.
+    this._updateGate(dt);
 
     // the pursuit reads this.z, so it has to run after the clip is applied
     this._updateHandler(dt, state);
@@ -984,18 +1420,51 @@ export class Level01 extends Level {
     // obstacle cursor, so it has to come after the clip test above
     this._updateObstacleVisuals();
 
-    // Interlude I — may set this._shake, so run it before the camera
-    this._updateGate(dt);
-
     // shadow camera follows so shadows stay inside it
     this.key.position.set(x + 6, 14, this.z + 10);
     this.key.target.position.set(x, 0, this.z - 6);
 
-    // camera lerps toward the pivot rather than being parented to it
+    // --- look-back camera (mouse2 / C) ---
+    // @1A: input.lookBack was bound in Input.js and unread. Holding it orbits
+    // the pivot round Kai to face the way he came, which is the only way to see
+    // the Handler at all. It deliberately costs the view ahead, so looking back
+    // with a southbound inbound is a real decision rather than a free look.
+    if (this._autoLook > 0) this._autoLook = Math.max(0, this._autoLook - dt);
+    const wantLook = this._autoLook > 0 || input.isDown("lookBack") ? 1 : 0;
+    this._lookBack += (wantLook - this._lookBack) * (1 - Math.exp(-LOOK_SWING_RATE * dt));
+    if (this._lookBack < 0.002) this._lookBack = 0;
+
+    // smoothstepped so the swing starts and ends soft; the orbit passes through
+    // the side of him, which reads as a whip pan rather than a cut
+    const swing = THREE.MathUtils.smoothstep(this._lookBack, 0, 1);
+    const radius = THREE.MathUtils.lerp(CAM_RADIUS, CAM_RADIUS_BACK, swing);
+    const angle = swing * Math.PI; // 0 behind him, PI in front of him looking back
+    this.camPivot.position.set(
+      Math.sin(angle) * radius,
+      THREE.MathUtils.lerp(CAM_HEIGHT, CAM_HEIGHT_BACK, swing),
+      Math.cos(angle) * radius,
+    );
+
+    // camera lerps toward the pivot rather than being parented to it. The follow
+    // tightens during a swing, or the lerp cuts the chord and clips through him
+    // instead of tracking the arc.
     const cam = this.game.camera;
     this.camPivot.getWorldPosition(this._tmp);
-    cam.position.lerp(this._tmp, 1 - Math.exp(-9 * dt));
-    cam.lookAt(x * 0.7, 1.5, this.z - 9);
+    cam.position.lerp(this._tmp, 1 - Math.exp(-(9 + swing * 9) * dt));
+
+    // aim down-tunnel normally, and at whatever is behind him when swung round
+    this._tmpAim.set(x * 0.7, 1.5, this.z - 9);
+    if (swing > 0) {
+      this._tmpBack.set(
+        this.handler ? this.handler.position.x : 0,
+        1.7,
+        // his actual gap, so the aim tracks him closing rather than staring at a
+        // fixed point; clamped so a sealed Handler 100 m back still frames
+        this.z + THREE.MathUtils.clamp(this.gap + 2, 8, 60),
+      );
+      this._tmpAim.lerp(this._tmpBack, swing);
+    }
+    cam.lookAt(this._tmpAim);
 
     // boost widens the FOV — cheapest honest way to sell acceleration.
     // Restored in teardown() since the camera belongs to Game, not the level.
