@@ -238,7 +238,7 @@ function concreteMaps({
 /**
  * Pipe metal: brushed grain, two weld-seam rings (constant v), and rust
  * streaks running along the length. The streaks use integer-frequency sines
- * so they wrap seamlessly along the v axis of the 600 m pipe.
+ * so they wrap seamlessly along the v axis of the pipe however long it is.
  */
 function pipeMaps({ size, seed, base, rust, repeat, normalStrength = 2.4 }) {
   const rng = makeRng(seed);
@@ -534,14 +534,24 @@ function tileWallTexture({ size = 512, cols = 20, rows = 14, seed = 77 } = {}) {
  * Level01.init(); the meshes own the materials afterwards, and teardown
  * disposal walks them automatically.
  *
- * World sizes drive every `repeat` (BoxGeometry faces map UVs 0..1):
- *   floor      12 × 600 m top face   → 4 m slabs    repeat (3, 150)
- *   ceiling    12.4 × 600 m          → 4 m slabs    repeat (3, 150)
- *   platform   1.2 × 600 m top face  → 4 m lengths  repeat (1, 150)
- *   pipe       0.94 m circumference  → 4 m lengths  repeat (1, 150)
- *   wall tiles 4 m × 2.8 m patch     → uMapRepeat (150, 2.5) in Shader 1
+ * World sizes drive every `repeat` (BoxGeometry faces map UVs 0..1). L is the
+ * tunnel length in metres and R = L / 4, so one repeat is always a 4 m slab:
+ *   floor      12 × L m top face    → 4 m slabs    repeat (3, R)
+ *   ceiling    12.4 × L m           → 4 m slabs    repeat (3, R)
+ *   platform   1.2 × L m top face   → 4 m lengths  repeat (1, R)
+ *   pipe       0.94 m circumference → 4 m lengths  repeat (1, R)
+ *   wall tiles 4 m × 2.8 m patch    → uMapRepeat (R, 2.5) in Shader 1
+ *
+ * The caller passes tunnelLength and sets the wall shader's uMapRepeat to the
+ * same R, since a raw ShaderMaterial ignores texture.repeat.
  */
-export function createSubwayMaterials() {
+export function createSubwayMaterials({ tunnelLength = 600 } = {}) {
+  // Every length-wise map tiles at one repeat per 4 m of tunnel, so the texel
+  // density stays put whatever the level's runway is. Level 01 grew from 600 m
+  // to a few kilometres, and hard-coding 150 here would have stretched a 4 m
+  // slab into a 20 m smear.
+  const lengthRepeat = tunnelLength / 4;
+
   const floor = concreteMaps({
     size: 512,
     seed: 1337,
@@ -549,7 +559,7 @@ export function createSubwayMaterials() {
     stain: [22, 20, 15],
     puddles: true, // wet-tunnel look: roughness drops where it "rains"
     joint: 5,
-    repeat: [3, 150],
+    repeat: [3, lengthRepeat],
   });
 
   const ceiling = concreteMaps({
@@ -559,7 +569,7 @@ export function createSubwayMaterials() {
     stain: [22, 20, 16],
     joint: 4,
     roughRange: [0.78, 0.95],
-    repeat: [3, 150],
+    repeat: [3, lengthRepeat],
   });
 
   const platform = concreteMaps({
@@ -568,7 +578,7 @@ export function createSubwayMaterials() {
     base: [70, 84, 92],
     stain: [34, 30, 24],
     stripe: { from: 0.72, to: 0.94, color: [176, 132, 44], rough: 0.5, lip: 0.06 },
-    repeat: [1, 150],
+    repeat: [1, lengthRepeat],
   });
 
   const pipe = pipeMaps({
@@ -576,7 +586,7 @@ export function createSubwayMaterials() {
     seed: 5150,
     base: [84, 93, 102],
     rust: [118, 72, 42],
-    repeat: [1, 150],
+    repeat: [1, lengthRepeat],
   });
 
   const barrier = paintedMaps({ size: 256, seed: 606, base: [138, 146, 151], repeat: [1, 1] });
