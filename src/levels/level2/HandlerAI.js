@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachModel } from './attachModel.js';
 
 // Tunable telegraph timing — pulled out so difficulty passes (step 7) don't
 // mean hunting through the FSM body for magic numbers.
@@ -66,6 +67,11 @@ export class HandlerAI {
 
     // event log for HUD feedback ('hit' | 'miss' | null), consumed by main.js
     this.lastEvent = null;
+  }
+
+  /** Swap the placeholder box for a real model. Safe to call after construction. */
+  attachModel(assets, path, opts) {
+    return attachModel(assets, this.mesh, path, { length: 3.8, ...opts });
   }
 
   update(dt) {
