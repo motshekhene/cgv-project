@@ -57,6 +57,12 @@ export async function attachModel(assets, holder, path, opts = {}) {
   model.position.z -= centre.z;
   model.position.y -= box.min.y - lift;
 
+  // bounds in the holder's own space (car facing +Z, wheels on y = 0), for lights,
+  // skid marks and collisions
+  model.updateMatrixWorld(true);
+  const fitted = new THREE.Box3().setFromObject(model);
+  model.userData.bounds = { min: fitted.min.clone(), max: fitted.max.clone() };
+
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.castShadow = true;
@@ -70,9 +76,9 @@ export async function attachModel(assets, holder, path, opts = {}) {
   });
 
   if (!keepPlaceholder) {
-    // remove only the placeholder boxes that were there before
+    // remove the placeholder boxes (anything flagged userData.keep stays)
     for (const child of [...holder.children]) {
-      if (child.isMesh) {
+      if (child.isMesh && !child.userData.keep) {   // lamps etc. set userData.keep
         child.geometry.dispose();
         child.material.dispose();
         holder.remove(child);

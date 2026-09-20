@@ -2,14 +2,6 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { VehicleController } from './level2/VehicleController.js';
 import { HandlerAI } from './level2/HandlerAI.js';
-import {
-  CARS, HANDLER_MODEL, loadSavedCar, saveCar, createCarPicker,
-} from './level2/carSelect.js';
-import { createLevel2Hud } from './level2/hud.js';
-
-// The picker opens the first time Level 2 loads, and again when the player
-// presses V. A plain restart (R) keeps their car and goes straight back in.
-let showPickerNext = true;
 
 /**
  * Level 02 — Redline.
@@ -25,27 +17,16 @@ let showPickerNext = true;
  *   HUD element lookups                → written into `state` for 3B's HUD to read
  *   scene.add(...)                     → this.root.add(...) so teardown can clean up
  *
- * Car choice: CARS lives in level2/carSelect.js. The player's car is picked on
- * a rotating preview, remembered in localStorage, and can be changed with V.
+ * Everything else is your code, untouched.
  */
 export class Level02 extends Level {
   constructor() {
     super('level02');
     // the shape VehicleController already expects — filled from shared Input each frame
     this._input = { forward: false, backward: false, left: false, right: false, boost: false };
-
-    // update() can be called while init() is still awaiting (on restart), so it
-    // waits for this flag rather than touching half-built objects
-    this._ready = false;
-    this._picking = false;
-    this._orbit = 0;
-    this._carIndex = 0;
-    this._swap = Promise.resolve(); // car swaps run in order, so the last click wins
-    this.picker = null;
-    this.hud = null;
   }
 
-  async init(scene, assets, input, state) {
+  init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
     scene.background = new THREE.Color(0x0a0e14);
@@ -92,95 +73,9 @@ export class Level02 extends Level {
 
     this._camOffset = new THREE.Vector3();
     this._lookAt = new THREE.Vector3();
-
-    // extra actions on the shared Input (no edit to Input.js needed)
-    this.input.bindings.confirm ??= ['enter'];
-    this.input.bindings.changeCar ??= ['v'];
-
-    // ---- models. Files live in public/assets/level2/ (lowercase, no spaces).
-    //      Preload everything so switching cars in the picker is instant; a
-    //      file that fails to load just leaves the placeholder box. ----
-    await Promise.allSettled([HANDLER_MODEL, ...CARS.map((c) => c.path)].map((p) => assets.model(p)));
-    this._carIndex = loadSavedCar();
-    await Promise.all([
-      this._showCar(this._carIndex),
-      this.handler.attachModel(assets, HANDLER_MODEL, { yaw: 0 }),
-    ]);
-
-    this.hud = createLevel2Hud();
-    if (showPickerNext) {
-      showPickerNext = false;
-      this._openPicker();
-    }
-    this._ready = true;
   }
-
-  /* ---------------- car picker ---------------- */
-
-  _showCar(index) {
-    const car = CARS[index];
-    this._swap = this._swap.then(() => this.car.attachModel(this.assets, car.path, { yaw: 0 }));
-    return this._swap;
-  }
-
-  _openPicker() {
-    this._picking = true;
-    this._orbit = 0;
-    this.car.speed = 0;
-    if (this.hud) this.hud.setVisible(false);
-    this.picker = createCarPicker({
-      startIndex: this._carIndex,
-      onChange: (i) => this._choose(i),
-      onConfirm: () => this._confirm(),
-    });
-  }
-
-  _choose(index) {
-    const n = CARS.length;
-    this._carIndex = ((index % n) + n) % n;
-    if (this.picker) this.picker.setIndex(this._carIndex);
-    this._showCar(this._carIndex);
-  }
-
-  _confirm() {
-    saveCar(this._carIndex);
-    if (this.picker) this.picker.destroy();
-    this.picker = null;
-    this._picking = false;
-    if (this.hud) this.hud.setVisible(true);
-  }
-
-  _updatePicker(dt) {
-    if (this.input.pressed('left')) this._choose(this._carIndex - 1);
-    if (this.input.pressed('right')) this._choose(this._carIndex + 1);
-    if (this.input.pressed('confirm')) this._confirm();
-
-    // slow orbit around the parked car
-    this._orbit += dt * 0.7;
-    const r = 6.5;
-    const p = this.car.mesh.position;
-    const cam = this.game.camera;
-    cam.position.set(p.x + Math.sin(this._orbit) * r, 2.4, p.z + Math.cos(this._orbit) * r);
-    cam.lookAt(p.x, 0.8, p.z);
-  }
-
-  /* ---------------- frame ---------------- */
 
   update(dt, state) {
-    if (!this._ready) return;
-
-    if (this._picking) {
-      this._updatePicker(dt);
-      return;
-    }
-
-    // V: back to the picker (rebuilds the level so the car is parked and ready)
-    if (this.input.pressed('changeCar')) {
-      showPickerNext = true;
-      this.game.restart();
-      return;
-    }
-
     // shared Input → the object VehicleController already expects
     const i = this._input;
     i.forward  = this.input.isDown('forward');
@@ -208,21 +103,7 @@ export class Level02 extends Level {
     state.boostHeat = this.car.heat;
     state.distance = dist;
     state.handlerState = handlerState;   // add this field to GameState.reset()
-    state.normalizedSpeed = Math.min(1, Math.abs(this.car.speed) / this.car.maxSpeed);
-
-    this.hud.update({
-      speed: this.car.speed, dist, heat: this.car.heat,
-      health: this.car.health, handlerState,
-    });
 
     if (this.car.health <= 0) this.finished = true;
-  }
-
-  teardown() {
-    if (this.picker) this.picker.destroy();
-    this.picker = null;
-    if (this.hud) this.hud.destroy();
-    this.hud = null;
-    super.teardown();
   }
 }

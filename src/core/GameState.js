@@ -1,0 +1,97 @@
+/**
+ * The one state object passed to every level's update().
+ *
+ * Use THESE field names everywhere. If level 02 writes `hp` and level 03
+ * writes `health`, the HUD ends up reading one of them and silently showing
+ * the wrong number in front of a marker.
+ */
+export class GameState {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    // progression
+    this.level = "level01"; // 'level01' | 'level02' | 'level03'
+    this.phase = 1; // sub-phase inside a level (boss phases, etc.)
+    this.paused = false;
+    this.timeScale = 1; // 1 normally, < 1 for the Key's slow-mo pulse
+
+    // the player
+    this.health = 100;
+    this.maxHealth = 100;
+    this.stamina = 100;
+    this.maxStamina = 100;
+    this.boostHeat = 0; // 0..1, level 02
+    this.alive = true;
+
+    // scoring and story
+    this.distance = 0; // metres travelled in the current level
+    this.bestDistance = 0;
+    this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.deaths = 0;
+
+    // The pursuer. Level 01's only currency is distance, so handlerGap IS the
+    // health bar for that level — the run ends when it reaches 0.
+    // handlerState:
+    //   IDLE          not in the chase yet
+    //   LOSING_GROUND Kai is pulling away — the gap is growing
+    //   CLOSING       Kai is slower than the pursuer — the gap is shrinking
+    //   CAUGHT        gap hit 0; the run is lost
+    //   SEALED        a gate cut him off, or Kai reached the exit; out of play
+    this.handlerState = 'IDLE';
+    this.handlerGap = 0; // metres between Kai and the Handler
+    this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
+
+    // Why the run ended, so the fail screen can say it instead of guessing.
+    // Level 01 has two losses — "he catches you, or the southbound does".
+    // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
+    this.failCause = null;
+  }
+
+  /** Called by Game when a new level starts. Keeps letters, resets the rest. */
+  resetForLevel(levelName) {
+    this.level = levelName;
+    this.phase = 1;
+    this.timeScale = 1;
+    this.health = this.maxHealth;
+    this.stamina = this.maxStamina;
+    this.boostHeat = 0;
+    this.distance = 0;
+    this.normalizedSpeed = 0;
+    this.handlerState = 'IDLE';
+    this.handlerGap = 0;
+    this.failCause = null;
+    this.alive = true;
+  }
+
+  damage(amount) {
+    this.health = Math.max(0, this.health - amount);
+    if (this.health === 0) this.alive = false;
+    return this.alive;
+  }
+
+  heal(amount) {
+    this.health = Math.min(this.maxHealth, this.health + amount);
+  }
+
+  spendStamina(amount) {
+    if (this.stamina < amount) return false;
+    this.stamina -= amount;
+    return true;
+  }
+
+  regenStamina(perSecond, dt) {
+    this.stamina = Math.min(this.maxStamina, this.stamina + perSecond * dt);
+  }
+
+  collectLetter(id) {
+    if (this.letters.includes(id)) return false;
+    this.letters.push(id);
+    return true;
+  }
+
+  lettersInLevel(levelName) {
+    return this.letters.filter((id) => id.startsWith(levelName)).length;
+  }
+}

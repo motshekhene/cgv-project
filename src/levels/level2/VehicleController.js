@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { attachModel } from './attachModel.js';
+import { attachModel as attachVehicleModel } from './attachModel.js';
 
 /**
  * VehicleController — Member 2A
@@ -48,13 +48,12 @@ export class VehicleController {
     this.health = 100;
   }
 
-  /** Swap the placeholder boxes for a real model. Safe to call after construction. */
-  attachModel(assets, path, opts) {
-    return attachModel(assets, this.mesh, path, { length: 3.6, ...opts });
-  }
-
   takeDamage(amount) {
     this.health = Math.max(0, this.health - amount);
+  }
+
+  attachModel(assets, path, options = {}) {
+    return attachVehicleModel(assets, this.mesh, path, { length: 3.6, ...options });
   }
 
   update(dt, input) {
