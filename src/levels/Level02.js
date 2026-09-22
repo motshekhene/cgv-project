@@ -367,7 +367,40 @@ export class Level02 extends Level {
       distance: this.state.distance,
       time: this._survivalTime,
       onRestart: () => this.game.restart(),
+      onContinue: () => this._continueAfterGameOver(),
+      onQuit: () => this._quitToMenu(),
     });
+  }
+
+  /**
+   * CONTINUE — there's no level03 to hand off to yet, so "continue to the
+   * next stage or resume the game if applicable" resolves to the applicable
+   * half: patch the car back up and pick the run back up right where it
+   * ended (same position, same distance), rather than restarting the level
+   * from the top the way RETRY does.
+   */
+  _continueAfterGameOver() {
+    if (!this._gameOver) return;
+    this._gameOver = false;
+    this.finished = false;
+    this.state.alive = true;
+    this.state.failCause = null;
+
+    this.car.health = this.state.maxHealth;
+    this.car.heat = 0;
+
+    if (this.gameOverScreen) { this.gameOverScreen.destroy(); this.gameOverScreen = null; }
+    if (this.hud) this.hud.setVisible(true);
+    if (this._engineSound) this._engineSound.setVolume(0.35);
+  }
+
+  /**
+   * QUIT — this build has no standalone title/menu screen yet, so the closest
+   * equivalent is dropping the player back at Level 1, the game's entry point.
+   */
+  _quitToMenu() {
+    if (this.gameOverScreen) { this.gameOverScreen.destroy(); this.gameOverScreen = null; }
+    this.game.setLevel('level01');
   }
 
   teardown() {
