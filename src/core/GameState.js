@@ -32,6 +32,10 @@ export class GameState {
     this.deaths = 0;
 
     this.handlerState = 'IDLE';
+
+    // level 03 — the Handler's boss bar (HUD reads these directly)
+    this.bossHealth = 300;
+    this.bossMaxHealth = 300;
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -44,6 +48,8 @@ export class GameState {
     this.boostHeat = 0;
     this.distance = 0;
     this.alive = true;
+    this.handlerState = 'IDLE';
+    this.bossHealth = this.bossMaxHealth;
   }
 
   damage(amount) {
