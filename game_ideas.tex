@@ -1,0 +1,209 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fontawesome5}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=false,
+    pdfborder={0 0 0},
+    pdftitle={Computer Graphics Game Ideas by Clayton},
+    pdfauthor={Clayton}
+}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries\sffamily}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\sffamily}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\small\bfseries\sffamily}{\thesubsubsection}{1em}{}
+
+\setlist[itemize]{noitemsep, topsep=0.3em, leftmargin=1.5em}
+\setlist[enumerate]{noitemsep, topsep=0.3em, leftmargin=1.5em}
+
+\title{\vspace{-2em}\textbf{\LARGE Computer Graphics Game Ideas}\\[0.3em] \large Computer Graphics \& Visualisation Project Concepts (Three.js / WebGL)}
+\author{\textbf{Clayton}}
+\date{\vspace{-0.5em}\today}
+
+\begin{document}
+
+\maketitle
+
+\vspace{-1em}
+\noindent\hrulefill
+\vspace{1em}
+
+\noindent This document outlines three comprehensive 3D game concepts designed for a university-level \textbf{Computer Graphics and Visualisation (CGV)} course project. Each concept features a 3-level progression structure, complete gameplay mechanics, and technical computer graphics implementations utilizing \textbf{Three.js} and \textbf{WebGL}.
+
+\section{Overview and Comparison Matrix}
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l p{3.2cm} p{4.2cm} p{4.5cm} c}
+\toprule
+\textbf{\#} & \textbf{Game Title} & \textbf{Core Mechanic} & \textbf{Graphics / CGV Focus} & \textbf{Complexity} \\
+\midrule
+\textbf{01} & \textbf{Frost Brawlers} \newline \footnotesize (3D Arcade Platformer) & Freeze enemies into snowballs \& kick to trigger ricochet combos & Custom GLSL ice shaders, snow particles, bounding volume collisions & Moderate \\
+\addlinespace
+\textbf{02} & \textbf{Velocity Rush} \newline \footnotesize (3D Drift Racer) & High-speed vehicle handling, drift scoring, speed pads \& obstacles & Catmull-Rom road splines, dynamic spotlights, heightmaps, bloom & Moderate \\
+\addlinespace
+\textbf{03} & \textbf{Pulse Arena} \newline \footnotesize (3D Arena Shooter) & Room-based multiplayer / bots, weapon pickups, wave survival & Raycasting hit detection, point-light muzzle flashes, instanced meshes & High \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Option 1: Frost Brawlers (\faSnowflake\ 3D Snow Bros Reimagined)}
+
+\subsection{Concept Description}
+\noindent\faGamepad\ \textbf{Overview:} A 2.5D/3D arcade platformer inspired by the classic \textit{Snow Bros}. Players control a frost elemental character inside multi-tiered platform stages. Spraying ice mist at oncoming monsters gradually freezes them into solid ice spheres. Once fully frozen, kicking an ice sphere launches it across platforms and slopes, bouncing off walls to eliminate multiple enemies in domino-style chain combos.
+
+\subsection{Gameplay Mechanics}
+\begin{itemize}
+    \item \textbf{Movement and Traversal (\texttt{WASD} / \texttt{Space}):} Platform jumping, ladder climbing, and jump pads.
+    \item \textbf{Frost Blaster (\texttt{Left Click} / \texttt{J}):} Emits a cone of freezing mist. Accumulating hits transitions monsters from slowed to fully encrusted ice spheres.
+    \item \textbf{Kick and Ricochet (\texttt{E} / \texttt{K}):} Kicking a snowball imparts linear momentum. The boulder rolls across platforms, rebounds off stage walls, and crushes colliding enemies.
+    \item \textbf{Item Drops:} Defeated enemies spawn speed boosters, multi-directional spray power-ups, and temporary invulnerability.
+\end{itemize}
+
+\subsection{3-Level Progression}
+\begin{enumerate}
+    \item \textbf{Level 1 --- The Frost Citadel (Tutorial Arena):}
+    \begin{itemize}
+        \item \textit{Environment:} Medieval stone courtyard illuminated by amber torches and ambient moonlight.
+        \item \textit{Objective:} Clear 3 sequential waves of standard snow-sprite minions.
+        \item \textit{Mechanics:} Introduces basic jumping, ice encasement, and wall ricochet trajectories.
+    \end{itemize}
+    \item \textbf{Level 2 --- Molten Glacier Caverns (Environmental Hazards):}
+    \begin{itemize}
+        \item \textit{Environment:} Subterranean ice cave with rising lava channels and thermal steam vents.
+        \item \textit{Objective:} Defeat leaping flame-bats while avoiding hazardous terrain.
+        \item \textit{Mechanics:} Snowballs positioned near lava gradually shrink and melt; vertical steam vents boost player jumps.
+    \end{itemize}
+    \item \textbf{Level 3 --- The Frost Titan's Spire (Boss Encounter):}
+    \begin{itemize}
+        \item \textit{Environment:} High-altitude mountaintop spire during a raging snowstorm.
+        \item \textit{Objective:} Defeat the multi-phase Frost Golem boss.
+        \item \textit{Mechanics:} Boss performs ground-pound shockwaves and sweeps laser beams across the arena. The player must freeze spawned adds and kick the resulting boulders into the boss's exposed joints.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Computer Graphics \& Technical Implementation}
+\begin{itemize}
+    \item \textbf{Custom GLSL Shaders:} Custom ice fragment shader utilizing Fresnel reflectance equations and chromatic dispersion.
+    \item \textbf{Lighting Model:} Blinn-Phong lighting with contrasting cool ambient lights and warm point-source torch lights.
+    \item \textbf{Physics Simulation:} 2.5D Axis-Aligned Bounding Box (AABB) and sphere-plane collision detection with restitution coefficients.
+    \item \textbf{Particle Systems:} GPU point-cloud particle emitters for snowfall, frost mist cones, and shattering ice fragments.
+\end{itemize}
+
+\newpage
+
+\section{Option 2: Velocity Rush (\faCar\ 3D Cyber Drift Racer)}
+
+\subsection{Concept Description}
+\noindent\faGamepad\ \textbf{Overview:} A fast-paced 3D arcade racer combining high-speed vehicle physics with kinetic obstacle avoidance. Players pilot an anti-gravity hovercar across roller-coaster tracks, executing controlled drifts around tight turns to build nitro boost and setting record lap times across three distinct biomes.
+
+\subsection{Gameplay Mechanics}
+\begin{itemize}
+    \item \textbf{Vehicle Handling (\texttt{WASD} / \texttt{Arrow Keys}):} Throttle acceleration, steering with angular inertia, and braking.
+    \item \textbf{Power Slide / Drift (\texttt{Shift}):} Induces controlled lateral sliding around corners to charge a Nitro gauge.
+    \item \textbf{Nitro Boost (\texttt{Space}):} Discharges stored nitro for high forward acceleration and dynamic camera Field-of-View (FOV) expansion.
+    \item \textbf{Track Hazards:} Avoid swinging pendulums, laser barrier gates, and missing road tiles.
+\end{itemize}
+
+\subsection{3-Level Progression}
+\begin{enumerate}
+    \item \textbf{Level 1 --- Neo-Tokyo Midnight (City Circuit):}
+    \begin{itemize}
+        \item \textit{Environment:} Futuristic skyline with wet asphalt roads, neon signs, and skyscraper backdrops.
+        \item \textit{Objective:} Complete 2 laps under the target time limit.
+        \item \textit{Mechanics:} Wide roads, 90-degree drift corners, and speed boost pads.
+    \end{itemize}
+    \item \textbf{Level 2 --- Canyon Descent (Off-Road Terrain):}
+    \begin{itemize}
+        \item \textit{Environment:} Rocky canyon with elevation drops, ravines, and dynamic sandstorm fog.
+        \item \textit{Objective:} Navigate narrow bridges and chasm jumps with reduced traction.
+        \item \textit{Mechanics:} Procedural heightmap terrain, falling boulder hazards, and low-friction gravel paths.
+    \end{itemize}
+    \item \textbf{Level 3 --- Orbital Super-Collider (Zero-G Space Ring):}
+    \begin{itemize}
+        \item \textit{Environment:} Planetary orbital superstructure surrounded by deep space skyboxes.
+        \item \textit{Objective:} Survive a high-speed sprint across tubular, inverted track geometry.
+        \item \textit{Mechanics:} 360-degree vertical loops, moving laser barriers, and normal-aligned surface physics.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Computer Graphics \& Technical Implementation}
+\begin{itemize}
+    \item \textbf{Spline Curve Road Generation:} Track geometry procedurally generated via 3D Catmull-Rom splines extruded into custom ribbon meshes.
+    \item \textbf{Dynamic Spotlights \& Shadows:} Vehicle headlights modeled as dual directional spotlights with real-time shadow mapping.
+    \item \textbf{Post-Processing Effects:} UnrealBloomPass for glowing neon elements, radial speed lines, and chromatic aberration at maximum velocity.
+    \item \textbf{Particle Systems:} Tire skid sparks, jet exhaust ribbon trails, and volumetric weather fog.
+\end{itemize}
+
+\section{Option 3: Pulse Arena (\faCrosshairs\ 3D Room Shooter)}
+
+\subsection{Concept Description}
+\noindent\faGamepad\ \textbf{Overview:} A low-poly 3D arena shooter featuring server room mechanics. Players join or host battle rooms (via WebRTC/PeerJS or WebSockets), select tactical arenas, pick up energy weapons, and compete in deathmatch or cooperative survival modes against AI bots.
+
+\subsection{Gameplay Mechanics}
+\begin{itemize}
+    \item \textbf{FPS / TPS Controls (\texttt{WASD} + Mouse):} Smooth camera rotation, sprinting, jumping, and mouse aiming.
+    \item \textbf{Weapon Arsenal (\texttt{Left Click}, Keys \texttt{1-3}):}
+    \begin{itemize}
+        \item \textit{Pulse Blaster:} High-velocity precision tracer projectile.
+        \item \textit{Scatter Shotgun:} Multi-ray spread pattern designed for close-quarters engagement.
+        \item \textit{Plasma Launcher:} Slow-moving explosive projectile with radial splash damage.
+    \end{itemize}
+    \item \textbf{Lobby System:} Create private room codes or join public rooms; automated AI bot spawning for solo testing.
+    \item \textbf{Interactive Environment:} Jump pads, health/ammo regeneration nodes, and destructible cover barriers.
+\end{itemize}
+
+\subsection{3-Level Progression}
+\begin{enumerate}
+    \item \textbf{Level 1 --- Hangar 9 (Industrial Warehouse):}
+    \begin{itemize}
+        \item \textit{Environment:} Symmetrical military facility with shipping containers and catwalks.
+        \item \textit{Objective:} Eliminate target wave count or achieve target kill score.
+        \item \textit{Mechanics:} Close-quarters combat, static cover positions, and overhead industrial lighting.
+    \end{itemize}
+    \item \textbf{Level 2 --- Bio-Dome Facility (Vertical Arena):}
+    \begin{itemize}
+        \item \textit{Environment:} Shattered greenhouse laboratory overrun with extraterrestrial flora.
+        \item \textit{Objective:} Reach elimination threshold while traversing multi-level walkways.
+        \item \textit{Mechanics:} Toxic liquid floor that drains health, high-velocity jump pads, and translucent glass bridges.
+    \end{itemize}
+    \item \textbf{Level 3 --- Quantum Reactor Core (Dynamic Arena):}
+    \begin{itemize}
+        \item \textit{Environment:} Subterranean power core suspended above an energy void.
+        \item \textit{Objective:} Final sudden-death match or elite boss bot wave.
+        \item \textit{Mechanics:} Oscillating cover pillars that rise/descend on timers, periodic EMP reactor shockwaves, and perimeter drop hazards.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Computer Graphics \& Technical Implementation}
+\begin{itemize}
+    \item \textbf{Raycasting Engine:} Three.js Raycaster utilized for weapon hitscan calculations, projectile trajectories, and line-of-sight checks.
+    \item \textbf{Instanced Rendering:} \texttt{THREE.InstancedMesh} deployed for high-density projectile particles, bullet impact decals, and pickup items at steady 60 FPS.
+    \item \textbf{Dynamic Muzzle Lighting:} Short-duration point lights instantiated at weapon barrels upon firing, illuminating nearby meshes.
+    \item \textbf{Network State Interpolation:} Linear interpolation (Lerp) algorithms to eliminate positional jitter for networked entities.
+\end{itemize}
+
+\section{Technical Stack Summary}
+
+\begin{itemize}
+    \item \textbf{Graphics Core:} Three.js (r185+) / WebGL 2.0
+    \item \textbf{Build Tool \& Dev Server:} Vite
+    \item \textbf{Programming Language:} Modern JavaScript (ES6+ Modules)
+    \item \textbf{Custom Shading:} GLSL (OpenGL Shading Language via \texttt{ShaderMaterial})
+    \item \textbf{Networking (Option 3):} PeerJS / WebRTC (Serverless peer connections) or lightweight WebSocket
+\end{itemize}
+
+\vspace{1.5em}
+\begin{center}
+\small\itshape --- Prepared for Computer Graphics \& Visualisation (CGV) by Clayton ---
+\end{center}
+
+\end{document}

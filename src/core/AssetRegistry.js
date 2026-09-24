@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { disposeObject } from "./Level.js";
 
 /**
@@ -19,6 +20,7 @@ export class AssetRegistry {
     this.cache = new Map();
     this.manager = new THREE.LoadingManager();
     this.gltf = new GLTFLoader(this.manager);
+    this.fbxLoader = new FBXLoader(this.manager);
     this.tex = new THREE.TextureLoader(this.manager);
     this.audio = new THREE.AudioLoader(this.manager);
     this.onProgress = onProgress;
@@ -70,6 +72,11 @@ export class AssetRegistry {
   /** Returns the loaded gltf. Use gltf.scene, and clone it if you need copies. */
   model(path) {
     return this._load(this.gltf, path);
+  }
+
+  /** Returns the loaded FBX root (with .animations). Clone with SkeletonUtils.clone. */
+  fbx(path) {
+    return this._load(this.fbxLoader, path);
   }
 
   texture(path, { srgb = true, repeat = null } = {}) {

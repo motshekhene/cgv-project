@@ -27,6 +27,7 @@ export const DEFAULT_BINDINGS = {
   lookBack: ["mouse2", "c"],
   interact: ["e"],
   ability: ["q"],
+  lockOn: ["tab"],
   pause: ["escape"],
   restart: ["r"],
 };
@@ -40,6 +41,13 @@ export class Input {
     this.upThisFrame = new Set();
     this.mouse = { x: 0, y: 0, dx: 0, dy: 0 };
     this.enabled = true;
+
+    // on-screen controls (buttons + joystick) feed the same actions as keys
+    this.virtualDown = new Set();
+    this.virtualPressed = new Set();
+    this.virtualReleased = new Set();
+    this.stick = { x: 0, y: 0 }; // -1..1, +y = forward
+    this.ignored = new Set(); // codes to drop, e.g. 'mouse0' while dragging a camera
 
     // bound once so detach() can remove exactly these listeners
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -81,18 +89,21 @@ export class Input {
   }
 
   isDown(action) {
+    if (this.virtualDown.has(action)) return true;
     for (const code of this.codesFor(action))
       if (this.down.has(code)) return true;
     return false;
   }
 
   pressed(action) {
+    if (this.virtualPressed.has(action)) return true;
     for (const code of this.codesFor(action))
       if (this.downThisFrame.has(code)) return true;
     return false;
   }
 
   released(action) {
+    if (this.virtualReleased.has(action)) return true;
     for (const code of this.codesFor(action))
       if (this.upThisFrame.has(code)) return true;
     return false;
@@ -100,18 +111,38 @@ export class Input {
 
   /** -1, 0 or 1 — handy for lanes and steering. */
   axis(negAction, posAction) {
-    return (this.isDown(posAction) ? 1 : 0) - (this.isDown(negAction) ? 1 : 0);
+    const k = (this.isDown(posAction) ? 1 : 0) - (this.isDown(negAction) ? 1 : 0);
+    if (k !== 0) return k;
+    if (negAction === "left" && posAction === "right") return this.stick.x;
+    if (negAction === "back" && posAction === "forward") return this.stick.y;
+    return 0;
+  }
+
+  /** Called by on-screen buttons: same as pressing/releasing the bound key. */
+  setVirtual(action, down) {
+    if (down) {
+      if (!this.virtualDown.has(action)) this.virtualPressed.add(action);
+      this.virtualDown.add(action);
+    } else if (this.virtualDown.has(action)) {
+      this.virtualDown.delete(action);
+      this.virtualReleased.add(action);
+    }
   }
 
   /** Game calls this after each update. */
   endFrame() {
     this.downThisFrame.clear();
     this.upThisFrame.clear();
+    this.virtualPressed.clear();
+    this.virtualReleased.clear();
     this.mouse.dx = 0;
     this.mouse.dy = 0;
   }
 
   clear() {
+    this.virtualDown.clear();
+    this.virtualPressed.clear();
+    this.virtualReleased.clear();
     this.down.clear();
     this.downThisFrame.clear();
     this.upThisFrame.clear();
@@ -120,6 +151,7 @@ export class Input {
 
   /* ---------------- listeners ---------------- */
   _press(code) {
+    if (this.ignored.has(code)) return;
     if (!this.down.has(code)) this.downThisFrame.add(code);
     this.down.add(code);
   }
@@ -133,7 +165,7 @@ export class Input {
     if (!this.enabled) return;
     const code = e.key.toLowerCase();
     // stop the page scrolling when the player uses the game keys
-    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(code))
+    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "tab"].includes(code))
       e.preventDefault();
     if (e.repeat) return;
     this._press(code);

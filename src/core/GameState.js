@@ -32,6 +32,7 @@ export class GameState {
     this.deaths = 0;
 
     this.handlerState = 'IDLE';
+    this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
