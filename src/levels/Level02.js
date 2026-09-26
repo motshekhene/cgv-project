@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { VehicleController } from './level2/VehicleController.js';
 import { HandlerAI } from './level2/HandlerAI.js';
+import { RoadSystem } from './level2/RoadSystem.js';
 
 /**
  * Level 02 — Redline.
@@ -37,33 +38,8 @@ export class Level02 extends Level {
     sun.position.set(-40, 60, -20);
     this.root.add(sun);
 
-    // ---- placeholder road: @2B replaces this with real chunks ----
-    const roadLength = 4000;
-    const road = new THREE.Mesh(
-      new THREE.PlaneGeometry(24, roadLength),
-      new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.9 })
-    );
-    road.rotation.x = -Math.PI / 2;
-    road.position.z = -roadLength / 2 + 50;
-    this.root.add(road);
-
-    // one geometry and one material shared by every stripe, instead of 400 copies
-    const stripeGeo = new THREE.PlaneGeometry(0.3, 3);
-    const stripeMat = new THREE.MeshBasicMaterial({ color: 0x6fa8ff });
-    for (let z = 30; z > -roadLength + 50; z -= 10) {
-      const s = new THREE.Mesh(stripeGeo, stripeMat);
-      s.rotation.x = -Math.PI / 2;
-      s.position.set(0, 0.01, z);
-      this.root.add(s);
-    }
-
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x2a3138 });
-    const railGeo = new THREE.BoxGeometry(0.4, 0.8, roadLength);
-    for (const side of [-12, 12]) {
-      const rail = new THREE.Mesh(railGeo, railMat);
-      rail.position.set(side, 0.4, -roadLength / 2 + 50);
-      this.root.add(rail);
-    }
+    // ---- infinite textured road — @2B ----
+    this.road = new RoadSystem(this.root);
 
     // ---- 2A's systems, unchanged. They take a parent to add themselves to,
     //      and that parent is now this.root rather than the raw scene. ----
@@ -86,6 +62,8 @@ export class Level02 extends Level {
 
     this.car.update(dt, i);
     const { dist, state: handlerState } = this.handler.update(dt);
+
+    this.road.update(this.car.mesh.position);
 
     // chase camera — same maths as before, using the shared camera
     const cam = this.game.camera;
