@@ -400,7 +400,8 @@ export class RoadSystem {
 
   /**
    * Call every frame with the car's world position.
-   * Uses a conveyor-belt formula so chunks never gap, regardless of dt.
+   * Uses a modulo conveyor-belt so recycled chunks land tightly packed
+   * at the tail of the queue — never beyond the fog line.
    */
   update(carPosition) {
     const carZ = carPosition.z;
@@ -409,8 +410,8 @@ export class RoadSystem {
 
     for (const chunk of this.chunks) {
       if (chunk.position.z < threshold) {
-        const n = Math.ceil((threshold - chunk.position.z) / L);
-        chunk.position.z += n * L;
+        const farthest = Math.max(...this.chunks.map(c => c.position.z));
+        chunk.position.z = farthest + L;
       }
     }
 
