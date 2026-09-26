@@ -65,6 +65,11 @@ export class Game {
     this.onLevelChanged = null;
     this.onLoadProgress = null;
     this.onPaused = null;
+
+    // secondary cameras rendered as picture-in-picture overlays each frame.
+    // key: name string, value: { camera, viewport: { x, y, w, h } }
+    // x/y/w/h are normalised 0‥1 fractions of the canvas size.
+    this.secondaryCameras = new Map();
   }
 
   registerLevel(name, factory) {
@@ -81,6 +86,7 @@ export class Game {
       this.level.teardown();
       this.level = null;
     }
+    this.secondaryCameras.clear();
     this.state.resetForLevel(name);
 
     const level = factory();
@@ -134,6 +140,39 @@ export class Game {
     this.input.endFrame();
 
     this.renderer.render(this.scene, this.camera);
+
+    // secondary cameras — rendered as small overlays on top of the main view
+    if (this.secondaryCameras.size > 0) {
+      const pw = this.renderer.domElement.width;
+      const ph = this.renderer.domElement.height;
+      this.renderer.setScissorTest(true);
+      for (const { camera: cam, viewport: vp } of this.secondaryCameras.values()) {
+        const vx = vp.x * pw;
+        const vy = vp.y * ph;
+        const vw = vp.w * pw;
+        const vh = vp.h * ph;
+        this.renderer.setViewport(vx, vy, vw, vh);
+        this.renderer.setScissor(vx, vy, vw, vh);
+        this.renderer.render(this.scene, cam);
+      }
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, pw, ph);
+    }
+  }
+
+  /**
+   * Register a secondary camera to render as a picture-in-picture overlay.
+   * viewport values are normalised 0‥1 (e.g. { x:0.75, y:0.75, w:0.24, h:0.23 }
+   * draws in the bottom-right quarter of the screen).
+   */
+  addSecondaryCamera(name, camera, viewport) {
+    this.secondaryCameras.set(name, { camera, viewport });
+    return this;
+  }
+
+  removeSecondaryCamera(name) {
+    this.secondaryCameras.delete(name);
+    return this;
   }
 
   _onResize() {

@@ -49,6 +49,25 @@ export class Level02 extends Level {
 
     this._camOffset = new THREE.Vector3();
     this._lookAt = new THREE.Vector3();
+
+    // ---- secondary cameras — @2B ----
+
+    // rearview mirror: top-centre of screen, shows what's behind the car
+    this._rearview = new THREE.PerspectiveCamera(50, 2.5, 0.5, 300);
+    this._rearview.far = 300;
+    this.game.addSecondaryCamera('rearview', this._rearview, {
+      x: 0.35, y: 0.88, w: 0.30, h: 0.11,
+    });
+
+    // minimap: bottom-right corner, orthographic top-down view
+    const mapRange = 50;
+    this._minimap = new THREE.OrthographicCamera(
+      -mapRange, mapRange, mapRange, -mapRange, 1, 500
+    );
+    this._minimap.up.set(0, 0, -1); // forward = behind the car on screen
+    this.game.addSecondaryCamera('minimap', this._minimap, {
+      x: 0.76, y: 0.02, w: 0.22, h: 0.28,
+    });
   }
 
   update(dt, state) {
@@ -76,6 +95,23 @@ export class Level02 extends Level {
     this._lookAt.y += 1;
     cam.lookAt(this._lookAt);
 
+    // rearview mirror — sits behind the car, looking forward
+    const rvOffset = 14;
+    this._rearview.position.set(
+      this.car.mesh.position.x - Math.sin(this.car.heading) * rvOffset,
+      this.car.mesh.position.y + 3.5,
+      this.car.mesh.position.z - Math.cos(this.car.heading) * rvOffset,
+    );
+    this._rearview.lookAt(
+      this.car.mesh.position.x + Math.sin(this.car.heading) * 30,
+      this.car.mesh.position.y + 1,
+      this.car.mesh.position.z + Math.cos(this.car.heading) * 30,
+    );
+
+    // minimap — directly above the car, looking down
+    this._minimap.position.set(this.car.mesh.position.x, 120, this.car.mesh.position.z);
+    this._minimap.lookAt(this.car.mesh.position);
+
     // publish to shared state so 3B's HUD can read it without touching this file
     state.health = this.car.health;
     state.boostHeat = this.car.heat;
@@ -83,5 +119,12 @@ export class Level02 extends Level {
     state.handlerState = handlerState;   // add this field to GameState.reset()
 
     if (this.car.health <= 0) this.finished = true;
+  }
+
+  teardown() {
+    this.game.removeSecondaryCamera('rearview');
+    this.game.removeSecondaryCamera('minimap');
+    if (this.road) this.road.dispose();
+    super.teardown();
   }
 }
