@@ -75,7 +75,7 @@ export class Level02 extends Level {
     this._rearview = new THREE.PerspectiveCamera(50, 2.5, 0.5, 300);
     this._rearview.far = 300;
     this.game.addSecondaryCamera('rearview', this._rearview, {
-      x: 0.35, y: 0.88, w: 0.30, h: 0.11,
+      x: 0.02, y: 0.02, w: 0.25, h: 0.18,
     });
 
     const mapRange = 50;
@@ -84,7 +84,7 @@ export class Level02 extends Level {
     );
     this._minimap.up.set(0, 0, -1);
     this.game.addSecondaryCamera('minimap', this._minimap, {
-      x: 0.76, y: 0.02, w: 0.22, h: 0.28,
+      x: 0.73, y: 0.02, w: 0.25, h: 0.25,
     });
 
     // ---- load models ----
