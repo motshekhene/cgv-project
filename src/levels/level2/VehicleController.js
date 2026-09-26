@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { attachModel as attachVehicleModel } from './attachModel.js';
 
 /**
  * VehicleController — Member 2A
@@ -49,6 +50,10 @@ export class VehicleController {
 
   takeDamage(amount) {
     this.health = Math.max(0, this.health - amount);
+  }
+
+  attachModel(assets, path, options = {}) {
+    return attachVehicleModel(assets, this.mesh, path, { length: 3.6, ...options });
   }
 
   update(dt, input) {

@@ -1,11 +1,16 @@
 import * as THREE from 'three';
+import { attachModel as attachVehicleModel } from './attachModel.js';
 
 /**
  * HandlerAI — Member 2A
  *
  * Pursuer state machine for Level 2: APPROACH -> HARASS -> TELEGRAPH -> RECOVER.
- * Alpha scope: APPROACH/HARASS working end to end, TELEGRAPH/RECOVER as the
- * hook the real ram attack (with damage) gets wired into next.
+ * Straight pure-pursuit: he drives at the player's actual position, not a
+ * lane offset beside it. At matching speed that settles him directly behind/
+ * inside the car, so he can't help clipping and bumping it while he closes
+ * in — the "approaches from a distance, then keeps harassing by ramming
+ * into you" feel — rather than holding a side line and throwing one clean
+ * ram before peeling off.
  */
 export class HandlerAI {
   constructor(scene, target) {
@@ -30,8 +35,11 @@ export class HandlerAI {
     this.stateTimer = 0;
 
     // fired once when TELEGRAPH -> RECOVER transition happens, i.e. "attack lands".
-    // Level2 wires this to VehicleController.takeDamage() once the real attack exists.
     this.onAttackResolved = null;
+  }
+
+  attachModel(assets, path, options = {}) {
+    return attachVehicleModel(assets, this.mesh, path, { length: 3.8, ...options });
   }
 
   update(dt) {
