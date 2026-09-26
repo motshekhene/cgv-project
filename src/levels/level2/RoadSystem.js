@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { populateChunk } from './CityEnvironment.js';
 
 /**
  * RoadSystem — Member 2B
@@ -286,6 +287,8 @@ export class RoadSystem {
     for (let i = 0; i < this.numChunks; i++) {
       const chunk = this._createChunk();
       chunk.position.z = i * this.chunkLength;
+      // populate with 3D buildings and street props (unique seed per chunk)
+      populateChunk(chunk, this.chunkLength, this.roadWidth, 1000 + i * 7919);
       this.group.add(chunk);
       this.chunks.push(chunk);
     }
