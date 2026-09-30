@@ -77,6 +77,8 @@ function makeRadialTexture() {
 export class DeepHoldMine {
   constructor(parent, {
     rockModel = null,
+    cliffModel = null,
+    boulderModel = null,
     rockColor = null,
     rockNormal = null,
     rockRoughness = null,
@@ -87,6 +89,8 @@ export class DeepHoldMine {
     this.root.name = 'deephold-mine';
     parent.add(this.root);
     this.rockModel = rockModel?.scene || null;
+    this.cliffModel = cliffModel?.scene || null;
+    this.boulderModel = boulderModel?.scene || null;
     this.colliders = [];
     this.vents = [];
     this.racks = [];
@@ -169,14 +173,16 @@ export class DeepHoldMine {
 
   _buildCavernShell() {
     // A low, closed rock dome keeps the chamber underground from every camera angle.
-    const geometry = new THREE.SphereGeometry(1, 48, 28, 0, Math.PI * 2, 0, Math.PI / 2.04);
+    const geometry = new THREE.SphereGeometry(1, 80, 52, 0, Math.PI * 2, 0, Math.PI / 2.04);
     const p = geometry.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      // Several spatial frequencies deform the actual wall silhouette. The
+      // old two-percent ripple left the cave reading as a smooth planet dome.
       const rough = 1
-        + 0.022 * Math.sin(x * 11 + z * 8)
-        + 0.014 * Math.sin(y * 19 - x * 7)
-        + 0.009 * Math.cos(z * 23 + y * 13);
+        + 0.078 * Math.sin(x * 17 + z * 13) * Math.cos(y * 12 - z * 6)
+        + 0.041 * Math.sin(y * 31 - x * 23 + z * 9)
+        + 0.022 * Math.cos(z * 57 + y * 39 + x * 18);
       p.setXYZ(i, x * rough * 18.5, y * rough * 12.5, z * rough * 16.6);
     }
     geometry.computeVertexNormals();
@@ -185,6 +191,8 @@ export class DeepHoldMine {
       map: this.wallMaterial.map,
       normalMap: this.wallMaterial.normalMap,
       roughnessMap: this.wallMaterial.roughnessMap,
+      bumpMap: this.wallMaterial.map,
+      bumpScale: 0.06,
       roughness: 1,
       side: THREE.BackSide,
     }));
@@ -195,6 +203,17 @@ export class DeepHoldMine {
   }
 
   _buildFloor() {
+    // A deep, hot void waits below the stone. It only becomes visible as the
+    // arena slabs split and drop away during the last phase.
+    this.collapseBasin = new THREE.Mesh(
+      new THREE.PlaneGeometry(28, 24),
+      this.lavaMaterial,
+    );
+    this.collapseBasin.rotation.x = -Math.PI / 2;
+    this.collapseBasin.position.y = -2.25;
+    this.collapseBasin.name = 'lava-below-collapsing-floor';
+    this.root.add(this.collapseBasin);
+
     const centre = new THREE.Mesh(makeSlabGeometry(16.8, 15.4, 1.45, 3), this.floorMaterial);
     centre.name = 'central-mine-floor';
     centre.receiveShadow = true;
@@ -401,7 +420,7 @@ export class DeepHoldMine {
     const lip = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.16, 1.45), this.woodMaterial);
     lip.position.y = 0.68;
     cart.add(lip);
-    const ore = this._rockClone(0.5);
+    const ore = this._boulderClone(0.55) || this._rockClone(0.5);
     if (ore) {
       ore.position.set(0.15, 0.7, -0.1);
       ore.rotation.y = 0.5;
@@ -507,7 +526,7 @@ export class DeepHoldMine {
     this.winchPosition = new THREE.Vector3(6.6, 0, -5.7);
     this.colliders.push({ x: 6.6, z: -5.7, radius: 0.65 });
 
-    this.dropRock = this._rockClone(0.72);
+    this.dropRock = this._boulderClone(1.6) || this._rockClone(0.72);
     if (!this.dropRock) {
       this.dropRock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.85, 1), this.wallMaterial);
     }
@@ -553,8 +572,13 @@ export class DeepHoldMine {
   }
 
   _rockClone(scale = 1) {
-    if (!this.rockModel) return null;
-    const clone = this.rockModel.clone(true);
+    const clone = this._cloneRockSource(this.rockModel, scale);
+    return clone;
+  }
+
+  _cloneRockSource(source, scale = 1) {
+    if (!source) return null;
+    const clone = source.clone(true);
     clone.scale.setScalar(scale);
     clone.traverse((object) => {
       if (object.isMesh) {
@@ -565,34 +589,65 @@ export class DeepHoldMine {
     return clone;
   }
 
+  _boulderClone(diameter = 1.4) {
+    if (!this.boulderModel) return null;
+    this.boulderModel.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(this.boulderModel);
+    const size = bounds.getSize(new THREE.Vector3());
+    const sourceDiameter = Math.max(size.x, size.y, size.z, 0.001);
+    return this._cloneRockSource(this.boulderModel, diameter / sourceDiameter);
+  }
+
   _buildRockWalls() {
+    // One photogrammetry cliff fills the back of the chamber. Separate, truly
+    // rounded boulders interrupt the walls and sit among the mine supports;
+    // this removes the repeated row of identical layered cliff cut-outs.
+    if (this.cliffModel) {
+      const cliff = this._cloneRockSource(this.cliffModel, 0.82);
+      cliff.name = 'mountainside-photogrammetry-wall';
+      cliff.position.set(0, 0, -12.6);
+      cliff.rotation.y = Math.PI;
+      cliff.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(cliff);
+      cliff.position.y -= bounds.min.y;
+      this.root.add(cliff);
+
+      const shoulder = this._cloneRockSource(this.cliffModel, 0.7);
+      shoulder.name = 'mountainside-broken-wall-shoulder';
+      shoulder.position.set(-6.2, 0, -11.7);
+      shoulder.rotation.y = Math.PI + 0.64;
+      shoulder.rotation.z = -0.08;
+      shoulder.updateMatrixWorld(true);
+      const shoulderBounds = new THREE.Box3().setFromObject(shoulder);
+      shoulder.position.y -= shoulderBounds.min.y;
+      this.root.add(shoulder);
+    }
+
     const placements = [
-      [-12.6, 0.2, -8.5, 1.65, 0.3], [-12.8, -0.1, -3.2, 1.4, -0.5],
-      [-12.9, 0.1, 3.0, 1.7, 0.7], [-12.4, 0.5, 8.0, 1.55, -0.3],
-      [12.6, 0.0, -8.0, 1.55, -0.4], [12.8, 0.1, -2.8, 1.6, 0.55],
-      [12.7, -0.1, 3.2, 1.4, -0.6], [12.5, 0.3, 8.0, 1.7, 0.2],
-      [-8.3, 0.1, -10.15, 1.4, 0.2], [-2.4, 0.3, -10.3, 1.2, 0.7],
-      [4.0, 0.2, -10.1, 1.55, -0.25], [9.2, 0.1, -9.7, 1.25, 0.45],
+      [-5.9, -0.18, -7.45, 1.85, -0.42], [-4.05, -0.12, -8.25, 1.32, 0.83],
+      [5.45, -0.15, -7.5, 2.05, -1.1], [3.95, -0.1, -8.5, 1.4, 0.76],
+      [-8.55, -0.12, 7.1, 2.15, -0.45], [8.7, -0.18, 7.55, 1.85, 1.2],
+      [-9.0, -0.1, -5.6, 1.6, 0.48], [9.1, -0.15, -6.0, 1.72, -0.7],
     ];
-    for (const [x, y, z, scale, yaw] of placements) {
-      const rock = this._rockClone(scale);
+    for (const [x, y, z, diameter, yaw] of placements) {
+      const rock = this._boulderClone(diameter) || this._rockClone(diameter * 0.7);
       if (!rock) {
-        const fallback = new THREE.Mesh(new THREE.DodecahedronGeometry(scale, 1), this.wallMaterial);
-        fallback.position.set(x, y + scale * 0.42, z);
-        fallback.scale.set(1.25, 0.72, 0.9);
+        const fallback = new THREE.Mesh(new THREE.DodecahedronGeometry(diameter * 0.5, 2), this.wallMaterial);
+        fallback.position.set(x, y + diameter * 0.3, z);
+        fallback.scale.set(1.1, 0.78, 0.96);
         fallback.rotation.y = yaw;
         fallback.castShadow = true;
         fallback.receiveShadow = true;
         this.root.add(fallback);
       } else {
         rock.position.set(x, y, z);
-        rock.rotation.set((scale - 1.3) * 0.07, yaw, 0.06 * Math.sin(z));
+        rock.rotation.set(0.08 * Math.sin(z), yaw, 0.05 * Math.cos(x));
         rock.updateMatrixWorld(true);
         const bounds = new THREE.Box3().setFromObject(rock);
         rock.position.y -= bounds.min.y - y;
         this.root.add(rock);
       }
-      this.colliders.push({ x, z, radius: scale * 1.1 });
+      this.colliders.push({ x, z, radius: diameter * 0.53 });
     }
   }
 
@@ -675,14 +730,17 @@ export class DeepHoldMine {
     const t = clamp01(progress);
     this.collapse = t;
     const eased = t * t * (3 - 2 * t);
+    // The safe middle becomes a visibly smaller stone island while the outer
+    // slabs peel out of its rim and disappear below the fissure.
+    this.centreFloor.scale.set(1 - 0.15 * eased, 1, 1 - 0.18 * eased);
     for (const ledge of this.ledges) {
-      const amount = ledge.kind === 'side' ? 1.45 : 1.1;
+      const amount = ledge.kind === 'side' ? 3.05 : 2.5;
       ledge.group.position.copy(ledge.base);
       ledge.group.position.x += ledge.kind === 'side' ? ledge.side * amount * eased : 0;
       ledge.group.position.z += ledge.kind === 'end' ? ledge.side * amount * eased : 0;
-      ledge.group.position.y = -2.4 * eased;
-      if (ledge.kind === 'side') ledge.group.rotation.z = -ledge.side * 0.035 * eased;
-      else ledge.group.rotation.x = ledge.side * 0.035 * eased;
+      ledge.group.position.y = -3.35 * eased;
+      if (ledge.kind === 'side') ledge.group.rotation.z = -ledge.side * 0.09 * eased;
+      else ledge.group.rotation.x = ledge.side * 0.085 * eased;
     }
     for (const crack of this.fissureLava) {
       const widthScale = 1 + eased * 3.4;

@@ -240,6 +240,12 @@ export class Fighter {
     return next.getClip().duration / speed;
   }
 
+  /** A short authored body mechanic layered over the current rig animation. */
+  playPose(name, { duration = 0.58 } = {}) {
+    this._procedural = { name, t: 0, duration };
+    return duration;
+  }
+
   clipDuration(name) {
     return this.actions[name] ? this.actions[name].getClip().duration : 0;
   }
@@ -312,16 +318,48 @@ export class Fighter {
       p.t += this._lastDt || 0;
       const u = Math.max(0, Math.min(1, p.t / p.duration));
       const envelope = Math.sin(Math.PI * u);
-      if (p.name === 'swordslash') {
-        add(rightArm, -0.35 * envelope, 0.42 * envelope, -1.0 * envelope);
-        add(rightFore, -0.75 * envelope, 0, -0.35 * envelope);
-        add(spine, 0, -0.4 * envelope, 0.08 * envelope);
-      } else {
-        add(rightArm, -0.95 * envelope, 0.05 * envelope, -0.28 * envelope);
-        add(rightFore, -0.5 * envelope, 0, 0);
-        add(spine, 0, -0.24 * envelope, 0.05 * envelope);
+      const ramp = (a, b, v) => {
+        const x = Math.max(0, Math.min(1, (v - a) / (b - a)));
+        return x * x * (3 - 2 * x);
+      };
+      const strike = ramp(0.18, 0.48, u) * (1 - ramp(0.76, 1, u));
+      const load = 1 - ramp(0.02, 0.32, u);
+      switch (p.name) {
+        case 'swordslash':
+        case 'hook':
+          add(rightArm, -0.32 * strike, 0.46 * strike, -1.12 * strike);
+          add(rightFore, -0.72 * strike, 0, -0.28 * strike);
+          add(spine, 0, -0.46 * strike, 0.08 * strike);
+          break;
+        case 'cross':
+        case 'jab':
+          add(rightArm, -1.08 * strike, 0.08 * strike, -0.12 * strike);
+          add(rightFore, -0.55 * strike, 0, 0);
+          add(spine, 0, -0.18 * strike, 0.04 * strike);
+          break;
+        case 'hammer':
+          add(rightArm, -1.05 * load - 0.42 * strike, 0, -0.58 * load);
+          add(leftArm, -0.86 * load - 0.25 * strike, 0, 0.54 * load);
+          add(rightFore, -0.64 * strike, 0, 0);
+          add(spine, 0.12 * load + 0.24 * strike, 0, 0.08 * strike);
+          break;
+        case 'sweep':
+          add(rightArm, -0.3 * strike, 0.74 * strike, -0.78 * strike);
+          add(rightFore, -0.26 * strike, 0, -0.52 * strike);
+          add(leftArm, -0.25 * strike, -0.24 * strike, 0.62 * strike, 0.8);
+          add(spine, 0.26 * strike, -0.7 * strike, 0.04 * strike);
+          break;
+        case 'heavy':
+          add(rightArm, -1.12 * envelope, 0, -0.38 * envelope);
+          add(rightFore, -0.52 * envelope, 0, 0);
+          add(spine, 0.2 * envelope, 0, 0.05 * envelope);
+          break;
+        default:
+          add(rightArm, -0.95 * envelope, 0.05 * envelope, -0.28 * envelope);
+          add(rightFore, -0.5 * envelope, 0, 0);
+          add(spine, 0, -0.24 * envelope, 0.05 * envelope);
       }
-      add(leftArm, -0.55 * envelope, 0, 0.25 * envelope, 0.45);
+      if (!['hammer', 'sweep'].includes(p.name)) add(leftArm, -0.55 * envelope, 0, 0.25 * envelope, 0.45);
       if (u >= 1) this._procedural = null;
     }
   }

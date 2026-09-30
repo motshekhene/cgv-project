@@ -14,9 +14,9 @@ import { Fighter } from './Fighter.js';
  * before impact); ability = the Key's short slow-motion pulse.
  */
 const ATTACKS = [
-  { clip: 'body-jab-cross', fallback: 'punch', speed: 1.35, windup: 0.16, active: 0.13, total: 0.58, damage: 13, stamina: 9, lunge: 2.6 },
-  { clip: 'hook-punch', fallback: 'swordslash', speed: 1.15, windup: 0.2, active: 0.15, total: 0.66, damage: 16, stamina: 11, lunge: 2.9 },
-  { clip: 'combo-punch', fallback: 'heavy', speed: 1.05, windup: 0.3, active: 0.17, total: 0.88, damage: 26, stamina: 18, lunge: 3.5 },
+  { clip: 'body-jab-cross', fallback: 'punch', speed: 1.35, windup: 0.16, active: 0.18, total: 0.58, damage: 13, stamina: 9, lunge: 8.0, lungeMax: 1.35 },
+  { clip: 'hook-punch', fallback: 'swordslash', speed: 1.15, windup: 0.2, active: 0.2, total: 0.66, damage: 16, stamina: 11, lunge: 8.2, lungeMax: 1.55 },
+  { clip: 'combo-punch', fallback: 'heavy', speed: 1.05, windup: 0.3, active: 0.22, total: 0.88, damage: 26, stamina: 18, lunge: 8.5, lungeMax: 1.8 },
 ];
 const PARRY_WINDOW = 0.34;
 function shortestAngle(from, to) {
@@ -54,7 +54,8 @@ export class CombatController {
     this.nextCombo = 0;
     this.queued = false;
     this.attackDamage = 0;
-    this.attackRange = 2.7;
+    this.attackRange = 3.05;
+    this.attackLungeUsed = 0;
 
     this.abilityCD = 0;
     this.abilityT = 0;
@@ -123,17 +124,24 @@ export class CombatController {
       if (this.comboWindow <= 0) this.nextCombo = 0;
     }
     if (input.pressed('attack') && !this.dodging && !this.blocking) {
-      if (!this.attacking) this._startAttack(state);
-      else if (this.attackT > ATTACKS[this.attackIndex].total * 0.35) this.queued = true;
+      if (!this.attacking) this._startAttack(state, targetPos);
+      else this.queued = true;
     }
     if (this.attacking) {
       const a = ATTACKS[this.attackIndex];
       this.attackT += dt;
       this.attackActive = this.attackT >= a.windup && this.attackT <= a.windup + a.active;
-      if (this.attackT < a.windup + a.active) {
+      if (this.attackT < a.windup + a.active && this.attackLungeUsed < a.lungeMax) {
         const dirX = Math.sin(this.heading), dirZ = Math.cos(this.heading);
-        this.root.position.x += dirX * a.lunge * dt;
-        this.root.position.z += dirZ * a.lunge * dt;
+        let step = Math.min(a.lunge * dt, a.lungeMax - this.attackLungeUsed);
+        if (targetPos) {
+          const dx = targetPos.x - this.root.position.x;
+          const dz = targetPos.z - this.root.position.z;
+          step = Math.min(step, Math.max(0, Math.hypot(dx, dz) - 1.12));
+        }
+        this.root.position.x += dirX * step;
+        this.root.position.z += dirZ * step;
+        this.attackLungeUsed += step;
       }
       if (this.attackT >= a.total) {
         this.attackIndex = -1;
@@ -183,14 +191,16 @@ export class CombatController {
     f.update(dt);
   }
 
-  _startAttack(state) {
+  _startAttack(state, targetPos = null) {
     const a = ATTACKS[this.nextCombo];
     if (!state.spendStamina(a.stamina)) return;
     this.attackIndex = this.nextCombo;
     this.attackT = 0;
+    this.attackLungeUsed = 0;
     this._hitConsumed = false;
     this.attackDamage = a.damage;
     this.nextCombo = (this.nextCombo + 1) % ATTACKS.length;
+    if (targetPos) this.heading = Math.atan2(targetPos.x - this.root.position.x, targetPos.z - this.root.position.z);
     const clip = this.fighter.hasClip(a.clip) ? a.clip : a.fallback;
     this.fighter.playOnce(clip, { speed: a.speed });
   }

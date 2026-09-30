@@ -13,9 +13,9 @@ import { Fighter } from './Fighter.js';
  * Level03 answers 'hit' | 'blocked' | 'parried' | 'dodged'.
  */
 const PHASES = [
-  { name: 'PURSUIT', speed: 3.55, attacks: ['jab', 'cross', 'rush'], pace: 1.0, rest: [1.1, 1.45] },
-  { name: 'STAND', speed: 4.1, attacks: ['hook', 'sweep', 'combination', 'rush'], pace: 0.96, rest: [0.72, 1.0] },
-  { name: 'DESPERATION', speed: 5.0, attacks: ['combination', 'hammer', 'hook', 'sweep'], pace: 0.9, rest: [0.52, 0.78] },
+  { name: 'PURSUIT', speed: 3.8, attacks: ['jab', 'cross', 'rush'], pace: 0.96, rest: [0.92, 1.2] },
+  { name: 'STAND', speed: 4.65, attacks: ['hook', 'sweep', 'combination', 'rush'], pace: 0.86, rest: [0.58, 0.82] },
+  { name: 'DESPERATION', speed: 5.9, attacks: ['combination', 'hammer', 'hook', 'sweep'], pace: 0.76, rest: [0.38, 0.58] },
 ];
 
 const ATTACKS = {
@@ -36,7 +36,7 @@ const ATTACKS = {
     hits: [{ dur: 0.34, move: 0.7, radius: 2.5, damage: 15 }],
   },
   sweep: {
-    telegraph: 0.92, recover: 1.1, engage: 3.15, clips: ['standing-melee-punch'], clipSpeed: 1.04, lean: -0.2, blockMul: 0.58,
+    telegraph: 0.92, recover: 1.1, engage: 3.15, pose: 'sweep', clipSpeed: 1.04, lean: -0.2, blockMul: 0.58,
     hits: [{ dur: 0.38, move: 0, radius: 2.95, damage: 17 }],
   },
   combination: {
@@ -47,7 +47,7 @@ const ATTACKS = {
     ],
   },
   hammer: {
-    telegraph: 1.04, recover: 1.2, engage: 3.55, clips: ['combo-punch'], clipSpeed: 0.95, lean: -0.3, blockMul: 0.7,
+    telegraph: 1.04, recover: 1.2, engage: 3.55, pose: 'hammer', clipSpeed: 0.95, lean: -0.3, blockMul: 0.7,
     hits: [{ dur: 0.42, move: 1.4, radius: 2.4, damage: 20 }],
   },
 };
@@ -176,7 +176,7 @@ export class HandlerBoss {
   _pickAttack() {
     const list = this.phase.attacks;
     let pick = list[Math.floor(Math.random() * list.length)];
-    if (pick === this.attackName && list.length > 1 && Math.random() < 0.6) {
+    if (pick === this.attackName && list.length > 1) {
       pick = list[(list.indexOf(pick) + 1) % list.length];
     }
     this.attackName = pick;
@@ -297,8 +297,11 @@ export class HandlerBoss {
         if (this.hitT >= (hit.gap || 0)) {
           if (!this.hitStarted) {
             this.hitStarted = true;
-            const clip = atk.clips?.[this.hitIndex] || atk.clips?.[0] || 'punch';
-            f.playOnce(f.hasClip(clip) ? clip : 'punch', { speed: atk.clipSpeed });
+            if (atk.pose) f.playPose(atk.pose, { duration: hit.dur + 0.28 });
+            else {
+              const clip = atk.clips?.[this.hitIndex] || atk.clips?.[0] || 'punch';
+              f.playOnce(f.hasClip(clip) ? clip : 'punch', { speed: atk.clipSpeed });
+            }
           }
           const k = this.hitT - (hit.gap || 0);
           if (hit.move) this.root.position.addScaledVector(this.strikeDir, hit.move * dt);
@@ -357,6 +360,7 @@ export class HandlerBoss {
     this.hitT = 0;
     this.hitResolved = false;
     this.hitStarted = false;
+    this.fighter.setGuard(false);
   }
 
   _resolve(hit, atk, dist, k) {

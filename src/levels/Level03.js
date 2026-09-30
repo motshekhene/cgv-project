@@ -69,6 +69,24 @@ function retargetClips(clips, targetNames, upperBodyOnly = false) {
   });
 }
 
+function handlerUpperBodyClips(clips) {
+  const allowed = new Set([
+    'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
+    'LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm',
+    'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand',
+  ]);
+  return clips.map((clip) => {
+    const copy = clip.clone();
+    copy.tracks = copy.tracks.filter((track) => {
+      const dot = track.name.lastIndexOf('.');
+      if (dot < 0 || !track.name.slice(dot).startsWith('.quaternion')) return false;
+      const bone = track.name.slice(0, dot).replace(/^mixamorig:/i, '');
+      return allowed.has(bone);
+    });
+    return copy;
+  });
+}
+
 export class Level03 extends Level {
   constructor() {
     super('level03');
@@ -130,7 +148,7 @@ export class Level03 extends Level {
     const [
       kaiSrc, handlerSrc, fightIdle, walking, running, bodyJab, hookPunch,
       comboPunch, meleePunch, blocking, hitReact, runningRoll, aerialEvade,
-      rockModel, lavaColor, lavaEmission, rockColor, rockNormal, rockRoughness,
+      rockModel, cliffModel, boulderModel, lavaColor, lavaEmission, rockColor, rockNormal, rockRoughness,
     ] = await Promise.all([
       safe(assets.model('characters/level3/kai-suited.glb')),
       safe(assets.model('characters/level3/handler-soldier.glb')),
@@ -146,6 +164,8 @@ export class Level03 extends Level {
       safe(assets.model('characters/level3/running-dive-roll.glb')),
       safe(assets.model('characters/level3/aerial-evade.glb')),
       safe(assets.model('models/rock-face-01/rock_face_01_1k.gltf')),
+      safe(assets.model('models/mountainside/mountainside_1k.gltf')),
+      safe(assets.model('models/rock_09/rock_09_1k.gltf')),
       safe(assets.texture('textures/lava-color.jpg')),
       safe(assets.texture('textures/lava-emission.jpg')),
       safe(assets.texture('textures/rock-color.jpg', { repeat: [4, 4] })),
@@ -159,6 +179,8 @@ export class Level03 extends Level {
 
     this.mine = new DeepHoldMine(this.root, {
       rockModel,
+      cliffModel,
+      boulderModel,
       rockColor,
       rockNormal,
       rockRoughness,
@@ -174,6 +196,7 @@ export class Level03 extends Level {
       [runningRoll, 'running-dive-roll'], [aerialEvade, 'aerial-evade'],
     ];
     const sharedClips = namedClips(animationEntries);
+    const handlerClips = handlerUpperBodyClips(sharedClips);
     const kaiBoneNames = new Set();
     kaiSrc?.scene?.traverse((object) => { if (object.isBone) kaiBoneNames.add(object.name); });
     const kaiClips = retargetClips(sharedClips, kaiBoneNames, true);
@@ -188,7 +211,7 @@ export class Level03 extends Level {
     });
     this._attachShieldedDrive();
     this.boss = new HandlerBoss(this.root, this.combat, handlerSrc, {
-      extraClips: sharedClips,
+      extraClips: handlerClips,
       // The GLB scene already contains its centimetre-to-metre transform.
       // Its skinned bind-pose bounds are tiny, so automatic fit multiplies it
       // hundreds of times and sends the soldier outside the camera.
@@ -211,6 +234,7 @@ export class Level03 extends Level {
       { title: 'Handler — Vanguard', html: 'Vanguard by T. Choonyung, distributed in the Three.js Soldier example; Mixamo characters may be used royalty-free in video games under Adobe’s terms. <a href="https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb" target="_blank" rel="noreferrer">Model file</a> · <a href="https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html" target="_blank" rel="noreferrer">Mixamo use terms</a>' },
       { title: 'Fight animations', html: 'Mixamo humanoid clips converted to GLB by MisterYI; Mixamo permits royalty-free use in video games. <a href="https://github.com/MisterYI/deevid-mixamo-assets" target="_blank" rel="noreferrer">Clip source</a> · <a href="https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html" target="_blank" rel="noreferrer">Mixamo use terms</a>' },
       { title: 'Rock Face 01', html: 'Scanned model by Dario Barresi, Poly Haven, CC0. <a href="https://polyhaven.com/a/rock_face_01" target="_blank" rel="noreferrer">Asset page</a>' },
+      { title: 'Mountainside and Rock 09', html: 'Free scanned cliff and boulder models by Dario Barresi and Jenelle van Heerden, Poly Haven, CC0. <a href="https://polyhaven.com/a/mountainside" target="_blank" rel="noreferrer">Mountainside</a> · <a href="https://polyhaven.com/a/rock_09" target="_blank" rel="noreferrer">Rock 09</a>' },
       { title: 'Ground and lava materials', html: 'Ground 051 and Lava 004 texture maps by ambientCG, CC0. <a href="https://ambientcg.com/view?id=Ground051" target="_blank" rel="noreferrer">Ground 051</a> · <a href="https://ambientcg.com/view?id=Lava004" target="_blank" rel="noreferrer">Lava 004</a>' },
       { title: 'Original Level 3 work', html: 'DeepHold mine layout, collapsing ledges, fissure lava shader, procedural Web Audio sound, interface, collision, camera and combat by the project team.' },
     ]);
@@ -474,6 +498,7 @@ export class Level03 extends Level {
         this.arenaCollapsed = true;
         this.collapseT = 0;
         this.audio?.play('collapse');
+        this._addShake(0.78);
         hud().showStoryBeat('DESPERATION', 'The fissures split the floor. He has stopped holding back.');
       }
       else if (n === 2) hud().popup('HELMET CRACKED', '#d9a36e');
@@ -552,6 +577,7 @@ export class Level03 extends Level {
           this.boss.root.position.addScaledVector(this._toBoss, fin ? 0.9 : 0.3);
           this._hitStop(fin ? 0.1 : 0.055);
           this._addShake(fin ? 0.28 : 0.1);
+          this.hud.popup(fin ? 'HEAVY HIT' : 'HIT', fin ? '#ffd23a' : '#f0d3b1');
           if (this.boss.vulnerable) this.hud.popup('CRITICAL', '#ffd23a');
         }
       }
@@ -628,8 +654,8 @@ export class Level03 extends Level {
     const t = THREE.MathUtils.clamp(this.collapseT / 5.2, 0, 1);
     const eased = t * t * (3 - 2 * t);
     this.mine.setCollapse(eased);
-    this.arenaHalfWidth = 10.25 - 2.05 * eased;
-    this.arenaHalfDepth = 8.2 - 1.55 * eased;
+    this.arenaHalfWidth = 10.25 - 2.8 * eased;
+    this.arenaHalfDepth = 8.2 - 1.5 * eased;
   }
 
   _resolveWorldCollisions() {
