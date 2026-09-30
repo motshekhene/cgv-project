@@ -10,32 +10,41 @@
  * using the wheel produces orbit input; the level reads it with consumeOrbit().
  */
 const CSS = `
-.tc { position:absolute; inset:0; pointer-events:none; font-family:'Segoe UI',system-ui,sans-serif; }
-.tc * { touch-action:none; user-select:none; -webkit-user-select:none; box-sizing:border-box; }
-.tc-joy { position:absolute; left:36px; bottom:36px; width:136px; height:136px; border-radius:50%; pointer-events:auto;
-  background:radial-gradient(circle,#ffffff10,#ffffff06); border:2px solid #ffffff30; }
-.tc-joy::before { content:''; position:absolute; inset:34px; border-radius:50%; border:1px dashed #ffffff22; }
-.tc-knob { position:absolute; left:50%; top:50%; width:58px; height:58px; margin:-29px 0 0 -29px; border-radius:50%;
-  background:radial-gradient(circle at 35% 30%,#ffd9a8,#ff8a3a); box-shadow:0 0 14px #ff7a2a88; }
-.tc-btn { position:absolute; pointer-events:auto; border-radius:50%; border:2px solid #ffffff44; color:#fff; font-weight:700;
-  letter-spacing:.08em; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; cursor:pointer;
-  background:radial-gradient(circle at 35% 30%,#ffffff26,#ffffff0d); backdrop-filter:blur(2px); }
-.tc-btn small { display:block; font-size:9px; font-weight:500; opacity:.7; letter-spacing:.12em; }
-.tc-btn.on, .tc-btn:active { background:radial-gradient(circle at 35% 30%,#ffb066,#e2561a); border-color:#ffd9a8; transform:scale(.94); }
-.tc-atk { right:36px; bottom:36px; width:98px; height:98px; font-size:15px; border-color:#ff8a3a99; }
-.tc-dodge { right:152px; bottom:44px; width:72px; height:72px; font-size:12px; }
-.tc-block { right:40px; bottom:152px; width:72px; height:72px; font-size:12px; }
-.tc-key { right:140px; bottom:140px; width:58px; height:58px; font-size:11px; border-color:#7fd8ff88; }
-.tc-view { position:absolute; top:18px; right:20px; pointer-events:auto; padding:9px 14px; border-radius:6px; font-size:11px;
-  font-weight:700; letter-spacing:.2em; color:#ffe7cf; background:#00000066; border:1px solid #ff9a5a77; cursor:pointer; }
-.tc-view:hover { background:#3a1a0aaa; }
-.tc-arrow { position:absolute; top:24%; bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
-  font-size:26px; color:#ffe7cf; cursor:pointer; }
-.tc-arrow.l { left:0; background:linear-gradient(90deg,#ff7a2a55,transparent); border-radius:0 40px 40px 0; }
-.tc-arrow.r { right:0; background:linear-gradient(270deg,#ff7a2a55,transparent); border-radius:40px 0 0 40px; }
-.tc.orbit .tc-arrow { display:flex; }
-.tc-arrow.held { background:linear-gradient(90deg,#ff7a2aaa,transparent); }
-.tc-arrow.r.held { background:linear-gradient(270deg,#ff7a2aaa,transparent); }
+.tc { position:absolute; inset:0; pointer-events:none; color:#eee9df; font:600 10px/1.2 'Segoe UI',system-ui,sans-serif; }
+.tc * { box-sizing:border-box; touch-action:none; user-select:none; -webkit-user-select:none; }
+.tc-joy { display:none; position:absolute; left:20px; bottom:20px; width:112px; height:112px; border-radius:50%; pointer-events:auto; border:1px solid #ffffff42; background:#10110fb8; backdrop-filter:blur(3px); }
+.tc-joy::before { content:''; position:absolute; inset:27px; border-radius:50%; border:1px solid #ffffff26; }
+.tc-knob { position:absolute; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%; border:1px solid #ffffff91; background:linear-gradient(145deg,#d7d3c8,#77756d); box-shadow:0 2px 9px #0009; }
+.tc-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; position:absolute; pointer-events:auto; min-width:54px; min-height:54px; border:1px solid #ffffff72; border-radius:50%; background:#11120fd9; color:#eee9df; font:800 9px/1 'Segoe UI',system-ui,sans-serif; letter-spacing:.08em; text-align:center; cursor:pointer; box-shadow:0 2px 8px #0006; backdrop-filter:blur(2px); }
+.tc-btn small { display:block; margin-top:5px; color:#bbb5aa; font-size:7px; font-weight:600; letter-spacing:.06em; }
+.tc-btn.on,.tc-btn:active { border-color:#f5a45f; background:#36271e; color:#ffd9b2; transform:scale(.96); }
+.tc-btn:focus-visible,.tc-view:focus-visible { outline:2px solid #f5a45f; outline-offset:2px; }
+.tc-atk { right:22px; bottom:20px; width:78px; height:78px; border-color:#d1a277bb; background:#241d17e8; font-size:10px; }
+.tc-dodge { right:112px; bottom:25px; width:58px; height:58px; }
+.tc-block { right:31px; bottom:108px; width:58px; height:58px; }
+.tc-key { right:112px; bottom:101px; width:50px; height:50px; border-color:#d1a27788; }
+.tc-use { right:181px; bottom:106px; width:58px; height:58px; border-color:#8bbdb4a6; opacity:0; visibility:hidden; transition:opacity .18s ease; }
+.tc-use.available { opacity:1; visibility:visible; }
+.tc-view { display:none; position:absolute; top:65px; right:14px; pointer-events:auto; min-height:32px; padding:0 10px; border:1px solid #ffffff55; border-radius:3px; color:#e8e2d7; background:#11120fcf; font:700 8px/1 'Segoe UI',system-ui,sans-serif; letter-spacing:.12em; cursor:pointer; }
+.tc-arrow { position:absolute; top:25%; bottom:43%; width:40px; display:none; pointer-events:auto; align-items:center; justify-content:center; color:#e9e2d7a8; font-size:18px; cursor:pointer; }
+.tc-arrow.l { left:0; background:linear-gradient(90deg,#11120f88,transparent); border-radius:0 30px 30px 0; }
+.tc-arrow.r { right:0; background:linear-gradient(270deg,#11120f88,transparent); border-radius:30px 0 0 30px; }
+.tc-arrow.held { color:#f5a45f; background:linear-gradient(90deg,#f5a45f55,transparent); }
+.tc-arrow.r.held { background:linear-gradient(270deg,#f5a45f55,transparent); }
+.tc.touch-enabled .tc-joy { display:block; }
+.tc.touch-enabled .tc-view { display:block; }
+.tc.touch-enabled.orbit .tc-arrow { display:flex; }
+@media(max-width:460px) {
+  .tc-joy { left:12px; bottom:13px; width:96px; height:96px; }
+  .tc-joy::before { inset:22px; }
+  .tc-knob { width:42px; height:42px; margin:-21px 0 0 -21px; }
+  .tc-atk { right:12px; bottom:13px; width:68px; height:68px; }
+  .tc-dodge { right:88px; bottom:18px; width:52px; height:52px; }
+  .tc-block { right:17px; bottom:91px; width:52px; height:52px; }
+  .tc-key { right:85px; bottom:88px; width:46px; height:46px; }
+  .tc-use { right:143px; bottom:89px; width:48px; height:48px; }
+}
+@media(prefers-reduced-motion:reduce) { .tc *, .tc *::before, .tc *::after { transition:none!important; } }
 `;
 
 export class TouchControls {
@@ -56,15 +65,18 @@ export class TouchControls {
 
     this.el = document.createElement('div');
     this.el.className = 'tc';
+    const touchAvailable = (navigator.maxTouchPoints || 0) > 0 || window.matchMedia('(pointer: coarse)').matches;
+    this.el.classList.toggle('touch-enabled', touchAvailable);
     this.el.innerHTML = `
       <div class="tc-arrow l">&#9664;</div>
       <div class="tc-arrow r">&#9654;</div>
       <button class="tc-view"></button>
       <div class="tc-joy"><div class="tc-knob"></div></div>
-      <div class="tc-btn tc-atk" data-a="attack">ATTACK<small>COMBO</small></div>
-      <div class="tc-btn tc-dodge" data-a="dodge">DODGE</div>
-      <div class="tc-btn tc-block" data-a="block">BLOCK<small>TAP=PARRY</small></div>
-      <div class="tc-btn tc-key" data-a="ability">KEY</div>`;
+      <button class="tc-btn tc-atk" type="button" data-a="attack" aria-label="Attack">ATTACK<small>COMBO</small></button>
+      <button class="tc-btn tc-dodge" type="button" data-a="dodge" aria-label="Dodge">DODGE</button>
+      <button class="tc-btn tc-block" type="button" data-a="block" aria-label="Guard and parry">GUARD<small>HOLD / PARRY</small></button>
+      <button class="tc-btn tc-key" type="button" data-a="ability" aria-label="Use the Key slow-motion pulse">Q<small>THE KEY</small></button>
+      <button class="tc-btn tc-use" type="button" data-a="interact" aria-label="Use mine interaction">E<small>USE</small></button>`;
     host.appendChild(this.el);
 
     this._initJoystick();
@@ -73,6 +85,7 @@ export class TouchControls {
     this._initViewToggle();
     this._initCanvas();
     this.setOrbitEnabled(false);
+    this.setInteractEnabled(false);
   }
 
   _on(target, type, fn, opts) {
@@ -193,6 +206,15 @@ export class TouchControls {
     if (!on) this.strip = 0;
   }
 
+  setInteractEnabled(on, interaction = null) {
+    const button = this.el.querySelector('.tc-use');
+    if (!button) return;
+    button.classList.toggle('available', !!on);
+    const action = interaction?.kind === 'valve' ? 'VENT' : interaction?.kind === 'rockfall' ? 'DROP' : 'USE';
+    button.querySelector('small').textContent = action;
+    button.setAttribute('aria-label', interaction ? `${interaction.name}: ${interaction.detail}` : 'Use mine interaction');
+  }
+
   /** Orbit input since the last call: drag pixels, held-arrow direction, wheel steps. */
   consumeOrbit() {
     const o = { dx: this.dragDX, dy: this.dragDY, strip: this.strip, zoom: this.zoom };
@@ -205,7 +227,7 @@ export class TouchControls {
     this._cleanup.length = 0;
     this.input.stick.x = 0;
     this.input.stick.y = 0;
-    for (const a of ['attack', 'dodge', 'block', 'ability']) this.input.setVirtual(a, false);
+    for (const a of ['attack', 'dodge', 'block', 'ability', 'interact']) this.input.setVirtual(a, false);
     this.el.remove();
     this.style.remove();
   }

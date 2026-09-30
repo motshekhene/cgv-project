@@ -1,173 +1,42 @@
-# Level 3 (Deephold) — Model Sourcing & Integration Plan
+# Level 3 — Deephold redesign and asset record
 
-Follow this top to bottom. Goal: real models for **lava, two fighters (Kai + Handler), and the bridge**, dropped into the game with no code rewrites.
+Level 3 is a third-person mine-arena duel against the Handler. The encounter uses human GLB characters, a scanned rock obstacle set with collision, an animated lava shader, a phase-changing boss fight, a shrinking final arena, procedural combat sound and a new compact field HUD.
 
----
+## Redesign
 
-## 0. Ground rules (apply to every asset)
+- **Camera and play:** over-the-shoulder lock-on framing, with free orbit on Tab. WASD moves, left mouse attacks, right mouse guards/parries, Space dodges, and Q triggers the Key slow-motion ability. Mobile touch controls use the same combat actions.
+- **Fight:** the Handler telegraphs his opening lunge, then escalates from pursuit to a helmet reveal and a final desperation phase. Well-timed parries stagger him; the arena contracts in the final phase. Player and Handler positions resolve against rock obstacles and the arena boundary.
+- **Interface:** a new restrained mine-field HUD shows the mission, boss phase/health, Kai health/stamina/Key charge, control hints, pause, sound and field credits. The pause and credits panels work without refreshing the page.
+- **World and sound:** scanned rocks frame the ring and block fighter movement; Ground 051 and Lava 004 textures dress the platform and lava. The existing custom lava shader drives animated emission. Web Audio generates the combat cues in code, so no sound pack was downloaded.
+- **Characters:** Kai uses the MakeHuman suited model. The Handler uses the Vanguard humanoid GLB with Mixamo rig/animation support. Their scales are corrected separately because the Vanguard file already contains a centimetre-to-metre transform.
 
-| Rule | Why |
-|---|---|
-| Final format is **`.glb`** | What `AssetRegistry.model()` loads |
-| Filenames **lowercase-with-hyphens**, no spaces | Server is case-sensitive (README rule) |
-| Textures **max 1024x1024** | Lab-machine performance budget (pitch p.13) |
-| Scale: **1 unit = 1 metre**, character ~1.8 m tall | Combat range/arena are tuned in metres |
-| Origin at the **feet / centre-bottom** of the model | So it sits on the floor at y = 0 |
-| Log every external asset in the **asset log** (section 8) | Needed for the credits screen — marked as never-cut |
-| Only use **CC0 or CC-BY** (or free-for-games) licences | CC-BY needs credit; no "non-commercial/no-derivatives" if we modify |
+## Bundled assets and credits
 
-Folders (already created): `assets/characters/`, `assets/level03/`, `assets/textures/`.
+All newly sourced assets are free to download; no paid assets are used.
 
----
+| Bundled path | Asset/source | Licence and use |
+|---|---|---|
+| `assets/characters/level3/kai-suited.glb` | MakeHuman generated suited human from the VSim asset library | MakeHuman states generated characters made from bundled assets are CC0. See [VSim asset credits](https://github.com/kunalkushwaha/vsim/blob/main/packages/assets/library/CREDITS.md) and [MakeHuman asset terms](https://github.com/makehumancommunity/makehuman/blob/master/LICENSE.md). |
+| `assets/characters/level3/handler-soldier.glb` | Vanguard by T. Choonyung, distributed as the Three.js Soldier example | Adobe says Mixamo characters and animations may be used royalty-free in video games. See the [model file](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Soldier.glb) and [Adobe Mixamo FAQ](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html). |
+| `assets/characters/level3/{fight-idle,walking,running,body-jab-cross,hook-punch,combo-punch,standing-melee-punch,blocking,big-hit-to-head,running-dive-roll,aerial-evade}.glb` | Mixamo motion clips converted to GLB by [MisterYI](https://github.com/MisterYI/deevid-mixamo-assets) | Mixamo game use is royalty-free under the [Adobe Mixamo FAQ](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html). |
+| `assets/models/rock-face-01/rock_face_01_1k.gltf`, `.bin` | Rock Face 01, Dario Barresi via [Poly Haven](https://polyhaven.com/a/rock_face_01) | CC0. |
+| `assets/textures/rock-{color,normal,roughness}.jpg` | Ground 051 maps from [ambientCG](https://ambientcg.com/view?id=Ground051) | CC0. |
+| `assets/textures/lava-{color,emission}.jpg` | Lava 004 maps from [ambientCG](https://ambientcg.com/view?id=Lava004) | CC0. |
+| npm dependency `three` | [Three.js](https://threejs.org/) | MIT. |
+| npm dependency `vite` | [Vite](https://vite.dev/) | MIT. |
 
-## 1. What you actually need, and where each comes from
+The in-game **Field Credits** panel names these sources. The team created the arena arrangement, lava shader integration, UI, collisions, camera, fight logic integration and Web Audio sound design.
 
-| Need | Real model or shader? | Primary source | Backup |
-|---|---|---|---|
-| **Lava** | **Mostly a shader, not a model.** The pitch's rubric wants a *custom* animated lava + heat-haze shader. You only need a *texture* and a flat/cracked ground mesh. | ambientCG or Poly Haven (CC0 lava/rock textures) | Sketchfab "lava rock floor" (check licence) |
-| **Kai (player)** | Rigged humanoid | **Mixamo** (character + animations) | Quaternius "Universal Base Characters" (CC0) |
-| **The Handler (boss)** | Rigged humanoid, **helmet as a separate node** | **Mixamo** (a tactical/armoured character) | Sketchfab humanoid + helmet mesh |
-| **Bridge** | Static prop | **Sketchfab** ("highway bridge", "stone arch bridge", "mountain bridge") | Poly Pizza / Kenney, or build from boxes in Blender |
-| Mine arena / rocks / server racks | Static props | Quaternius, Poly Pizza, Sketchfab | Blender kitbash |
+## Build and verification
 
-### Sites (what each is good for)
-- **Mixamo** (mixamo.com, free Adobe login) — rigged humanoid characters **plus a large animation library** (idle, run, attack, block, roll, hit reaction, death). Best fit for both fighters.
-- **Sketchfab** (sketchfab.com) — huge variety; filter **Downloadable + CC licence**, download the **glTF/GLB** option. Check each model's licence and poly count.
-- **Poly Pizza** (poly.pizza) — low-poly CC0/CC-BY models, direct `.glb` download. Good for props.
-- **Quaternius** (quaternius.com) — CC0 packs (characters, environment, props). No attribution required.
-- **Kenney** (kenney.nl) — CC0 kits, very clean, stylised/low-poly.
-- **Poly Haven** (polyhaven.com) — CC0 textures, HDRIs, some models.
-- **ambientCG** (ambientcg.com) — CC0 PBR texture sets (rock, lava, metal) with normal/height maps — exactly what the rubric asks for.
+- `npm run build` succeeds and emits a production `dist/` with `index.html` at its root. The Vite copy step includes `assets/`; `base: './'` keeps the build deployable in a subdirectory.
+- The current bundle reports an existing `HandlerAI` chunk-size warning (~592 kB minified, ~150 kB gzip). It does not fail the build.
+- The local HTTP preview at `http://127.0.0.1:4173/` has been visually inspected with the HUD, scanned rock ring and both human characters loaded. The Handler’s initial model scale and warning window were corrected after this inspection.
+- Still to verify: complete a full Level 3 win and restart through the interface; inspect all current browser logs for 404s; check Levels 1 and 2, published Chrome play-through, lab-hardware frame rate, and memory over three levels.
 
----
+## Submission checklist items outside this Level 3 implementation
 
-## 2. Decide the visual style FIRST (do this before downloading)
-
-Pick **one** style so nothing clashes. Recommended: **semi-realistic PBR, low-to-mid poly** (matches the pitch: dark, orange/black, industrial).
-
-- [ ] Write the style in one line here: `__________________`
-- [ ] Collect 3-5 reference images (mine chamber, server racks in rock, armoured fighter) in a folder or moodboard.
-- [ ] Palette: **burnt orange, black, charcoal**. Reject anything bright/cartoony.
-
-Mixing a stylised Kenney bridge with a realistic Mixamo fighter will look wrong — stay consistent.
-
----
-
-## 3. Fighters (Kai + Handler)
-
-**Strategy: use the same Mixamo skeleton for both.** Then one set of animation clips works on both, and you only download animations once.
-
-### 3.1 Download
-1. Sign in at Mixamo, **Characters** tab.
-2. **Kai:** pick a young, practical civilian-style character (jacket/utility). Add the backpack/drive later as a small mesh if needed.
-3. **Handler:** pick the tallest, most imposing armoured/tactical character.
-4. For each, download **T-pose FBX, "With Skin"**.
-
-### 3.2 Animations to download (Mixamo, "Without Skin", 30 fps, in-place)
-Both fighters, in-place versions (game code moves the character, not the animation):
-
-| Clip | Used for |
-|---|---|
-| Idle / fighting idle | Standing |
-| Run (or walk) | Movement / lock-on strafe |
-| Standing melee attack (light) | Player attack |
-| Heavy/second attack | Heavy attack / boss sweep |
-| Block / defend | Block + parry |
-| Dodge / roll | Space dodge |
-| Hit reaction | Taking damage |
-| Death / knocked down | Fail state / boss defeat |
-| Lunge / dash attack | Boss `lunge` |
-| Combo (2-hit) | Boss phase-3 `combo` |
-
-### 3.3 Convert to GLB (Blender)
-1. Import FBX into Blender.
-2. Apply scale so the character is ~**1.8 m** tall, feet at origin.
-3. **Handler only:** make sure the **helmet is its own object/node** named `helmet` (split it from the head mesh if needed) — the reveal hides this node. Code already hides a `helmet` mesh on phase 2.
-4. Export as **glTF Binary (.glb)**, include animations, compress textures to 1024.
-5. Save as: `assets/characters/kai.glb`, `assets/characters/handler.glb`.
-
-### 3.4 Sanity test
-Open the `.glb` in any online glTF viewer (or three.js editor) — check scale, facing (+Z forward), and that clips play.
-
----
-
-## 4. Lava
-
-The pitch grades a **custom shader**, so don't hunt for a "lava model."
-
-1. **Texture:** download a CC0 lava/volcanic-rock set from ambientCG or Poly Haven — you want **colour + emissive/height + normal**. Save 1024px versions to `assets/textures/lava-*.jpg`.
-2. **Geometry:** the floor is a mesh with fissure cut-outs (or planes placed in cracks). Kitbash in Blender, or use a simple plane and let the shader do the work.
-3. **Shader (code, later):** animated noise + emissive glow + heat-haze distortion, driven by a `uTime` uniform → goes in `src/shaders/`. The texture only feeds it.
-4. Optional real model: rock floor slab with cracks from Sketchfab/Quaternius, as the base under the shader.
-
-Deliverables: `assets/textures/lava-color.jpg`, `lava-height.jpg` (+ normal), and optionally `assets/level03/floor-rock.glb`.
-
----
-
-## 5. Bridge (starting scene)
-
-Where it appears: the mountain-pass bridge the Handler rams you off (Level 2 -> 3 interlude), then the ravine/riverbank leading to the mine entrance ("SHAFT 7 — DECOMMISSIONED").
-
-1. Search Sketchfab / Poly Pizza for: `highway bridge`, `stone arch bridge`, `mountain bridge`, `guardrail`.
-2. Requirements: a **straight deck with side barriers**, one section that can be treated as **broken/missing** (the car goes through the barrier).
-3. If nothing fits, **build it from boxes in Blender**: a long slab deck + two barrier rails + support pillars. Stylistically consistent beats fancy.
-4. Export: `assets/level03/bridge.glb`. Keep it under ~20k triangles.
-5. Also grab (optional): a rock/cliff piece for the ravine and a "SHAFT 7" sign (can be a plain textured plane made in code).
-
-> Note: the ram/car-through-barrier cinematic itself is code (3A owns transitions). You only supply the bridge geometry.
-
----
-
-## 6. Rest of the mine (do after the three above work)
-
-- Rock wall/tunnel pieces, stalactites/stalagmites — Quaternius / Poly Pizza cave packs.
-- Server monoliths — search `server rack`, `data center` (Sketchfab/Poly Pizza), kitbash into rock.
-- Steam vent, mine cart, support beams — Poly Pizza / Sketchfab.
-- Use the **prompt already written** if you'd rather AI-generate any of these as a prototype.
-
----
-
-## 7. Integration into the game (once files exist)
-
-The game already has a fallback: it shows the greybox capsules/arena until a real file loads.
-
-1. Put files in the folders above (names exactly as listed).
-2. Tell me / add the load calls (`assets.model('characters/kai.glb')`, `assets.model('level03/bridge.glb')`) in `Level03.js` init — placeholders remain if a file is missing.
-3. For animated fighters, use `THREE.AnimationMixer` (per the task doc) and map clips to the `CombatController` / `HandlerBoss` states (idle, run, attack, block, dodge, hit, death, telegraph).
-4. Check in the browser at `localhost:5173/?level=level03`: scale correct? facing correct? feet on floor? animations playing? helmet hides on phase 2?
-5. Check the **teardown**: restart the level (R) several times — memory shouldn't climb.
-
----
-
-## 8. Asset log (fill in as you go — feeds the credits screen)
-
-| File | What | Source site | Author | Licence | URL |
-|---|---|---|---|---|---|
-| `assets/characters/kai.glb` | | Mixamo | | | |
-| `assets/characters/handler.glb` | | Mixamo | | | |
-| `assets/level03/bridge.glb` | | | | | |
-| `assets/textures/lava-color.jpg` | | | | | |
-
-Rule: **no row, no asset in the build.** CC-BY requires the author's name to appear in credits.
-
----
-
-## 9. Order of work (checklist)
-
-- [ ] 1. Lock the visual style + collect references (section 2)
-- [ ] 2. Download + convert **Handler** (harder: helmet node) (section 3)
-- [ ] 3. Download + convert **Kai** using the same rig (section 3)
-- [ ] 4. Download all animation clips, verify in a glTF viewer
-- [ ] 5. Get lava textures, prepare 1024px versions (section 4)
-- [ ] 6. Source or build the **bridge** (section 5)
-- [ ] 7. Drop files in `assets/`, wire loaders, test in browser (section 7)
-- [ ] 8. Fill in the asset log (section 8)
-- [ ] 9. Rest of the mine props (section 6)
-
-## 10. Common mistakes to avoid
-- Downloading a model with a **restrictive licence** (NC / ND) — skip it.
-- Huge models (>50k tris or 4K textures) — will hurt lab machines.
-- Different skeletons per fighter — you'd have to retarget animations.
-- Forgetting to make the **helmet a separate node**.
-- Uppercase filenames or spaces — breaks after hosting.
-- Not logging the source — credits are a never-cut deliverable.
+- Create/inspect the production archive so `index.html` is at its top level; upload it through Moodle.
+- Open the published URL in Chrome and play from Level 1 through Level 3, checking the console for missing assets.
+- Record lab-hardware frame rate and memory across all levels.
+- Upload the trailer (maximum two minutes) to YouTube, submit the devlog video, and have each team member submit their individual contribution report.

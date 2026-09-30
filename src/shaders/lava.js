@@ -24,6 +24,8 @@ const fragment = /* glsl */ `
   uniform float uTime;
   uniform float uRepeat;
   uniform float uGlow;
+  uniform vec3 uHeatTint;
+  uniform float uTintHeat;
   varying vec2 vUv;
   varying float vSwell;
 
@@ -37,7 +39,9 @@ const fragment = /* glsl */ `
 
     float pulse = 0.85 + 0.25 * sin(uTime * 1.3 + vSwell * 3.0);
     vec3 col = mix(colA, colB, 0.5) * 0.55;
-    vec3 glow = max(emA, emB) * uGlow * pulse;
+    vec3 emission = max(emA, emB);
+    float heat = dot(emission, vec3(0.299, 0.587, 0.114));
+    vec3 glow = mix(emission, uHeatTint * heat, uTintHeat) * uGlow * pulse;
     gl_FragColor = vec4(col + glow, 1.0);
 
     #include <tonemapping_fragment>
@@ -45,7 +49,7 @@ const fragment = /* glsl */ `
   }
 `;
 
-export function createLavaMaterial({ color, emission, repeat = 8, glow = 1.6 }) {
+export function createLavaMaterial({ color, emission, repeat = 8, glow = 1.6, tint = null }) {
   for (const t of [color, emission]) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
   }
@@ -58,6 +62,8 @@ export function createLavaMaterial({ color, emission, repeat = 8, glow = 1.6 }) 
       uTime: { value: 0 },
       uRepeat: { value: repeat },
       uGlow: { value: glow },
+      uHeatTint: { value: new THREE.Color(tint ?? 0xffffff) },
+      uTintHeat: { value: tint === null ? 0 : 1 },
     },
   });
 }

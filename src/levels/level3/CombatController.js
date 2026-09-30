@@ -10,17 +10,15 @@ import { Fighter } from './Fighter.js';
  * in the shared GameState (state.health / state.stamina), not here.
  *
  * Controls (shared Input actions): forward/back/left/right move, attack =
- * light, light, heavy finisher; dodge = roll; block (hold) / parry (tap just
- * before impact); ability = the Key slow-mo; lockOn toggles camera + strafing.
+ * jab, hook, heavy finisher; dodge = roll; block (hold) / parry (tap just
+ * before impact); ability = the Key's short slow-motion pulse.
  */
 const ATTACKS = [
-  { clip: 'punch', speed: 1.7, windup: 0.13, active: 0.12, total: 0.5, damage: 14, stamina: 10, lunge: 3.2 },
-  { clip: 'punch', speed: 1.9, windup: 0.11, active: 0.12, total: 0.46, damage: 14, stamina: 10, lunge: 3.2 },
-  { clip: 'swordslash', speed: 1.3, windup: 0.22, active: 0.14, total: 0.75, damage: 30, stamina: 20, lunge: 4.5 },
+  { clip: 'body-jab-cross', fallback: 'punch', speed: 1.35, windup: 0.16, active: 0.13, total: 0.58, damage: 13, stamina: 9, lunge: 2.6 },
+  { clip: 'hook-punch', fallback: 'swordslash', speed: 1.15, windup: 0.2, active: 0.15, total: 0.66, damage: 16, stamina: 11, lunge: 2.9 },
+  { clip: 'combo-punch', fallback: 'heavy', speed: 1.05, windup: 0.3, active: 0.17, total: 0.88, damage: 26, stamina: 18, lunge: 3.5 },
 ];
-const PARRY_WINDOW = 0.28;
-const ARENA_LIMIT = 12.6;
-
+const PARRY_WINDOW = 0.34;
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
   if (d > Math.PI) d -= Math.PI * 2;
@@ -29,10 +27,10 @@ function shortestAngle(from, to) {
 }
 
 export class CombatController {
-  constructor(parent, source) {
-    this.fighter = new Fighter(parent, { source, capsuleColor: 0xdfe8ee });
+  constructor(parent, source, options = {}) {
+    this.fighter = new Fighter(parent, { source, capsuleColor: 0xdfe8ee, ...options });
     this.root = this.fighter.root;
-    this.root.position.set(0, 0, 5);
+    this.root.position.set(0, 0, 3.2);
 
     this.heading = Math.PI; // faces the boss at the start (boss spawns at -z)
     this.moveSpeed = 5.6;
@@ -164,15 +162,7 @@ export class CombatController {
     this.heading += shortestAngle(this.heading, wantHeading) * (1 - Math.exp(-16 * dt));
     this.root.rotation.y = this.heading;
 
-    // ---- keep inside the platform ----
-    const r = Math.hypot(this.root.position.x, this.root.position.z);
-    if (r > ARENA_LIMIT) {
-      const k = ARENA_LIMIT / r;
-      this.root.position.x *= k;
-      this.root.position.z *= k;
-    }
-
-    // ---- the Key: slow-mo pulse ----
+    // ---- the Key: brief slow motion, then a nine-second recharge ----
     if (this.abilityCD > 0) this.abilityCD -= dt;
     if (input.pressed('ability') && this.abilityCD <= 0) {
       this.abilityCD = 9;
@@ -182,9 +172,11 @@ export class CombatController {
     if (this.abilityActive) this.abilityT -= dt;
 
     // ---- animation ----
-    f.setLean(this.blocking ? -0.32 : 0);
+    f.setLean(this.blocking ? -0.18 : 0);
+    f.setGuard(this.blocking);
     if (!this.attacking) {
-      if (this.dodging) f.play('run', { speed: 1.6 });
+      if (this.blocking && f.hasClip('block')) f.play('block');
+      else if (this.dodging) f.play('run', { speed: 1.15 });
       else if (moving) f.play('run', { speed: this.blocking ? 0.6 : 1 });
       else f.play('idle');
     }
@@ -199,7 +191,8 @@ export class CombatController {
     this._hitConsumed = false;
     this.attackDamage = a.damage;
     this.nextCombo = (this.nextCombo + 1) % ATTACKS.length;
-    this.fighter.playOnce(a.clip, { speed: a.speed });
+    const clip = this.fighter.hasClip(a.clip) ? a.clip : a.fallback;
+    this.fighter.playOnce(clip, { speed: a.speed });
   }
 
   /** True once per swing, the first frame the hit is active. */

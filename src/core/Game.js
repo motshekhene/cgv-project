@@ -41,6 +41,11 @@ export class Game {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.domElement.tabIndex = 0;
+    this.renderer.domElement.setAttribute(
+      "aria-label",
+      "Blackout Protocol game scene. Use WASD to move, left mouse to attack, right mouse to guard, and Space to dodge.",
+    );
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -94,6 +99,7 @@ export class Game {
 
   /** Same level, fresh state, no page reload. */
   restart() {
+    this.setPaused(false);
     return this.setLevel(this.levelName);
   }
 

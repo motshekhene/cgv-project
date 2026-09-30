@@ -4,38 +4,51 @@ import { Fighter } from './Fighter.js';
 /**
  * HandlerBoss — the three-phase boss (Member 3A).
  *
- * Phases are health-gated and each fights differently:
- *   PURSUIT      lunge only
- *   STAND        lunge + sweep (helmet comes off on entry)
- *   DESPERATION  sweep + 2-hit combo + lunge, faster
- * Every attack telegraphs with its own colour: orange = lunge (dodge or block),
- * red = sweep (dodge — block only half-works), purple = combo (two hits).
- * A well-timed parry staggers him and opens a damage window.
+ * Phases are health-gated. The Handler closes distance with readable jabs and
+ * crosses, shifts to hooks/sweeps after the helmet comes off, and ends with
+ * short combinations and heavy strikes while the mine floor gives way.
+ * Windups are communicated through stance and sound, never a glowing body.
  *
  * He never touches the player: when a strike connects he calls onStrike() and
  * Level03 answers 'hit' | 'blocked' | 'parried' | 'dodged'.
  */
 const PHASES = [
-  { name: 'PURSUIT', speed: 4.2, attacks: ['lunge'], pace: 1.0, rest: [0.5, 0.9] },
-  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.35, 0.7] },
-  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge'], pace: 0.64, rest: [0.2, 0.45] },
+  { name: 'PURSUIT', speed: 3.55, attacks: ['jab', 'cross', 'rush'], pace: 1.0, rest: [1.1, 1.45] },
+  { name: 'STAND', speed: 4.1, attacks: ['hook', 'sweep', 'combination', 'rush'], pace: 0.96, rest: [0.72, 1.0] },
+  { name: 'DESPERATION', speed: 5.0, attacks: ['combination', 'hammer', 'hook', 'sweep'], pace: 0.9, rest: [0.52, 0.78] },
 ];
 
 const ATTACKS = {
-  lunge: {
-    tell: 0xff7a1a, telegraph: 0.85, recover: 0.95, engage: 5.2, clip: 'punch', clipSpeed: 2.6,
-    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 14 }],
+  jab: {
+    telegraph: 0.82, recover: 1.0, engage: 3.7, clips: ['body-jab-cross'], clipSpeed: 1.14, lean: -0.16,
+    hits: [{ dur: 0.22, move: 6.4, reach: 1.75, damage: 8 }],
+  },
+  cross: {
+    telegraph: 0.92, recover: 1.05, engage: 4.5, clips: ['hook-punch'], clipSpeed: 1.02, lean: -0.2,
+    hits: [{ dur: 0.24, move: 5.8, reach: 1.9, damage: 11 }],
+  },
+  rush: {
+    telegraph: 1.0, recover: 1.15, engage: 6.2, clips: ['body-jab-cross'], clipSpeed: 1.1, lean: -0.27,
+    hits: [{ dur: 0.31, move: 10.4, reach: 2.0, damage: 13 }],
+  },
+  hook: {
+    telegraph: 0.82, recover: 1.0, engage: 3.5, clips: ['hook-punch'], clipSpeed: 0.96, lean: -0.22,
+    hits: [{ dur: 0.34, move: 0.7, radius: 2.5, damage: 15 }],
   },
   sweep: {
-    tell: 0xff1133, telegraph: 1.0, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
-    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 18 }],
+    telegraph: 0.92, recover: 1.1, engage: 3.15, clips: ['standing-melee-punch'], clipSpeed: 1.04, lean: -0.2, blockMul: 0.58,
+    hits: [{ dur: 0.38, move: 0, radius: 2.95, damage: 17 }],
   },
-  combo: {
-    tell: 0xb04dff, telegraph: 0.7, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
+  combination: {
+    telegraph: 0.84, recover: 1.1, engage: 3.7, clips: ['body-jab-cross', 'hook-punch'], clipSpeed: 1.08, lean: -0.16,
     hits: [
-      { dur: 0.26, move: 9, reach: 2.0, damage: 11 },
-      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 11 },
+      { dur: 0.21, move: 5.2, reach: 1.85, damage: 10 },
+      { gap: 0.2, dur: 0.3, move: 1.2, radius: 2.35, damage: 12 },
     ],
+  },
+  hammer: {
+    telegraph: 1.04, recover: 1.2, engage: 3.55, clips: ['combo-punch'], clipSpeed: 0.95, lean: -0.3, blockMul: 0.7,
+    hits: [{ dur: 0.42, move: 1.4, radius: 2.4, damage: 20 }],
   },
 };
 
@@ -43,13 +56,12 @@ const STAGGER_TIME = 1.7;
 const TRANSITION_TIME = 1.5;
 
 export class HandlerBoss {
-  constructor(parent, target, source) {
+  constructor(parent, target, source, { extraClips = [], aliases = {}, modelHeightUnits = null } = {}) {
     this.target = target;
     this.levelRoot = parent;
-    this.fighter = new Fighter(parent, { source, capsuleColor: 0xff5533 });
-    for (const m of this.fighter.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a0808);
+    this.fighter = new Fighter(parent, { source, capsuleColor: 0xff5533, extraClips, aliases, modelHeightUnits });
     this.root = this.fighter.root;
-    this.root.position.set(0, 0, -6.5);
+    this.root.position.set(0, 0, -3.6);
     this.root.rotation.y = 0;
 
     this.maxHealth = 320;
@@ -63,10 +75,12 @@ export class HandlerBoss {
     this.hitIndex = 0;
     this.hitT = 0;
     this.hitResolved = false;
-    this.restFor = 0;
+    // Give the player a moment to read the arena and the first encounter card.
+    this.restFor = 2.05;
     this.strikeDir = new THREE.Vector3(0, 0, 1);
     this.heading = 0;
     this.staggered = false;
+    this.staggerDuration = STAGGER_TIME;
     this.flying = null; // the helmet, once it comes off
 
     this.onStrike = null;
@@ -88,32 +102,70 @@ export class HandlerBoss {
   }
 
   _attachHelmet() {
+    // The downloaded Vanguard rig has a separate skinned visor. Detach that
+    // actual model part on phase two; keep a fallback for other rigs.
+    const visor = this.fighter.findMesh(/visor|helmet/i);
+    if (visor) {
+      this.helmet = visor;
+      return;
+    }
     const helmet = new THREE.Mesh(
-      new THREE.SphereGeometry(0.42, 18, 14),
-      new THREE.MeshStandardMaterial({ color: 0x0c0c10, metalness: 0.75, roughness: 0.28 }),
+      new THREE.SphereGeometry(0.36, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0x15191d, metalness: 0.48, roughness: 0.42 }),
     );
-    helmet.scale.set(1, 1.15, 1.05);
+    helmet.scale.set(1, 0.8, 1.05);
     helmet.castShadow = true;
     this.helmet = helmet;
-    let head = null;
-    this.fighter.pivot.traverse((o) => {
-      if (o.isBone && o.name === 'Head') head = o;
-    });
+    const head = this.fighter.findBone(/head$/i);
     if (head) {
-      helmet.position.set(0, 0.28, 0.03);
+      helmet.position.set(0, 0.14, 0.02);
       head.add(helmet);
     } else {
-      helmet.scale.setScalar(0.22);
-      helmet.position.y = 0.95;
+      helmet.position.y = 1.62;
       this.fighter.pivot.add(helmet);
     }
   }
 
   _popHelmet() {
     if (!this.helmet) return;
-    this.levelRoot.attach(this.helmet);
+    let flyingMesh = this.helmet;
+    if (flyingMesh.isSkinnedMesh) {
+      // Bake the current posed visor into a static mesh before throwing it;
+      // this prevents it from remaining bound to the Handler's moving skeleton.
+      flyingMesh.updateMatrixWorld(true);
+      const geometry = flyingMesh.geometry.clone();
+      const positions = geometry.attributes.position;
+      const vertex = new THREE.Vector3();
+      for (let i = 0; i < positions.count; i++) {
+        vertex.fromBufferAttribute(positions, i);
+        flyingMesh.applyBoneTransform(i, vertex);
+        flyingMesh.localToWorld(vertex);
+        positions.setXYZ(i, vertex.x, vertex.y, vertex.z);
+      }
+      positions.needsUpdate = true;
+      geometry.computeVertexNormals();
+      const source = Array.isArray(flyingMesh.material) ? flyingMesh.material : [flyingMesh.material];
+      const materials = source.map((material) => {
+        const copy = material.clone();
+        for (const key of Object.keys(copy)) {
+          if (copy[key]?.isTexture) copy[key] = copy[key].clone();
+        }
+        return copy;
+      });
+      flyingMesh.visible = false;
+      flyingMesh = new THREE.Mesh(
+        geometry,
+        Array.isArray(flyingMesh.material) ? materials : materials[0],
+      );
+      flyingMesh.castShadow = true;
+      flyingMesh.receiveShadow = true;
+      this.levelRoot.add(flyingMesh);
+    } else {
+      this.levelRoot.attach(flyingMesh);
+    }
+
     this.flying = {
-      mesh: this.helmet,
+      mesh: flyingMesh,
       vel: new THREE.Vector3((Math.random() - 0.5) * 3, 5.5, (Math.random() - 0.5) * 3),
       spin: new THREE.Vector3(6, 4, 8),
       life: 2.2,
@@ -143,8 +195,8 @@ export class HandlerBoss {
 
     if (this.health <= 0) {
       this.state = 'DOWN';
-      this.fighter.setGlow(0, 0);
       this.fighter.setLean(0);
+      this.fighter.setGuard(false);
       this.fighter.playOnce('death', { fade: 0.1 });
       if (this.onDefeated) this.onDefeated();
       return dealt;
@@ -168,12 +220,13 @@ export class HandlerBoss {
   }
 
   /** Called by Level03 when a strike was parried. */
-  stagger() {
+  stagger(duration = STAGGER_TIME) {
     this._enter('STAGGER');
     this.hitIndex = 0;
-    this.fighter.setGlow(0xffd23a, 1.4);
-    this.fighter.setLean(0.35);
-    this.fighter.play('idle');
+    this.staggerDuration = duration;
+    this.fighter.setGuard(false);
+    this.fighter.setLean(0.16);
+    this.fighter.flinch();
   }
 
   update(dt) {
@@ -186,8 +239,8 @@ export class HandlerBoss {
 
     if (this.target.dead) {
       f.play('idle');
-      f.setGlow(0, 0);
       f.setLean(0);
+      f.setGuard(false);
       f.update(dt);
       return { dist: 0, state: 'IDLE', phase: this.phase.name };
     }
@@ -212,7 +265,7 @@ export class HandlerBoss {
       case 'APPROACH': {
         face(9);
         f.setLean(0);
-        f.setGlow(0, 0);
+        f.setGuard(false);
         if (this.restFor > 0) {
           this.restFor -= dt;
           f.play('idle');
@@ -227,10 +280,9 @@ export class HandlerBoss {
       case 'TELEGRAPH': {
         const dur = atk.telegraph * p.pace;
         if (this.t < dur * 0.75) face(6);
-        f.play('idle', { speed: 1.5 });
-        f.setLean(-0.3);
-        const pulse = 1.1 + Math.sin(this.t * 18) * 0.5;
-        f.setGlow(atk.tell, pulse);
+        f.play('fight-idle', { speed: 0.92 });
+        f.setLean(atk.lean ?? -0.16);
+        f.setGuard(this.attackName === 'hook' || this.attackName === 'sweep' || this.attackName === 'hammer');
         if (this.t >= dur) {
           this.strikeDir.copy(dir);
           this.hitIndex = 0;
@@ -245,7 +297,8 @@ export class HandlerBoss {
         if (this.hitT >= (hit.gap || 0)) {
           if (!this.hitStarted) {
             this.hitStarted = true;
-            f.playOnce(atk.clip, { speed: atk.clipSpeed });
+            const clip = atk.clips?.[this.hitIndex] || atk.clips?.[0] || 'punch';
+            f.playOnce(f.hasClip(clip) ? clip : 'punch', { speed: atk.clipSpeed });
           }
           const k = this.hitT - (hit.gap || 0);
           if (hit.move) this.root.position.addScaledVector(this.strikeDir, hit.move * dt);
@@ -263,8 +316,8 @@ export class HandlerBoss {
       }
       case 'RECOVER': {
         f.play('idle');
-        f.setLean(0.1);
-        f.setGlow(0, 0);
+        f.setLean(0);
+        f.setGuard(false);
         if (this.t >= atk.recover * p.pace) {
           this._pickAttack();
           this.restFor = p.rest[0] + Math.random() * (p.rest[1] - p.rest[0]);
@@ -273,9 +326,8 @@ export class HandlerBoss {
         break;
       }
       case 'STAGGER': {
-        f.play('idle', { speed: 0.5 });
-        if (this.t >= STAGGER_TIME) {
-          f.setGlow(0, 0);
+        if (this.t >= this.staggerDuration) {
+          f.setLean(0);
           this.restFor = 0.3;
           this._enter('APPROACH');
         }
@@ -283,10 +335,11 @@ export class HandlerBoss {
       }
       case 'TRANSITION': {
         f.play('idle');
-        f.setLean(-0.2);
-        f.setGlow(0xff9a55, 0.8 + Math.sin(this.t * 14) * 0.3);
+        f.setLean(-0.12);
+        f.setGuard(true);
         if (this.t >= TRANSITION_TIME) {
-          f.setGlow(0, 0);
+          f.setLean(0);
+          f.setGuard(false);
           this.restFor = 0.4;
           this._enter('APPROACH');
         }
@@ -294,12 +347,6 @@ export class HandlerBoss {
       }
     }
 
-    const r = Math.hypot(this.root.position.x, this.root.position.z);
-    if (r > 13.4) {
-      const k = 13.4 / r;
-      this.root.position.x *= k;
-      this.root.position.z *= k;
-    }
     this.root.rotation.y = this.heading;
     f.update(dt);
     return { dist, state: this.state, phase: p.name };
@@ -314,7 +361,9 @@ export class HandlerBoss {
 
   _resolve(hit, atk, dist, k) {
     if (this.hitResolved) return;
-    const inRange = hit.radius ? k > 0.1 && dist <= hit.radius : dist <= hit.reach;
+    const target = this.target.root.position;
+    const currentDistance = Math.hypot(target.x - this.root.position.x, target.z - this.root.position.z);
+    const inRange = hit.radius ? k > 0.1 && currentDistance <= hit.radius : currentDistance <= hit.reach;
     if (!inRange) return;
     this.hitResolved = true;
     if (!this.onStrike) return;
