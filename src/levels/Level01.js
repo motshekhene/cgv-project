@@ -1,62 +1,38 @@
 import * as THREE from "three";
 import { Level } from "../core/Level.js";
-import { createSpeedWarpMaterial, updateSpeedWarp } from "../shaders/speedWarpShader.js";
+import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { createSubwayMaterials } from "./level1/subwayTextures.js";
+import {
+  loadJungleKit,
+  createJungleMaterials,
+  buildTrailBase,
+  updateTrailChunks,
+  createJungleSky,
+  createSign,
+  createLightShaft,
+  createPollen,
+  cloneProp,
+  makeJungleObstacle,
+} from "./level1/jungleWorld.js";
 
 /**
- * Level 01 — Downline.
+ * Level 01 — The Trail (Jungle Shrine theme).
  *
- * @1A: your player rig, lane logic, jump physics and camera pivot are
- * untouched below — I only replaced the placeholder tunnel and lighting
- * with the real subway art, and added obstacles / the security gate /
- * the service-vehicle handoff to Level 2, plus Shader 1 (speed-warp)
- * and the audio layer that were on my list.
+ * Member 1B owns the environment layer here: world art, lighting/fog,
+ * textured materials, Shader 1, atmosphere/audio, obstacle visuals, the
+ * collapsing ruin gate and the Level 2 logging-camp handoff.
  *
- * What changed vs. the shell:
- *   floorMat / wallMat        → real materials + the speed-warp ShaderMaterial on walls
- *   colour-only materials     → procedural albedo/normal/roughness maps (level1/subwayTextures.js)
- *   constant speed            → baseSpeed ramps with distance + boost/stamina, so Shader 1 sweeps
- *   static security gate      → Interlude I slam: telegraph strobe, fall, impact, sting, camera shake
- *   the slam was off-screen   → the camera takes itself and swings round to watch it land
- *   fixed chase camera        → input.lookBack (mouse2 / C) orbits the camera to face the way he came
- *   the Handler vanished at the seal → he runs up to the bars, hits them, and stays there lit
- *   the seal only held if he was 3 m back → the bars now come down between them at ANY gap
- *   one long linear speed creep → four gears: slow / medium / fast / super fast
- *   reaching the vehicle froze the game → it hands off to level 02 (Redline) and the chase continues
- *   (nothing)                 → the southbound: an oncoming train filling two of three lanes. Instant loss.
- *   obstacles were scenery    → clipping one stumbles Kai and hands the Handler three metres
- *   4 hand-placed barriers    → ~80 seeded placements of the three kinds the pitch names
- *   no pursuer                → the Handler: 15 m head start, constant-speed follower, fail state at 0
- *   600 m of tunnel (32 s)    → 3.4 km and a ~3 min clean run, with strips/lights/obstacles pooled
- *   ran off the end of the world → reaching the service vehicle ends the level
- *   single directional light  → hemi + key + a few point lights (emergency strips) + fog tuned cyan
- *   (nothing)                 → pipes, platform ledge, ticket-barrier obstacles, security gate, service bay
- *   (nothing)                 → AudioSystem: ambience, footsteps tied to stride, gate/train stings
+ * Member 1A's controller contract is intentionally preserved: three lanes,
+ * jump, slide, boost/stamina, chase camera, look-back camera, distance-based
+ * Handler gap and the three-metre penalty for clipping an obstacle. The old
+ * internal obstacle keys (barrier/trolley/duct) remain only so that collision
+ * code does not need to change; visually they are a fallen log, a boulder /
+ * broken column and a low ruined arch.
  *
- * Level 01's economy comes straight off the pitch: "the only currency is
- * distance", "every clipped barrier hands him three metres", and the health
- * bar does not appear until level 02. So nothing here calls state.damage() —
- * mistakes are paid for in metres of gap.
- *
- * The southbound is the one exception, and the pitch is explicit about why:
- * "HE CATCHES YOU, OR THE SOUTHBOUND DOES". A train is not a mistake you pay
- * three metres for, so it ends the run outright. state.failCause says which of
- * the two got you.
- *
- * @1A the slide is implemented here. input.slide was already bound in
- * Input.js but nothing read it, and the ceiling ducts below are impossible
- * without it while Player.js is still empty. It is deliberately one flag and
- * one timer in update(), so lift it straight out when you build the real
- * controller — nothing else depends on where it lives.
- *
- * this.finished is set on both outcomes, and NOTHING IN Game._frame() READS IT.
- * That no longer matters for the win — reaching the vehicle now calls
- * game.setLevel('level02') itself, so the run continues into Redline instead of
- * freezing on a box. It still matters for the LOSS: being caught stops Kai and
- * sets state.alive = false, but nothing draws a fail screen, so R (Game's own
- * restart binding) is currently the only way out. That hook is shared-systems
- * work, not Level 01's.
+ * The selected Jungle Shrine asset bundle lives under assets/jungle and is
+ * loaded through AssetRegistry. FBX props are converted to matte PBR materials
+ * in level1/jungleWorld.js, while the trail and forest floor use the supplied
+ * normal/roughness texture sets.
  */
 const LANE_X = [-2.4, 0, 2.4];
 
@@ -243,20 +219,18 @@ const CLIP_PAD_X = PLAYER_RADIUS; // added to each kind's own half-extent
 const CLIP_PAD_Z = PLAYER_RADIUS;
 
 /**
- * The three kinds the pitch names for level 01, and what each one asks of you.
- * Each carries its own collision band so _clipObstacles() stays generic.
- *
- *   barrier  ticket barrier — jump it, or change lane
- *   trolley  luggage trolley — lane only. A jump apex of 9.2^2 / (2*24) =
- *            1.76 m lifts Kai's feet to 2.07, so 2.2 m tall is deliberately
- *            just out of reach: it must not be jumpable.
- *   duct     ceiling duct — spans the full tunnel width, so no lane helps and
- *            the only answer is to slide. This is the one that teaches CTRL.
+ * Jungle Shrine obstacle collision bands. Internal keys are kept for
+ * compatibility with 1A's existing collision code:
+ *   barrier -> fallen log: jump or change lane
+ *   trolley -> boulder / broken column: change lane
+ *   duct    -> low ruined arch: slide
  */
 const OBSTACLE_KINDS = {
-  barrier: { halfX: 0.5, halfZ: 0.2, loY: 0, hiY: 1.0, size: [1, 1, 0.4], meshY: 0.5 },
-  trolley: { halfX: 0.6, halfZ: 0.45, loY: 0, hiY: 2.2, size: [1.2, 2.2, 0.9], meshY: 1.1 },
-  duct: { halfX: 6, halfZ: 0.35, loY: 1.5, hiY: 6.75, size: [11.8, 5.25, 0.7], meshY: 4.125 },
+  // Internal names stay unchanged so 1A's collision/controller code is untouched.
+  // Visually these are Jungle Shrine hazards: log, boulder/column and low arch.
+  barrier: { halfX: 0.72, halfZ: 0.45, loY: 0, hiY: 0.95, meshY: 0 },
+  trolley: { halfX: 0.72, halfZ: 0.62, loY: 0, hiY: 2.25, meshY: 0 },
+  duct: { halfX: 3.8, halfZ: 0.5, loY: 1.05, hiY: 5.2, meshY: 0 },
 };
 
 // --- obstacle placement ---
@@ -379,40 +353,39 @@ export class Level01 extends Level {
     this._strideInterval = 1.6;
   }
 
-  init(scene, assets, input, state) {
+  async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
-    scene.background = new THREE.Color(0x05070d);
-    // cold cyan emergency-light haze, closes down visibility a bit faster
-    // than the shell's fog so the tunnel reads as claustrophobic
-    scene.fog = new THREE.Fog(0x061013, 35, 165);
+    scene.background = new THREE.Color(0xcfd6a8);
+    scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014);
+    this.root.add(createJungleSky());
 
-    const hemi = new THREE.HemisphereLight(0x4e8fa6, 0x121a26, 1.15);
+    const hemi = new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6);
     this.root.add(hemi);
 
-    this.key = new THREE.DirectionalLight(0xbfe6ff, 1.35);
+    this.key = new THREE.DirectionalLight(0xffd29a, 4.5);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(1024, 1024);
-    this.key.shadow.camera.left = -14;
-    this.key.shadow.camera.right = 14;
-    this.key.shadow.camera.top = 14;
-    this.key.shadow.camera.bottom = -14;
+    this.key.shadow.camera.left = -16;
+    this.key.shadow.camera.right = 16;
+    this.key.shadow.camera.top = 16;
+    this.key.shadow.camera.bottom = -16;
+    this.key.shadow.camera.near = 1;
+    this.key.shadow.camera.far = 130;
     this.root.add(this.key, this.key.target);
 
-    // one set of procedurally generated materials shared by the builders below,
-    // tiled for this level's runway rather than the shell's original 600 m
-    const mats = createSubwayMaterials({ tunnelLength: TUNNEL_LENGTH });
+    this._jungleKit = await loadJungleKit(assets);
+    const mats = await createJungleMaterials(assets, TUNNEL_LENGTH);
+    this._jungleMats = mats;
     this._buildTunnel(mats);
-    // trains before obstacles: _buildTrain plans where the southbounds are
-    // dispatched, and the course generator deletes placements inside those
-    // windows so a train is never stacked on a barrier
-    this._buildTrain(mats);
+    this._trainEvents = [];
+    this._trainActive = false;
     this._buildObstacles(mats);
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
     this._buildHandler();
 
-    // the player rig — camera hangs off a pivot on the rig, never on the mesh
+    // Player/camera hierarchy remains 1A-owned and is deliberately unchanged.
     this.player = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.34, 0.8, 4, 10),
@@ -420,7 +393,7 @@ export class Level01 extends Level {
     );
     body.position.y = 1.05;
     body.castShadow = true;
-    this.body = body; // the slide squashes this, so keep the handle
+    this.body = body;
     this.player.add(body);
 
     this.camPivot = new THREE.Object3D();
@@ -429,178 +402,91 @@ export class Level01 extends Level {
     this.root.add(this.player);
 
     this._tmp = new THREE.Vector3();
-    // look target scratch: the forward aim point, and the one behind him it
-    // blends toward during a look-back
     this._tmpAim = new THREE.Vector3();
     this._tmpBack = new THREE.Vector3();
-
-    // the boost FOV kick writes to the shared camera, so remember the value
-    // Game set and hand it back in teardown()
     this._baseFov = this.game && this.game.camera ? this.game.camera.fov : 62;
-
-    // Audio listener needs the active camera, which Game.js owns. If
-    // this.game.camera isn't set yet at this point, update() will pick
-    // it up on the first frame instead — see _ensureAudio().
     this._ensureAudio();
   }
 
-  /** Builds the real subway art: walls (speed-warp shader), floor, ceiling, platform edge, pipes, strip lights. */
   _buildTunnel(mats) {
-    // Shader 1 still owns the walls — now sampling a procedural glazed-tile
-    // map instead of flat colour. mapRepeat does the tiling, because a raw
-    // ShaderMaterial ignores texture.repeat; one repeat is 4 m of tunnel
-    // length × 2.8 m of wall height.
-    this.wallMaterial = createSpeedWarpMaterial({
-      map: mats.wallMap,
-      mapRepeat: [MAP_REPEAT_Z, 2.5],
-      baseColor: 0xffffff, // white tint — the tile texture carries the colour
-      streakColor: 0x6be2ff,
+    const world = buildTrailBase(this.root, this._jungleKit, mats, {
+      length: TUNNEL_LENGTH,
+      centerZ: SHELL_CENTER_Z,
     });
+    this.floor = world.trail;
+    this._trailChunks = world.chunks;
 
-    // The shell itself is four long boxes — about 40 vertices for the whole
-    // 3.4 km — so there is nothing to gain from chunking it. Only the repeated
-    // detail below is worth pooling.
-    const floorGeo = new THREE.BoxGeometry(12, 0.4, TUNNEL_LENGTH);
-    this.floor = new THREE.Mesh(floorGeo, mats.floorMat);
-    this.floor.position.set(0, -0.2, SHELL_CENTER_Z);
-    this.floor.receiveShadow = true;
-    this.root.add(this.floor);
-
-    const wallGeo = new THREE.BoxGeometry(1, 7, TUNNEL_LENGTH);
-    for (const side of [-1, 1]) {
-      const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
-      wall.position.set(side * 6.2, 3.3, SHELL_CENTER_Z);
-      wall.receiveShadow = true;
-      this.root.add(wall);
+    const signs = [
+      [-2.7, -72, "SITE 7 →"],
+      [2.8, -1120, "SITE 7 →"],
+      [-2.8, -2240, "SITE 7 →"],
+    ];
+    for (const [x, z, text] of signs) {
+      const sign = createSign(text);
+      sign.position.set(x, 0, z);
+      sign.rotation.y = x < 0 ? 0.12 : -0.12;
+      this.root.add(sign);
     }
 
-    const ceiling = new THREE.Mesh(
-      new THREE.BoxGeometry(12.4, 0.3, TUNNEL_LENGTH),
-      mats.ceilingMat,
-    );
-    ceiling.position.set(0, 6.9, SHELL_CENTER_Z);
-    this.root.add(ceiling);
-
-    // raised platform ledge, one side, outside the playable lanes —
-    // its texture carries the worn yellow safety line along the track edge
-    const platform = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 0.5, TUNNEL_LENGTH),
-      mats.platformMat,
-    );
-    platform.position.set(-5.3, 0.05, SHELL_CENTER_Z);
-    platform.receiveShadow = true;
-    platform.castShadow = true;
-    this.root.add(platform);
-
-    // overhead pipes, other side — rust-streaked, with weld seams every 4 m
-    const pipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.15, TUNNEL_LENGTH, 8),
-      mats.pipeMat,
-    );
-    pipe.rotation.x = Math.PI / 2;
-    pipe.position.set(5.5, 5.9, SHELL_CENTER_Z);
-    pipe.castShadow = true;
-    this.root.add(pipe);
-
-    // Emergency strips: unlit emissive-look meshes + real point lights every
-    // third one, so the tunnel is actually lit by them instead of just showing
-    // bright rectangles. A fixed pool leapfrogs ahead of Kai in
-    // _updateTunnelDetail(), so the light and draw-call count is the same at
-    // 3 km as it was at 200 m. One shared geometry, one shared material.
-    const stripMat = new THREE.MeshBasicMaterial({ color: 0xcfefff });
-    const stripGeo = new THREE.BoxGeometry(2.6, 0.1, 0.6);
-    this._strips = [];
-    this.stripLights = [];
-    for (let i = 0; i < STRIP_POOL; i++) {
-      const strip = new THREE.Mesh(stripGeo, stripMat);
-      strip.position.set(0, 6.3, 0);
-      this.root.add(strip);
-      this._strips.push(strip);
+    this.speedWarpMaterial = createJungleSpeedWarpMaterial();
+    this._speedWarpGroup = new THREE.Group();
+    const ribbonGeo = new THREE.PlaneGeometry(1.6, 220);
+    for (const x of [-3.15, 3.15]) {
+      const ribbon = new THREE.Mesh(ribbonGeo, this.speedWarpMaterial);
+      ribbon.rotation.x = -Math.PI / 2;
+      ribbon.position.set(x, 0.035, -90);
+      this._speedWarpGroup.add(ribbon);
     }
-    for (let i = 0; i < STRIP_LIGHT_POOL; i++) {
-      const point = new THREE.PointLight(0x6be2ff, 1.1, 14, 2);
-      point.position.set(0, 6.0, 0);
-      this.root.add(point);
-      this.stripLights.push(point);
+    this.root.add(this._speedWarpGroup);
+
+    this._shaftGroup = new THREE.Group();
+    for (const [x, z, width] of [[-1.3, -15, 1.6], [2.4, -52, 2.1], [-2.5, -92, 1.8]]) {
+      const shaft = createLightShaft(width);
+      shaft.position.set(x, 28, z);
+      this._shaftGroup.add(shaft);
     }
+    this.root.add(this._shaftGroup);
+
+    this._pollen = createPollen(500);
+    this.root.add(this._pollen);
   }
 
-  /**
-   * Slides the strip pool along so it always straddles Kai. Each pooled mesh
-   * takes the strip "slot" (a fixed 20 m grid in world space) at its index,
-   * and the lights go to whichever visible slots are multiples of three — keyed
-   * off the slot rather than the pool index, so the lit pattern stays put in
-   * the world instead of strobing as the pool rotates.
-   */
   _updateTunnelDetail(pulse) {
-    const startSlot = Math.floor((-this.z - STRIP_BEHIND) / STRIP_SPACING);
-    let lit = 0;
-
-    for (let k = 0; k < this._strips.length; k++) {
-      const slot = startSlot + k;
-      const z = -slot * STRIP_SPACING;
-      const strip = this._strips[k];
-      const inside = z <= TUNNEL_START_Z && z >= TUNNEL_END_Z;
-      strip.visible = inside;
-      if (!inside) continue;
-      strip.position.z = z;
-
-      if (slot % 3 === 0 && lit < this.stripLights.length) {
-        const light = this.stripLights[lit++];
-        light.position.z = z;
-        light.visible = true;
-        light.intensity = 1.1 * pulse;
+    updateTrailChunks(this._trailChunks, this.z, 30);
+    if (this._speedWarpGroup) this._speedWarpGroup.position.z = this.z;
+    if (this._shaftGroup) {
+      this._shaftGroup.position.z = this.z - 18;
+      for (const shaft of this._shaftGroup.children) {
+        if (shaft.material?.uniforms?.uOpacity) {
+          shaft.material.uniforms.uOpacity.value = 0.11 + (pulse - 0.85) * 0.05;
+        }
       }
     }
-
-    // park anything the window didn't need; three.js skips invisible lights
-    for (let i = lit; i < this.stripLights.length; i++) this.stripLights[i].visible = false;
+    if (this._pollen) {
+      this._pollen.position.z = this.z - 48;
+      this._pollen.rotation.y += 0.0008;
+    }
   }
 
-  /**
-   * Lays out the course. Two separate things live here:
-   *
-   *   this.obstacles      plain data, and the sole authority for collision.
-   *                       Sorted by descending z, i.e. in the order Kai meets
-   *                       them, which is what lets _clipObstacles() scan a
-   *                       couple of entries instead of the whole course.
-   *   this._obstacleMeshes a small pool of meshes per kind, repositioned every
-   *                       frame onto whichever placements are in view.
-   *
-   * Splitting them is what makes ~80 obstacles cost the same as 24. It also
-   * means collision no longer depends on anything being drawn.
-   */
   _buildObstacles(mats) {
     const rng = makeRng(OBSTACLE_SEED);
     const span = OBSTACLE_LAST_Z - OBSTACLE_FIRST_Z;
-
-    // safe if a level instance is ever re-init'd rather than reconstructed
     this.obstacles.length = 0;
     this._obsCursor = 0;
 
     let z = OBSTACLE_FIRST_Z;
     while (z > OBSTACLE_LAST_Z) {
-      // 0 at the first obstacle, 1 at the seal — the difficulty curve
       const t = THREE.MathUtils.clamp((z - OBSTACLE_FIRST_Z) / span, 0, 1);
-
-      // Kinds unlock in the order the player can learn them: barriers alone
-      // for the first stretch, then trolleys once jumping is not enough, then
-      // ducts once there is a reason to find CTRL.
       const roll = rng();
       let kind = "barrier";
       if (t > 0.28 && roll < 0.22) kind = "duct";
       else if (t > 0.12 && roll < 0.55) kind = "trolley";
 
       if (kind === "duct") {
-        // full width, so the lane is irrelevant; centre it and be honest
         this._addObstacle("duct", 1, z);
       } else {
         const lane = Math.floor(rng() * 3);
         this._addObstacle(kind, lane, z);
-
-        // Later on, a second obstacle abreast forces one specific lane rather
-        // than leaving two outs. Offsetting by 1 or 2 mod 3 guarantees the
-        // third lane stays clear, so a site is never unsurvivable.
         if (t > 0.45 && rng() < 0.3) {
           const other = (lane + 1 + Math.floor(rng() * 2)) % 3;
           this._addObstacle(rng() < 0.5 ? "barrier" : kind, other, z);
@@ -608,45 +494,25 @@ export class Level01 extends Level {
       }
 
       let step = OBSTACLE_GAP_START + (OBSTACLE_GAP_END - OBSTACLE_GAP_START) * t;
-      if (kind === "duct") step += 14; // room to stand up again before the next one
-      z -= step * (0.85 + rng() * 0.3); // jitter, so the course isn't a metronome
+      if (kind === "duct") step += 14;
+      z -= step * (0.85 + rng() * 0.3);
     }
 
-    // Carve the southbound windows back out. Anything left in there could sit
-    // in the one surviving lane, and a duct is worse still — sliding gets you
-    // under the duct but not under the train, so the site would have no answer.
-    this.obstacles = this.obstacles.filter((o) => !this._inTrainZone(o.z));
-
-    // --- the visual pool ---
-    // The duct gets a tinted clone of the vehicle maps plus a faint amber
-    // emissive, which is the palette rule doing work: amber only ever appears
-    // where something is about to hurt you, and this is the one obstacle whose
-    // answer is not obvious.
-    const ductMat = mats.vehicleMat.clone();
-    ductMat.emissive = new THREE.Color(0xff8a3d);
-    ductMat.emissiveIntensity = 0.22;
-
-    const kindMats = { barrier: mats.barrierMat, trolley: mats.vehicleMat, duct: ductMat };
-
     this._obstacleMeshes = {};
-    for (const [kind, spec] of Object.entries(OBSTACLE_KINDS)) {
-      const geo = new THREE.BoxGeometry(...spec.size); // one geometry per kind
+    for (const kind of Object.keys(OBSTACLE_KINDS)) {
       const pool = [];
       for (let i = 0; i < OBSTACLE_POOL; i++) {
-        const mesh = new THREE.Mesh(geo, kindMats[kind]);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.visible = false;
-        mesh.userData.isObstacle = true;
-        mesh.userData.kind = kind;
-        this.root.add(mesh);
-        pool.push(mesh);
+        const visual = makeJungleObstacle(kind, this._jungleKit, mats.stone);
+        visual.visible = false;
+        visual.userData.isObstacle = true;
+        visual.userData.kind = kind;
+        this.root.add(visual);
+        pool.push(visual);
       }
       this._obstacleMeshes[kind] = pool;
     }
   }
 
-  /** Pushes one placement onto the collision list, baking its kind's bounds in. */
   _addObstacle(kind, lane, z) {
     const spec = OBSTACLE_KINDS[kind];
     this.obstacles.push({
@@ -706,71 +572,13 @@ export class Level01 extends Level {
    * Unlike the barriers this is a moving hazard, so it gets its own swept test
    * in _updateTrain() rather than living in this.obstacles.
    */
-  _buildTrain(mats) {
-    // Planned first, because _buildObstacles() deletes placements inside these
-    // windows and it runs after this.
-    const rng = makeRng(OBSTACLE_SEED ^ 0x5bd1);
-    this._trainEvents = TRAIN_TRIGGERS.map((triggerZ) => ({
-      triggerZ,
-      // Only an OUTER lane can be the survivor. If the middle one were clear,
-      // the two blocked lanes would not be adjacent and the train would have to
-      // be two boxes with a Kai-sized hole between them.
-      clearLane: rng() < 0.5 ? 0 : 2,
-    }));
-
-    const group = new THREE.Group();
-
-    // grimier than the maintenance vehicle, so the two don't read as one prop
-    const shell = mats.vehicleMat.clone();
-    shell.color = new THREE.Color(0x39434f);
-
-    const carGeo = new THREE.BoxGeometry(TRAIN_HALF_X * 2, 3.4, TRAIN_CAR_LEN);
-    const glassGeo = new THREE.BoxGeometry(0.06, 0.7, TRAIN_CAR_LEN - 3);
-    const glassMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
-
-    // the group's origin is the NOSE, since that is the end that matters; the
-    // cars hang backwards off it down -z
-    for (let i = 0; i < TRAIN_CARS; i++) {
-      const zc = -(TRAIN_CAR_LEN / 2 + i * (TRAIN_CAR_LEN + TRAIN_CAR_GAP));
-      const car = new THREE.Mesh(carGeo, shell);
-      car.position.set(0, 1.8, zc); // spans y 0.1..3.5, under the 3.6 collision top
-      car.castShadow = true;
-      group.add(car);
-
-      // lit windows: these are what actually streak as it goes past, and the
-      // streak is most of what sells the speed of the pass
-      for (const side of [-1, 1]) {
-        const glass = new THREE.Mesh(glassGeo, glassMat);
-        glass.position.set(side * (TRAIN_HALF_X + 0.02), 2.3, zc);
-        group.add(glass);
-      }
-    }
-
-    // Headlamps, deliberately fog: false. The fog wall is at 165 m and the
-    // train is dispatched from 300 m, so fogged lamps would give no warning at
-    // all until it emerged from the haze ~3.6 s out. Unfogged they read as two
-    // hot dots far down the tunnel, which is how you spot a train coming.
-    const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0, fog: false });
-    for (const off of [-1.5, 1.5]) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.12), lampMat);
-      lamp.position.set(off, 1.25, 0.08);
-      group.add(lamp);
-    }
-
-    // The near-field blast. This is the cue that tells you WHICH wall it is
-    // hugging, because the near wall washes far brighter than the far one.
-    const head = new THREE.PointLight(0xfff2d0, 0, 95, 2);
-    head.position.set(0, 1.8, 2.2);
-    group.add(head);
-
-    group.visible = false;
-    group.userData.isTrain = true;
-    this.train = group;
-    this.trainLight = head;
-    this.root.add(group);
+  _buildTrain() {
+    this._trainEvents = [];
+    this._trainIdx = 0;
+    this._trainActive = false;
+    this.train = null;
   }
 
-  /** True if z sits inside any southbound's danger window, where obstacles must not be. */
   _inTrainZone(z) {
     for (const ev of this._trainEvents) {
       if (z <= ev.triggerZ - TRAIN_ZONE_NEAR && z >= ev.triggerZ - TRAIN_ZONE_FAR) return true;
@@ -846,61 +654,47 @@ export class Level01 extends Level {
     const gateGroup = new THREE.Group();
     gateGroup.position.set(0, 0, GATE_Z);
 
-    // gateMat keeps the orange emissive glow; the maps add scratched,
-    // worn paint on top of it
+    const arch = cloneProp(this._jungleKit.gateArch);
+    arch.scale.setScalar(0.024);
+    arch.position.y = -0.05;
+    gateGroup.add(arch);
 
-    // The bars live in their own sub-group so the slam animates one y offset
-    // rather than eight bar positions, and so userData/collision code can
-    // still treat gateGroup as the gate.
     const slide = new THREE.Group();
     slide.position.y = GATE_OPEN_Y;
-
-    const barCount = 8;
-    for (let i = 0; i < barCount; i++) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 6, 0.15), mats.gateMat);
-      bar.position.set(-6.2 + (i / (barCount - 1)) * 12.4, 3, 0);
-      bar.castShadow = true;
-      slide.add(bar);
-    }
+    const door = cloneProp(this._jungleKit.gateDoor);
+    door.scale.setScalar(0.024);
+    door.position.y = -0.15;
+    slide.add(door);
+    const crossbar = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.55, 0.65), mats.stone);
+    crossbar.position.y = 1.1;
+    crossbar.castShadow = true;
+    slide.add(crossbar);
     gateGroup.add(slide);
 
-    // housing the bars retract into, so the open gate reads as a mechanism
-    // waiting to fire rather than an empty doorway
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.6, 0.5), mats.gateMat);
-    housing.position.set(0, 6.6, 0);
-    housing.castShadow = true;
-    gateGroup.add(housing);
+    const warningMat = new THREE.MeshStandardMaterial({
+      color: 0x7a4f23,
+      emissive: 0xff8a3d,
+      emissiveIntensity: 0.6,
+      roughness: 0.7,
+    });
+    const warning = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 0.18), warningMat);
+    warning.position.set(0, 4.2, 0.25);
+    gateGroup.add(warning);
 
-    // Reach is deliberately long: Kai is already past the gate when it fires,
-    // so the impact flash washing the tunnel around him is the only part of
-    // the slam he can actually see. The strobe telegraph is what he sees
-    // coming, the flash and the sting are what he gets on the way out.
-    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 30, 2);
-    gateLight.position.set(0, 4, 1);
+    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 28, 2);
+    gateLight.position.set(0, 4.0, 1.5);
     gateGroup.add(gateLight);
 
     gateGroup.userData.isSecurityGate = true;
-    gateGroup.userData.open = true; // _updateGate() flips this when it fires
+    gateGroup.userData.open = true;
     this.securityGate = gateGroup;
     this._gateSlide = slide;
     this._gateLight = gateLight;
     this._gateLightBase = 1.4;
-    this._gateMaterial = mats.gateMat;
+    this._gateMaterial = warningMat;
     this.root.add(gateGroup);
   }
 
-  /**
-   * Interlude I: the sector seal slams down once Kai is past it, cutting the
-   * tunnel off behind him. Phases:
-   *
-   *   open     → retracted, nothing to do
-   *   warning  → amber strobe telegraph as he closes on it
-   *   slamming → accelerating fall, then impacts that rebound like steel
-   *   closed   → settled, light bleeds back to a steady glow
-   *
-   * Each impact fires the gate_slam sting and shoves the camera; the first
-   * one hits hardest.
-   */
   _updateGate(dt) {
     if (this._gatePhase === "closed") {
       // ease the flash out and let the bars sit
@@ -971,111 +765,94 @@ export class Level01 extends Level {
 
   /** The maintenance bay + parked vehicle that Level 2 picks up from, and Level 1's finish line. */
   _buildServiceArea(mats) {
-    const serviceGroup = new THREE.Group();
-    serviceGroup.position.set(0, 0, BAY_Z);
+    const camp = new THREE.Group();
+    camp.position.set(0, 0, BAY_Z);
 
-    // the bay reuses the wet-concrete floor look, retiled for a 14 × 20 m slab
-    const bayFloor = new THREE.Mesh(new THREE.PlaneGeometry(14, 20), mats.bayFloorMat);
-    bayFloor.rotation.x = -Math.PI / 2;
-    bayFloor.receiveShadow = true;
-    serviceGroup.add(bayFloor);
+    const clearingMat = mats.trail.clone();
+    const clearing = new THREE.Mesh(new THREE.CircleGeometry(11, 32), clearingMat);
+    clearing.rotation.x = -Math.PI / 2;
+    clearing.position.y = 0.02;
+    clearing.receiveShadow = true;
+    camp.add(clearing);
 
-    // TODO(art): swap for the real maintenance vehicle .glb
-    const vehicle = new THREE.Mesh(new THREE.BoxGeometry(2, 1.4, 4.2), mats.vehicleMat);
-    vehicle.position.set(0, 0.7, -6);
-    vehicle.castShadow = true;
+    const propData = [
+      [this._jungleKit.logs, -5.2, -4.0, 4.0, 0.4],
+      [this._jungleKit.logs, 5.5, -8.0, 4.0, -0.25],
+      [this._jungleKit.crates, -5.4, -8.5, 14.0, 0.6],
+      [this._jungleKit.barrel, 4.7, -3.2, 14.0, -0.4],
+      [this._jungleKit.cutTrees, 7.0, -11.0, 8.0, 0.2],
+    ];
+    for (const [proto, x, z, scale, ry] of propData) {
+      const o = cloneProp(proto);
+      o.position.set(x, 0, z);
+      o.scale.setScalar(scale);
+      o.rotation.y = ry;
+      camp.add(o);
+    }
+
+    const vehicle = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a91b8, roughness: 0.55, metalness: 0.15 });
+    const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111315, roughness: 0.95 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.65, 4.1), bodyMat);
+    base.position.y = 0.8;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), bodyMat);
+    cab.position.set(0, 1.4, -0.65);
+    vehicle.add(base, cab);
+    for (const x of [-1.08, 1.08]) for (const z of [-1.25, 1.25]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.24, 14), tyreMat);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 0.5, z);
+      vehicle.add(wheel);
+    }
+    vehicle.position.set(0, 0, -6);
+    vehicle.rotation.y = Math.PI;
     vehicle.userData.isServiceVehicle = true;
     vehicle.userData.startsLevel2 = true;
-    serviceGroup.add(vehicle);
+    camp.add(vehicle);
 
-    const workLight = new THREE.PointLight(0xffe8b0, 2.0, 20, 2);
+    const workLight = new THREE.PointLight(0xffd39b, 2.1, 22, 2);
     workLight.position.set(0, 5, -6);
-    // deliberately NOT a shadow caster: the risk slide budgets one per level
-    // and this.key already spends it. A second shadow map here doubled the
-    // depth passes for a light the player sees for the last four seconds.
-    serviceGroup.add(workLight);
+    camp.add(workLight);
 
     this.serviceVehicle = vehicle;
-    this.root.add(serviceGroup);
+    this.root.add(camp);
   }
 
-  /**
-   * The Handler, greyboxed. "On foot he is a shape at the edge of the tunnel
-   * lights" — so he is a dark figure plus an amber glow, amber because the
-   * palette rule is cyan everywhere and amber only where something is about
-   * to hurt you.
-   *
-   * He sits behind the camera, so the look-back swing in update() is what makes
-   * him visible at all. Two things had to change for that to be worth doing:
-   * his coat was 0x090c11, near enough to black that he was a hole in the
-   * tunnel rather than a figure; and his light sat ON him, which lights the
-   * walls but leaves the figure flat. Set back behind him it rims him instead.
-   *
-   * Deliberately NOT shadow-casting: the risk slide budgets one shadow-casting
-   * light per level and the key light already spends it.
-   */
   _buildHandler() {
     const group = new THREE.Group();
-
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x1b2431,
-      roughness: 0.92,
-      metalness: 0.05,
-    });
-
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0x182018, roughness: 0.95, metalness: 0.02 });
     const coat = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 1.15, 6, 12), coatMat);
     coat.position.y = 1.15;
+    coat.castShadow = true;
     group.add(coat);
-
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), coatMat);
     head.position.y = 1.98;
     group.add(head);
 
-    // His torch, facing the way he is running. fog: false, so it stays a single
-    // hot dot at any range — which means looking back always finds him, even
-    // pinned at the bars a hundred metres back with the fog closed over him.
     const torch = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffb066, fog: false }),
+      new THREE.SphereGeometry(0.11, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffc477, fog: false }),
     );
-    torch.position.set(0.3, 1.55, -0.42);
+    torch.position.set(0.28, 1.55, -0.4);
     group.add(torch);
 
-    // Set BEHIND him (greater z) rather than on him: from Kai's side of the
-    // tunnel that backlights the figure into a silhouette, which is what the
-    // pitch describes, and it still washes the tunnel the same amount.
-    const glow = new THREE.PointLight(0xff8a3d, 0, 30, 2);
-    glow.position.set(0, 2.4, 1.8);
+    const beam = new THREE.SpotLight(0xffc071, 7.5, 34, 0.33, 0.55, 1.6);
+    beam.position.set(0.25, 1.62, -0.35);
+    beam.target.position.set(0, 0.9, -14);
+    group.add(beam, beam.target);
+
+    const glow = new THREE.PointLight(0xff9b51, 0, 26, 2);
+    glow.position.set(0, 2.2, 1.2);
     group.add(glow);
 
     group.position.set(0, 0, HANDLER_START_GAP);
     group.userData.isHandler = true;
-
     this.handler = group;
     this.handlerLight = glow;
-    this._handlerLightBase = 3.4;
+    this._handlerLightBase = 2.8;
     this.root.add(group);
   }
 
-  /**
-   * Did Kai clip something this frame? Unlike a blocking test this never moves
-   * him — the pitch's economy is that a clip costs ground, not progress, so he
-   * runs on through and pays for it in gap.
-   *
-   * Swept against prevZ rather than tested at the end position: at the 22 m/s
-   * cap on a clamped 0.05 s frame he covers 1.1 m, wider than a barrier's
-   * overlap band, so a position-only test would miss the hit entirely on a
-   * stuttering frame.
-   *
-   * The vertical test is a band overlap, not a floor check, because the three
-   * kinds fail in opposite directions: you clear a barrier by getting your feet
-   * above it and a duct by getting your head under it, and a trolley is sized
-   * so that neither works.
-   *
-   * @param {number} x lane-interpolated x for this frame
-   * @param {number} prevZ this.z before this frame's forward integration
-   * @returns {object|null} the placement he clipped, or null if he got past clean
-   */
   _clipObstacles(x, prevZ) {
     const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
     const head = this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
@@ -1224,30 +1001,65 @@ export class Level01 extends Level {
 
     this._audio = new AudioSystem(camera);
     this._audioReady = true;
+    const ctx = this._audio.listener.context;
 
-    this._audio
-      .loadAll({
-        ambience: "assets/audio/level01/subway_ambience.mp3",
-        footstep: "assets/audio/shared/footstep_concrete.mp3",
-        gateSlam: "assets/audio/level01/gate_slam.mp3",
-        impact: "assets/audio/shared/impact_thud.mp3",
-        handlerBreath: "assets/audio/level01/handler_breath.mp3",
-        handlerCatch: "assets/audio/level01/handler_catch.mp3",
-        train: "assets/audio/level01/train_rumble.mp3",
-        music_l1: "assets/audio/level01/music_downline.mp3",
-      })
-      .then(() => {
-        this._audio.playAmbience("ambience", { volume: 0.35 });
-        // his breathing rides on the silhouette, so the listener's distance
-        // model does the tension for free as the gap closes
-        if (this.handler) {
-          this._audio.attachPositional(this.handler, "handlerBreath", {
-            volume: 0.9,
-            refDistance: 8,
-            maxDistance: HANDLER_LIGHT_RANGE,
-          });
-        }
+    const makeBuffer = (seconds, sampleFn) => {
+      const rate = ctx.sampleRate;
+      const n = Math.max(1, Math.floor(seconds * rate));
+      const buffer = ctx.createBuffer(1, n, rate);
+      const out = buffer.getChannelData(0);
+      for (let i = 0; i < n; i++) out[i] = sampleFn(i / rate, i, n);
+      return buffer;
+    };
+
+    let brown = 0;
+    const ambience = makeBuffer(6, (t) => {
+      brown = (brown + (Math.random() * 2 - 1) * 0.035) / 1.025;
+      const insects = Math.sin(t * Math.PI * 2 * 3100) * (Math.sin(t * Math.PI * 2 * 0.73) > 0.84 ? 0.02 : 0);
+      return THREE.MathUtils.clamp(brown * 0.09 + insects, -0.22, 0.22);
+    });
+    const footstep = makeBuffer(0.2, (t) => {
+      const e = Math.exp(-t * 24);
+      return ((Math.random() * 2 - 1) * 0.45 + Math.sin(t * Math.PI * 2 * 78) * 0.5) * e;
+    });
+    const impact = makeBuffer(0.32, (t) => {
+      const e = Math.exp(-t * 16);
+      return ((Math.random() * 2 - 1) * 0.4 + Math.sin(t * Math.PI * 2 * 58) * 0.75) * e;
+    });
+    const gateSlam = makeBuffer(0.9, (t) => {
+      const e = Math.exp(-t * 6.5);
+      return ((Math.random() * 2 - 1) * 0.55 + Math.sin(t * Math.PI * 2 * 43) * 0.8) * e;
+    });
+    const breath = makeBuffer(2.4, (t) => {
+      const phase = (t % 1.2) / 1.2;
+      const env = Math.pow(Math.sin(Math.PI * phase), 2);
+      return (Math.random() * 2 - 1) * 0.12 * env;
+    });
+    const catchSting = makeBuffer(0.55, (t) => {
+      const e = Math.exp(-t * 8);
+      return (Math.sin(t * Math.PI * 2 * (95 - t * 70)) * 0.7 + (Math.random() * 2 - 1) * 0.2) * e;
+    });
+
+    this._audio.buffers.set("ambience", ambience);
+    this._audio.buffers.set("footstep", footstep);
+    this._audio.buffers.set("impact", impact);
+    this._audio.buffers.set("gateSlam", gateSlam);
+    this._audio.buffers.set("handlerBreath", breath);
+    this._audio.buffers.set("handlerCatch", catchSting);
+
+    const resume = () => ctx.resume();
+    this._resumeAudio = resume;
+    window.addEventListener("pointerdown", resume, { once: true });
+    window.addEventListener("keydown", resume, { once: true });
+
+    this._audio.playAmbience("ambience", { volume: 0.28 });
+    if (this.handler) {
+      this._audio.attachPositional(this.handler, "handlerBreath", {
+        volume: 0.6,
+        refDistance: 7,
+        maxDistance: HANDLER_LIGHT_RANGE,
       });
+    }
   }
 
   update(dt, state) {
@@ -1421,8 +1233,8 @@ export class Level01 extends Level {
     this._updateObstacleVisuals();
 
     // shadow camera follows so shadows stay inside it
-    this.key.position.set(x + 6, 14, this.z + 10);
-    this.key.target.position.set(x, 0, this.z - 6);
+    this.key.position.set(x - 35, 55, this.z - 75);
+    this.key.target.position.set(x, 0, this.z - 12);
 
     // --- look-back camera (mouse2 / C) ---
     // @1A: input.lookBack was bound in Input.js and unread. Holding it orbits
@@ -1489,7 +1301,7 @@ export class Level01 extends Level {
     this._displaySpeed += (this.speed - this._displaySpeed) * (1 - Math.exp(-8 * dt));
     const normalizedSpeed = THREE.MathUtils.clamp(this._displaySpeed / this.maxSpeed, 0, 1);
     state.normalizedSpeed = normalizedSpeed; // HUD / other levels can read it
-    updateSpeedWarp(this.wallMaterial, dt, normalizedSpeed);
+    updateJungleSpeedWarp(this.speedWarpMaterial, dt, normalizedSpeed);
 
     // strip lights pulse a little faster as speed rises. The pool slide applies
     // it, since that is what decides which lights are live this frame.
@@ -1501,7 +1313,7 @@ export class Level01 extends Level {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
-        this._audio.playFootstep({ volume: 0.4, dt });
+        this._audio.playFootstep({ volume: 0.34, minInterval: 0, dt });
       }
     }
   }
@@ -1511,6 +1323,11 @@ export class Level01 extends Level {
       this._audio.teardown();
       this._audio = null;
       this._audioReady = false;
+    }
+    if (this._resumeAudio) {
+      window.removeEventListener("pointerdown", this._resumeAudio);
+      window.removeEventListener("keydown", this._resumeAudio);
+      this._resumeAudio = null;
     }
     // hand the shared camera back exactly as Game set it up
     if (this.game && this.game.camera) {
