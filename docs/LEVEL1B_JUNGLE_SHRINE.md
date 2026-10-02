@@ -59,3 +59,24 @@ The Vite configuration copies `assets/` into `dist/assets/`, because the game lo
 ## Important merge note
 
 Do not replace 1A's controller with a separate runner implementation. Merge this work around the shared `Level01` interface and test after pulling the latest `main` branch.
+
+## V2 traversal pass (2 October 2026)
+
+This pass responds to playtest feedback from the Level 1B branch:
+
+- Fixed the visible scenery "restart" by changing the jungle chunk streamer to a ring buffer. Only scenery that is safely behind Kai is recycled to the far end; the whole forest no longer jumps every 30 m.
+- Increased the scenery pool from 9 to 12 unique chunks so repeated tree layouts are farther apart.
+- Added three real elevation sequences to the Level 1 route. Kai now climbs ruined shrine causeways, crests high sections and descends again; the camera, Handler and obstacle visuals follow the same course height.
+- Added mossy PBR textures to the raised shrine causeway.
+- Increased obstacle density and visual variety: logs, boulder/column debris, crates, barrels, bear traps, broken shrine walls and slide-under arches.
+- Added four scripted falling-tree set pieces. Each tree starts upright beside the trail, begins to fall while Kai approaches, lands across the route and becomes a jumpable obstacle.
+- Added procedural tree-creak and impact audio for those events.
+- Added a CAUGHT overlay when the Handler reaches Kai, with RESTART LEVEL and RELOAD GAME controls. The existing R-to-restart control still works.
+
+### Files changed from the previous Jungle Shrine patch
+
+- `src/levels/Level01.js`
+- `src/levels/level1/jungleWorld.js`
+- `LEVEL1B_JUNGLE_SHRINE.md`
+
+No changes were made to Level 2 or Level 3 in this pass.
