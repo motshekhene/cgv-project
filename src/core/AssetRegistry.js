@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { disposeObject } from "./Level.js";
 
 /**
@@ -19,6 +20,7 @@ export class AssetRegistry {
     this.cache = new Map();
     this.manager = new THREE.LoadingManager();
     this.gltf = new GLTFLoader(this.manager);
+    this.fbxLoader = new FBXLoader(this.manager);
     this.tex = new THREE.TextureLoader(this.manager);
     this.audio = new THREE.AudioLoader(this.manager);
     this.onProgress = onProgress;
@@ -72,6 +74,11 @@ export class AssetRegistry {
     return this._load(this.gltf, path);
   }
 
+  /** Returns the loaded FBX root (with .animations). */
+  fbx(path) {
+    return this._load(this.fbxLoader, path);
+  }
+
   texture(path, { srgb = true, repeat = null } = {}) {
     return this._load(this.tex, path, (t) => {
       if (srgb) t.colorSpace = THREE.SRGBColorSpace;
@@ -93,6 +100,7 @@ export class AssetRegistry {
     return Promise.all(
       paths.map((p) => {
         if (p.endsWith(".glb") || p.endsWith(".gltf")) return this.model(p);
+        if (p.endsWith(".fbx")) return this.fbx(p);
         if (p.endsWith(".mp3") || p.endsWith(".ogg") || p.endsWith(".wav"))
           return this.sound(p);
         return this.texture(p);
