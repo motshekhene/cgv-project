@@ -46,10 +46,14 @@ export class HandlerBoss {
   constructor(parent, target, source) {
     this.target = target;
     this.levelRoot = parent;
-    this.fighter = new Fighter(parent, { source, capsuleColor: 0xff5533 });
-    for (const m of this.fighter.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a0808);
+    this.fighter = new Fighter(parent, {
+      source,
+      capsuleColor: 0xff5533,
+      palette: { Skin: 0x7a5233, Hair: 0xb4b4bc, Shirt: 0x3a3d4d, Pants: 0x2f3240, Details: 0xefe9e0, TieTexture: 0xb02323, Shoes: 0x1a1a1e },
+    });
+    for (const m of this.fighter.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a1210);
     this.root = this.fighter.root;
-    this.root.position.set(0, 0, -6.5);
+    this.root.position.set(0, 0, -4.5);
     this.root.rotation.y = 0;
 
     this.maxHealth = 320;

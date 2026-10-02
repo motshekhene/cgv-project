@@ -15,6 +15,19 @@ npm run dev
 
 If something breaks after pulling new changes from the team, try running `npm install` again first,  someone may have added something new.
 
+## Where things are
+
+The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPLEMENTATION.md](docs/JUNGLE_SHRINE_IMPLEMENTATION.md).
+
+```
+assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
+assets/characters/ kai.fbx, handler.fbx
+src/               the game (core/, levels/, shaders/, ui/)
+docs/              pitch, plans, implementation guide, concept pages
+tools/concepts/    the script that rendered the concept images (reference only)
+_source/           raw downloads (texture sets, original packs). Never load from here in game code.
+```
+
 ## A few rules (please follow these)
 
 ### 1. File paths must start with `./`, never `/`

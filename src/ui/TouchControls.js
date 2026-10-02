@@ -23,9 +23,10 @@ const CSS = `
 .tc-btn small { display:block; font-size:9px; font-weight:500; opacity:.7; letter-spacing:.12em; }
 .tc-btn.on, .tc-btn:active { background:radial-gradient(circle at 35% 30%,#ffb066,#e2561a); border-color:#ffd9a8; transform:scale(.94); }
 .tc-atk { right:36px; bottom:36px; width:98px; height:98px; font-size:15px; border-color:#ff8a3a99; }
-.tc-dodge { right:152px; bottom:44px; width:72px; height:72px; font-size:12px; }
-.tc-block { right:40px; bottom:152px; width:72px; height:72px; font-size:12px; }
-.tc-key { right:140px; bottom:140px; width:58px; height:58px; font-size:11px; border-color:#7fd8ff88; }
+.tc-kick { right:152px; bottom:44px; width:78px; height:78px; font-size:13px; border-color:#ffb06699; }
+.tc-dodge { right:170px; bottom:136px; width:68px; height:68px; font-size:12px; }
+.tc-block { right:44px; bottom:148px; width:72px; height:72px; font-size:12px; }
+.tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:#7fd8ff88; }
 .tc-view { position:absolute; top:18px; right:20px; pointer-events:auto; padding:9px 14px; border-radius:6px; font-size:11px;
   font-weight:700; letter-spacing:.2em; color:#ffe7cf; background:#00000066; border:1px solid #ff9a5a77; cursor:pointer; }
 .tc-view:hover { background:#3a1a0aaa; }
@@ -61,10 +62,11 @@ export class TouchControls {
       <div class="tc-arrow r">&#9654;</div>
       <button class="tc-view"></button>
       <div class="tc-joy"><div class="tc-knob"></div></div>
-      <div class="tc-btn tc-atk" data-a="attack">ATTACK<small>COMBO</small></div>
-      <div class="tc-btn tc-dodge" data-a="dodge">DODGE</div>
-      <div class="tc-btn tc-block" data-a="block">BLOCK<small>TAP=PARRY</small></div>
-      <div class="tc-btn tc-key" data-a="ability">KEY</div>`;
+      <div class="tc-btn tc-atk" data-a="attack">PUNCH<small>ENTER</small></div>
+      <div class="tc-btn tc-kick" data-a="kick">KICK<small>K</small></div>
+      <div class="tc-btn tc-dodge" data-a="dodge">DODGE<small>C</small></div>
+      <div class="tc-btn tc-block" data-a="block">BLOCK<small>B · TAP=PARRY</small></div>
+      <div class="tc-btn tc-key" data-a="ability">KEY<small>V</small></div>`;
     host.appendChild(this.el);
 
     this._initJoystick();
@@ -205,7 +207,7 @@ export class TouchControls {
     this._cleanup.length = 0;
     this.input.stick.x = 0;
     this.input.stick.y = 0;
-    for (const a of ['attack', 'dodge', 'block', 'ability']) this.input.setVirtual(a, false);
+    for (const a of ['attack', 'kick', 'dodge', 'block', 'ability']) this.input.setVirtual(a, false);
     this.el.remove();
     this.style.remove();
   }

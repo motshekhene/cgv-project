@@ -59,7 +59,7 @@ export class Level03 extends Level {
     if (!this.scene) return; // level was torn down while loading
 
     scene.background = new THREE.Color(0x140705);
-    scene.fog = new THREE.Fog(0x1a0805, 28, 95);
+    scene.fog = new THREE.Fog(0x1a0805, 34, 105);
 
     this._buildLights();
     this._buildArena(lavaColor, lavaEmission);
@@ -86,31 +86,36 @@ export class Level03 extends Level {
   /* ---------------------------------------------------------------- world */
 
   _buildLights() {
-    this.root.add(new THREE.HemisphereLight(0xffb088, 0x3a1a10, 0.85));
+    this.root.add(new THREE.HemisphereLight(0xffe6d4, 0x4a2c20, 0.7));
 
-    this.key = new THREE.DirectionalLight(0xffc9a0, 1.05);
+    this.key = new THREE.DirectionalLight(0xffe3c8, 1.1);
     this.key.position.set(9, 16, 10);
     this.key.castShadow = true;
-    this.key.shadow.mapSize.set(2048, 2048);
+    this.key.shadow.mapSize.set(1024, 1024);
     const sc = this.key.shadow.camera;
     sc.left = -17; sc.right = 17; sc.top = 17; sc.bottom = -17; sc.near = 1; sc.far = 50;
     this.key.shadow.bias = -0.0004;
     this.root.add(this.key, this.key.target);
 
-    const rim = new THREE.DirectionalLight(0x5a78ff, 0.55);
+    const rim = new THREE.DirectionalLight(0x8fa8ff, 0.55);
     rim.position.set(-10, 8, -12);
     this.root.add(rim);
 
     this.lavaLights = [];
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      const l = new THREE.PointLight(0xff5a1a, 90, 30, 2);
-      l.position.set(Math.cos(a) * 15, -0.6, Math.sin(a) * 15);
+      const l = new THREE.PointLight(0xff5a1a, 40, 30, 2);
+      l.position.set(Math.cos(a) * 17, -1.5, Math.sin(a) * 17);
       this.root.add(l);
       this.lavaLights.push(l);
     }
 
-    this.fill = new THREE.PointLight(0xffe2c0, 14, 16, 2);
+    // stage light: keeps both fighters clean and bright in the middle of the arena
+    this.spot = new THREE.SpotLight(0xffe8d0, 130, 45, 0.62, 0.6, 1.4);
+    this.spot.position.set(0, 15, 0);
+    this.root.add(this.spot, this.spot.target);
+
+    this.fill = new THREE.PointLight(0xffd9b8, 26, 18, 2);
     this.fill.position.set(0, 4.5, 0);
     this.root.add(this.fill);
   }
@@ -119,7 +124,7 @@ export class Level03 extends Level {
     // stone platform
     const platform = new THREE.Mesh(
       new THREE.CylinderGeometry(14, 14.8, 1.2, 56),
-      new THREE.MeshStandardMaterial({ color: 0x51473f, roughness: 0.9, metalness: 0.05 }),
+      new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0.05 }),
     );
     platform.position.y = -0.6;
     platform.receiveShadow = true;
@@ -141,15 +146,26 @@ export class Level03 extends Level {
     inner.position.y = 0.015;
     this.root.add(inner);
 
-    // lava sea
+    // brighter stage disc in the middle so the fight reads clearly
+    const stage = new THREE.Mesh(
+      new THREE.CircleGeometry(6, 64),
+      new THREE.MeshStandardMaterial({ color: 0x463f39, roughness: 0.85, metalness: 0.05 }),
+    );
+    stage.rotation.x = -Math.PI / 2;
+    stage.position.y = 0.01;
+    stage.receiveShadow = true;
+    this.root.add(stage);
+
+    // lava sea: low and far, so it reads as background glow, not foreground
+    
     if (lavaColor && lavaEmission) {
-      this.lavaMat = createLavaMaterial({ color: lavaColor, emission: lavaEmission, repeat: 36 });
+      this.lavaMat = createLavaMaterial({ color: lavaColor, emission: lavaEmission, repeat: 36, glow: 1.15 });
     } else {
       this.lavaMat = new THREE.MeshBasicMaterial({ color: 0xff5a1a });
     }
     const lava = new THREE.Mesh(new THREE.PlaneGeometry(220, 220, 80, 80), this.lavaMat);
     lava.rotation.x = -Math.PI / 2;
-    lava.position.y = -1.5;
+    lava.position.y = -4.5;
     this.root.add(lava);
 
     // distant rock spires, one instanced mesh
@@ -168,7 +184,7 @@ export class Level03 extends Level {
       const w = 1.4 + ((i * 29) % 4) * 0.6;
       e.set(0, a * 3, 0);
       q.setFromEuler(e);
-      m.compose(new THREE.Vector3(Math.cos(a) * r, h * 0.35 - 2, Math.sin(a) * r), q, new THREE.Vector3(w, h, w));
+      m.compose(new THREE.Vector3(Math.cos(a) * r, h * 0.5 - 4.5, Math.sin(a) * r), q, new THREE.Vector3(w, h, w));
       spires.setMatrixAt(i, m);
     }
     this.root.add(spires);
@@ -217,7 +233,7 @@ export class Level03 extends Level {
       }
       if (c.parryReady()) {
         state.stamina = Math.min(state.maxStamina, state.stamina + 25);
-        this._hitStop(0.17);
+        this._hitStop(0.09);
         this._addShake(0.4);
         hud().popup('PARRY!', '#ffe066');
         return 'parried';
@@ -232,7 +248,7 @@ export class Level03 extends Level {
       }
       state.damage(info.damage);
       c.onHurt();
-      this._hitStop(0.06);
+      this._hitStop(0.035);
       this._addShake(0.32);
       hud().damageFlash();
       this._checkPlayerDeath(state);
@@ -241,7 +257,7 @@ export class Level03 extends Level {
 
     this.boss.onHelmetOff = () => {
       // TODO(3A/3B): the real reveal — camera cut, story card, VO. For now a shake and a flag.
-      this._hitStop(0.2);
+      this._hitStop(0.12);
       this._addShake(0.5);
       hud().popup('HELMET OFF', '#ffffff');
     };
@@ -250,7 +266,7 @@ export class Level03 extends Level {
       else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
     };
     this.boss.onDefeated = () => {
-      this._hitStop(0.3);
+      this._hitStop(0.2);
       this._addShake(0.5);
       this._endTimer = 1.6;
       this._endKind = 'win';
@@ -317,7 +333,7 @@ export class Level03 extends Level {
         const dealt = this.boss.takeDamage(this.combat.attackDamage);
         if (dealt > 0) {
           this.boss.root.position.addScaledVector(this._toBoss, fin ? 0.9 : 0.3);
-          this._hitStop(fin ? 0.1 : 0.055);
+          this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
           if (this.boss.vulnerable) this.hud.popup('CRITICAL', '#ffd23a');
         }
@@ -332,7 +348,7 @@ export class Level03 extends Level {
     this._abilityWas = this.combat.abilityActive;
 
     // time scale: hit-stop beats the Key's slow-mo beats normal
-    state.timeScale = performance.now() < this._hitStopUntil ? 0.04 : this.combat.abilityActive ? 0.35 : 1;
+    state.timeScale = performance.now() < this._hitStopUntil ? 0.12 : this.combat.abilityActive ? 0.35 : 1;
 
     this._updateCamera(dt);
     this._updateWorld(dt);
@@ -390,7 +406,7 @@ export class Level03 extends Level {
 
     this._tmp.set(fx - Math.sin(this.camYaw) * dist, height, fz - Math.cos(this.camYaw) * dist);
     cam.position.sub(this._shakeOff);
-    cam.position.lerp(this._tmp, 1 - Math.exp(-9 * dt));
+    cam.position.lerp(this._tmp, 1 - Math.exp(-15 * dt));
 
     const target = new THREE.Vector3(fx, 1.4, fz);
     this._camLook.lerp(target, 1 - Math.exp(-10 * dt));
@@ -409,12 +425,15 @@ export class Level03 extends Level {
   _updateWorld(dt) {
     if (this.lavaMat && this.lavaMat.uniforms) this.lavaMat.uniforms.uTime.value = this.time;
     this.lavaLights.forEach((l, i) => {
-      l.intensity = 90 + Math.sin(this.time * 2.1 + i * 1.7) * 18 + Math.sin(this.time * 5.3 + i) * 8;
+      l.intensity = 40 + Math.sin(this.time * 2.1 + i * 1.7) * 8 + Math.sin(this.time * 5.3 + i) * 4;
     });
 
     const cp = this.combat.root.position;
     const bp = this.boss.root.position;
-    this.fill.position.set((cp.x + bp.x) / 2, 4.5, (cp.z + bp.z) / 2);
+    const mx = (cp.x + bp.x) / 2, mz = (cp.z + bp.z) / 2;
+    this.fill.position.set(mx, 4.5, mz);
+    this.spot.position.set(mx, 15, mz);
+    this.spot.target.position.set(mx, 0, mz);
     this.key.position.set(cp.x + 9, 16, cp.z + 10);
     this.key.target.position.set(cp.x, 0, cp.z);
 

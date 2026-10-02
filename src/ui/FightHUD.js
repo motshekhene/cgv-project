@@ -17,8 +17,6 @@ const CSS = `
 .fh-bar { height:10px; background:#120b09; border:1px solid #ffffff22; border-radius:2px; overflow:hidden; }
 .fh-hp { height:100%; background:linear-gradient(90deg,#b3122a,#ff4a5c); transition:width .1s linear; }
 .fh-st { height:100%; background:linear-gradient(90deg,#1f9d6a,#6cf0b0); }
-.fh-help { position:absolute; left:50%; transform:translateX(-50%); bottom:14px; font-size:11px; line-height:1.7; color:#b8a898aa; text-align:center; white-space:nowrap; }
-.fh-help b { color:#ffcf9e; font-weight:600; }
 .fh-pop { position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); font-size:34px; font-weight:800; letter-spacing:.2em; opacity:0; text-shadow:0 0 18px currentColor; }
 .fh-pop.show { animation:fhpop .7s ease-out forwards; }
 @keyframes fhpop { 0%{opacity:0;transform:translate(-50%,-30%) scale(.7)} 20%{opacity:1;transform:translate(-50%,-50%) scale(1.1)} 100%{opacity:0;transform:translate(-50%,-80%) scale(1)} }
@@ -50,11 +48,6 @@ export class FightHUD {
         <div class="fh-label">STAMINA</div><div class="fh-bar"><div class="fh-st"></div></div>
       </div>
       <div class="fh-lock"></div>
-      <div class="fh-help">
-        <b>WASD</b> / joystick move &nbsp; <b>LMB</b> attack (x3 combo)<br>
-        <b>RMB</b> block &middot; tap just before impact = <b>PARRY</b><br>
-        <b>SPACE</b> dodge roll &nbsp; <b>TAB</b> lock-on &nbsp; <b>Q</b> slow-mo &nbsp; <b>R</b> restart
-      </div>
       <div class="fh-pop"></div>
       <div class="fh-banner"><h1></h1><p></p></div>`;
     host.appendChild(this.el);
