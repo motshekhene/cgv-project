@@ -83,6 +83,7 @@ export class Level02 extends Level {
     this.skids = new Skids(this.root);
     this.smoke = new Smoke(this.root);
     this.traffic = new Traffic(this.root, assets);
+    this.handler.traffic = this.traffic;          // so he steers round it
 
     // ---- chase camera helpers ----
     this._camOffset = new THREE.Vector3();

@@ -84,6 +84,11 @@ export class HandlerWeapons {
     return !!this.shot;
   }
 
+  /** Anything of his still in play? HandlerAI waits for it before the next move. */
+  get threatActive() {
+    return !!this.shot || this.drones.some((d) => d.active) || this.strips.some((s) => s.active && !s.hit);
+  }
+
   canLaunchDrone() {
     return this.droneCooldown <= 0 && this.drones.some((d) => !d.active);
   }
@@ -342,7 +347,7 @@ export class HandlerWeapons {
       this.shot.hits++;
       if (this.shot.hits === 1) {
         car.puncture(side, 0.6, 5);
-        if (this.onHit) this.onHit({ kind: 'tyre', label: 'TYRE SHOT', damage: 6, impact: 0.45 });
+        if (this.onHit) this.onHit({ kind: 'tyre', label: 'TYRE SHOT', damage: 5, impact: 0.45 });
       }
     }
   }
@@ -443,7 +448,7 @@ export class HandlerWeapons {
     if (dist < 2.6) {
       const side = Math.sign(p.x - pos.x) || 1;
       car.bump(side, 0.9, 0.18);
-      if (this.onHit) this.onHit({ kind: 'drone', label: 'DRONE HIT', damage: 14, impact: 0.9 });
+      if (this.onHit) this.onHit({ kind: 'drone', label: 'DRONE HIT', damage: 10, impact: 0.9 });
     } else if (this.onMiss) {
       this.onMiss('DRONE MISSED');
     }
@@ -478,7 +483,7 @@ export class HandlerWeapons {
       car.puncture(0, 1, 7);
       car.speed *= 0.7;
       this._burst(new THREE.Vector3(p.x, 0.3, p.z), 14);
-      if (this.onHit) this.onHit({ kind: 'spikes', label: 'SPIKE STRIP', damage: 10, impact: 0.7 });
+      if (this.onHit) this.onHit({ kind: 'spikes', label: 'SPIKE STRIP', damage: 8, impact: 0.7 });
     }
     if (p.z > s.z + 40) { s.active = false; s.holder.visible = false; }
   }

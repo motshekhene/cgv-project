@@ -107,15 +107,48 @@ export class HandlerAI {
     this.harassRange = 9;        // kept for anything still reading it
 
     this.weapons = null;         // HandlerWeapons, set by Level02 (optional)
+    this.traffic = null;         // Traffic, set by Level02 — he drives round it
+
+    // fairness
+    this.nextAttackAt = 8;       // grace period before the first move
+    this.avoiding = null;        // traffic car he's currently steering round
 
     this.onAttackResolved = null;
     this.onContact = null;
     this.onDodge = null;
   }
 
-  /** 0 at the start of the chase → 1 after ~90 s */
+  /**
+   * 0 at the start of the chase → 1 after ~90 s. Halved while you're badly
+   * hurt, so a low health bar is a comeback window, not a death spiral.
+   */
   get aggro() {
-    return Math.min(1, this.elapsed / 90);
+    const a = Math.min(1, this.elapsed / 90);
+    return this._hurt ? a * 0.5 : a;
+  }
+
+  get _hurt() {
+    return (this.target.health ?? 100) < 35;
+  }
+
+  /** Called whenever a move finishes (hit or miss): guaranteed breathing room. */
+  _cooldown() {
+    const gap = THREE.MathUtils.lerp(6, 3.5, this.aggro) * (this._hurt ? 1.6 : 1);
+    this.nextAttackAt = this.elapsed + gap;
+  }
+
+  /** Is there traffic on that side of you, close enough to box you in? */
+  _boxedIn(dir) {
+    if (!this.traffic) return false;
+    const p = this.target.mesh.position;
+    return this.traffic.pool.some((v) => Math.abs(v.z - p.z) < 9 && (v.x - p.x) * dir > 0 && (v.x - p.x) * dir < 6);
+  }
+
+  /** Only start a move when it can be read and answered. */
+  _fairToAttack() {
+    if (this.elapsed < this.nextAttackAt) return false;
+    if (this.weapons && this.weapons.threatActive) return false;   // one threat at a time
+    return true;
   }
 
   /** Bumps only cost health while he's actually on the attack. */
@@ -141,6 +174,9 @@ export class HandlerAI {
   }
 
   _enter(state) {
+    if (['RECOVER', 'DODGED'].includes(state) || (['SHOOT', 'DRONE'].includes(this.state) && state === 'APPROACH')) {
+      this._cooldown();
+    }
     this.state = state;
     this.stateTimer = 0;
   }
@@ -153,12 +189,14 @@ export class HandlerAI {
 
   _chooseMove() {
     const p = this.target.mesh.position;
+    const awayBlocked = this._boxedIn(-this.side);   // your escape route from him
     const nearWall = Math.abs(p.x) > this.railX - 5.5 && Math.sign(p.x) === -this.side;
-    if (nearWall && this.lastMove !== 'PIN' && Math.random() < 0.5) return 'PIN';
-    const options = ['SLAM', 'PIT', 'SHUNT'];
+    if (nearWall && this.lastMove !== 'PIN' && !this._hurt && Math.random() < 0.5) return 'PIN';
+    // a SLAM you can't swerve away from isn't a dodge, it's a tax
+    const options = awayBlocked ? ['PIT', 'SHUNT'] : ['SLAM', 'PIT', 'SHUNT'];
     // ranged attacks unlock as the chase goes on, and come up more often later
-    if (this.weapons && this.elapsed > 18) options.push('SHOOT', ...(this.aggro > 0.5 ? ['SHOOT'] : []));
-    if (this.weapons && this.elapsed > 30 && this.weapons.canLaunchDrone()) options.push('DRONE', 'DRONE');
+    if (this.weapons && this.elapsed > 18) options.push('SHOOT');
+    if (this.weapons && this.elapsed > 30 && this.weapons.canLaunchDrone()) options.push('DRONE');
     const pool = options.filter((m) => m !== this.lastMove);
     return pool[Math.floor(Math.random() * pool.length)];
   }
@@ -169,6 +207,11 @@ export class HandlerAI {
     const m = this.mesh.position;
     this.elapsed += dt;
     this.stateTimer += dt;
+
+    // a drone or spike strip finishing counts as a move finishing: breathing room after it too
+    const threat = !!(this.weapons && this.weapons.threatActive);
+    if (this._threatWas && !threat) this._cooldown();
+    this._threatWas = threat;
     this.damageCooldown = Math.max(0, this.damageCooldown - dt);
 
     const a = this.aggro;
@@ -212,12 +255,13 @@ export class HandlerAI {
         this.jabTimer -= dt;
         const jabbing = this.jabTimer < 0;
         if (this.jabTimer < -0.3) this.jabTimer = THREE.MathUtils.lerp(1.5, 0.9, a) + Math.random() * 0.5;
-        tx = p.x + this.side * (jabbing ? GAP - 0.9 : GAP + 0.45);
+        const jabIn = this._hurt ? 0.4 : 0.9;
+        tx = p.x + this.side * (jabbing ? GAP - jabIn : GAP + 0.45);
         tz = p.z - 0.6 + Math.sin(t * 1.3) * 1.4;
         maxLat = jabbing ? 7 : 5;
         keepClear = !jabbing;
         if (dz > 25) this._enter('APPROACH');
-        else if (t > this.harassFor) {
+        else if (t > this.harassFor && this._fairToAttack()) {
           this.nextMove = this._chooseMove();
           this.locked = false;
           this.moveLanded = false;
@@ -227,8 +271,8 @@ export class HandlerAI {
       }
 
       case 'TELEGRAPH': {
-        const windUp = THREE.MathUtils.lerp(1.0, 0.7, a);
-        const tell = 0.3;                 // he holds still for this long before going
+        const windUp = THREE.MathUtils.lerp(1.1, 0.85, a);   // never less than 0.85 s of warning
+        const tell = 0.35;                // he holds still for this long before going
         const move = this.nextMove;
         if (move === 'SLAM') {
           tx = p.x + this.side * (GAP + 2.4);
@@ -343,13 +387,23 @@ export class HandlerAI {
       tx = this.side > 0 ? Math.max(tx, p.x + GAP + 0.25) : Math.min(tx, p.x - GAP - 0.25);
     }
 
+    // ---------- weave through traffic ----------
+    let trafficCap = Infinity;
+    const avoid = this._avoidTraffic(tx);
+    if (avoid) {
+      if (avoid.x !== null) { tx = avoid.x; maxLat = Math.max(maxLat, 7); }
+      else trafficCap = avoid.speed;                     // both sides shut: tuck in behind it
+      // an attack that would have to go through a car is called off
+      if (avoid.close && ['SLAM', 'PIT', 'SHUNT', 'PIN'].includes(this.state) && !this.moveLanded) this._miss();
+    }
+
     // ---------- drive there ----------
-    // rubber band: boosting buys you a gap, not a permanent escape
-    const topSpeed = this.maxSpeed + THREE.MathUtils.clamp((dz - 12) * 0.5, 0, 12);
+    // rubber band: boosting buys you a gap, not a permanent escape (but a real one)
+    const topSpeed = this.maxSpeed + THREE.MathUtils.clamp((dz - 20) * 0.3, 0, 6);
     const desired = fixedSpeed !== null
       ? fixedSpeed
       : THREE.MathUtils.clamp(car.speed + THREE.MathUtils.clamp((tz - m.z) * 1.6, -14, 14), 0, topSpeed);
-    this.speed += THREE.MathUtils.clamp(desired - this.speed, -decel * dt, accel * dt);
+    this.speed += THREE.MathUtils.clamp(Math.min(desired, trafficCap) - this.speed, -decel * dt, accel * dt);
 
     const wantLat = THREE.MathUtils.clamp((tx - m.x) * 3, -maxLat, maxLat);
     const latAccel = this.state === 'SLAM' ? 60 : 24;
@@ -375,6 +429,39 @@ export class HandlerAI {
     }
 
     return { dist, state: this.state };
+  }
+
+  /**
+   * Looks down the road for traffic in the corridor he's about to drive
+   * through. Returns null (clear), { x } (steer to this x to pass it), or
+   * { x: null, speed } (no gap either side — slow to its speed).
+   */
+  _avoidTraffic(tx) {
+    if (!this.traffic) return null;
+    const m = this.mesh.position;
+    const look = 8 + Math.max(0, this.speed) * 0.6;
+    const pad = 0.5;
+    let blocker = null, bestDz = Infinity;
+    for (const v of this.traffic.pool) {
+      const vz = v.z - m.z;
+      if (vz < -1 || vz > look) continue;
+      const reach = this.halfW + v.halfW + pad;
+      const lo = Math.min(m.x, tx) - reach, hi = Math.max(m.x, tx) + reach;
+      if (v.x > lo && v.x < hi && vz < bestDz) { blocker = v; bestDz = vz; }
+    }
+    this.avoiding = blocker;
+    if (!blocker) return null;
+
+    const clear = this.halfW + blocker.halfW + 0.9;
+    const lim = this.railX - this.halfW - 0.2;
+    const free = (x) => Math.abs(x) < lim && !this.traffic.pool.some((w) => w !== blocker
+      && Math.abs(w.z - blocker.z) < w.halfL + this.halfL + 4
+      && Math.abs(w.x - x) < w.halfW + this.halfW + pad);
+    const options = [blocker.x - clear, blocker.x + clear].filter(free);
+    const close = bestDz < blocker.halfL + this.halfL + 4;
+    if (!options.length) return { x: null, speed: blocker.speed, close };
+    options.sort((a, b) => Math.abs(a - tx) - Math.abs(b - tx));
+    return { x: options[0], close };
   }
 
   _miss() {
@@ -467,20 +554,20 @@ export class HandlerAI {
       let damage = 8, impact = 0.6;
       if (move === 'SLAM') {
         car.bump(-side, 0.6, 0.1);
-        damage = Math.round(10 + 8 * a + c.impulse);
+        damage = Math.round(9 + 5 * a + Math.min(3, c.impulse * 0.3));
         impact = Math.min(1, 0.55 + c.impulse / 12);
       } else if (move === 'PIT') {
         // rear tapped sideways: the tail steps out and the car fishtails
         car.yawVel = (car.yawVel || 0) + side * (1.4 + 0.6 * a);
         car.speed *= 0.82;
-        damage = Math.round(8 + 6 * a);
+        damage = Math.round(7 + 4 * a);
         impact = 0.7;
       } else if (move === 'SHUNT') {
         car.yawVel = (car.yawVel || 0) + (Math.random() < 0.5 ? -1 : 1) * 0.7;
-        damage = Math.round(8 + 6 * a + c.impulse * 0.5);
+        damage = Math.round(7 + 4 * a + Math.min(2, c.impulse * 0.2));
         impact = Math.min(1, 0.5 + c.impulse / 15);
       } else if (move === 'PIN') {
-        damage = Math.round(6 + 4 * a);
+        damage = Math.round(5 + 3 * a);
         impact = 0.5;
       }
       this.damageCooldown = 0.5;
@@ -491,9 +578,9 @@ export class HandlerAI {
     }
 
     // smaller bumps: harass jabs, brake-checks, the shove during a PIN
-    if (this.damageCooldown === 0 && this.hostile && c.impulse > 1.2) {
-      this.damageCooldown = 0.5;
-      const damage = Math.min(4, Math.round(c.impulse * 0.5));
+    if (this.damageCooldown === 0 && this.hostile && c.impulse > 1.2 && !this._hurt) {
+      this.damageCooldown = 0.9;
+      const damage = Math.min(3, Math.round(c.impulse * 0.4));
       if (this.onContact) this.onContact({ damage, impact: Math.min(0.6, 0.15 + c.impulse / 12), side });
     }
   }

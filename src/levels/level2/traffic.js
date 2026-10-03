@@ -131,10 +131,9 @@ export class Traffic {
       if (v.z < pz - despawnBehind || v.z > pz + despawnAhead) this._spawn(v, pz);
       else this._place(v);
 
-      if (v.hitT === 0) {
-        const hit = this._collide(v, car, px, pz);
-        if (hit) hits.push(hit);
-      }
+      // the damage has a cooldown, the bodies don't: still solid while it runs
+      const hit = this._collide(v, car, car.mesh.position.x, car.mesh.position.z, v.hitT > 0);
+      if (hit) hits.push(hit);
     }
     return hits;
   }
@@ -182,7 +181,7 @@ export class Traffic {
     }
   }
 
-  _collide(v, car, px, pz) {
+  _collide(v, car, px, pz, pushOnly = false) {
     const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
     const dx = v.x - px, dz = v.z - pz;
     const lx = dx * cos - dz * sin;                 // traffic centre in the player's frame
@@ -199,6 +198,21 @@ export class Traffic {
     if (ox <= 0 || oz <= 0) return null;
 
     const longitudinal = oz < ox;
+
+    if (pushOnly) {
+      // just separate the bodies (no damage, no new shove) during the cooldown
+      if (longitudinal) {
+        const push = oz * (lz >= 0 ? -1 : 1);
+        car.mesh.position.x += sin * push;
+        car.mesh.position.z += cos * push;
+        if (lz >= 0) car.speed = Math.min(car.speed, v.speed);
+      } else {
+        const push = ox * (lx >= 0 ? -1 : 1);
+        car.mesh.position.x += cos * push;
+        car.mesh.position.z -= sin * push;
+      }
+      return null;
+    }
     const rel = Math.max(0, car.speed - v.speed);
     let damage, impact;
 
