@@ -27,8 +27,8 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
  *             sky to dusk, lights the torches and runs the pool red. The fight
  *             isn't penned in: Kai can break for the jungle ring, where three
  *             shrines each give one gift (Awards.js), with the Handler after him.
- *   EPILOGUE  the upload on the junction box, the Handler's phone ("11 other
- *             keys"), then the end card. All nine letters -> the true ending.
+ *   EPILOGUE  the camera circles the fallen Handler, then a plain VICTORY card
+ *             ("You won") with PLAY AGAIN. No story text after the win.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -341,8 +341,7 @@ export class Level03 extends Level {
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
     } else this.arena.setFocus(kp.x, kp.z);
     if (this.keyItem) {
-      const upload = this.mode === 'EPILOGUE' && this.beatT > 3 && this.beatT < 7.5;
-      this.keyItem.material.emissiveIntensity = this.combat.abilityActive || upload ? 5 + Math.sin(this.time * 18) * 1.5 : 2.4;
+      this.keyItem.material.emissiveIntensity = this.combat.abilityActive ? 5 + Math.sin(this.time * 18) * 1.5 : 2.4;
     }
 
     // shared state for whoever reads it (HUD, other levels' UI)
@@ -715,87 +714,33 @@ export class Level03 extends Level {
     this.input.ignored.delete('mouse0'); // a click skips the epilogue
   }
 
-  /**
-   * (E0) the Handler down, camera circling; (E1) Kai at the junction box, the
-   * upload; (E2) the Handler's phone lights up; then the end card.
-   */
+  /** The Handler is down: the camera circles him, no words, then VICTORY (it keeps circling behind the card). */
   _updateEpilogue(dt) {
-    const t = this.beatT;
     const k = this.combat;
     const bp = this.boss.root.position;
     this.boss.update(dt);
-    if (this.mode === 'END') {
-      k.fighter.update(dt);
-      return;
+    if (this._shot !== 'E0') {
+      this._shot = 'E0';
+      this._orbitFrom = this.time;
+      k.fighter.play('idle', { fade: 0.3 });
+      k.fighter.setGuard(false);
+      this._setCine(new THREE.Vector3(bp.x + 3.4, bp.y + 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
     }
-
-    if (t < 2.8) {
-      if (this._shot !== 'E0') {
-        this._shot = 'E0';
-        k.fighter.play('idle', { fade: 0.3 });
-        k.fighter.setGuard(false);
-        this._setCine(new THREE.Vector3(bp.x + 3.4, bp.y + 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
-      }
-      const a = 0.65 + t * 0.22;
-      this.cine.pos.set(bp.x + Math.cos(a) * 3.6, bp.y + 1.4 + t * 0.15, bp.z + Math.sin(a) * 3.6);
-      this.cine.rate = 3;
-    } else if (t < 8.4) {
-      const box = this.arena.anchors.box;
-      if (this._shot !== 'E1') {
-        this._shot = 'E1';
-        k.root.position.set(box.x - 0.1, 0, box.z + 0.9);
-        k.root.position.y = this.arena.fighterY(k.root.position.x, k.root.position.z);
-        k.heading = Math.PI;
-        k.root.rotation.y = k.heading;
-        this._setCine(new THREE.Vector3(box.x - 1.0, 1.75, box.z + 2.3), new THREE.Vector3(box.x - 0.05, 1.25, box.z), { fov: 38, cut: true });
-      }
-      const up = smooth(3.4, 7.4, t);
-      if (t > 3.4) this.arena.setUpload(up, up >= 1 ? 'UPLOAD COMPLETE' : 'UPLOADING');
-      // ease in over his left shoulder (the fox's plinth is on the right)
-      const push = smooth(2.8, 8.4, t);
-      this.cine.pos.set(box.x - 1.0 + push * 0.35, 1.75 - push * 0.1, box.z + 2.3 - push * 0.6);
-      this.cine.rate = 2;
-    } else {
-      if (this._shot !== 'E2') {
-        this._shot = 'E2';
-        this._setCine(new THREE.Vector3(bp.x + 1.4, bp.y + 0.8, bp.z + 1.9), new THREE.Vector3(bp.x, bp.y + 0.25, bp.z), { fov: 42, cut: true });
-        this.story.showPhone(this._phoneNotes());
-      }
-      this.cine.pos.set(bp.x + 1.4, bp.y + 0.8 + smooth(8.4, 15, t) * 0.6, bp.z + 1.9 + smooth(8.4, 15, t) * 0.6);
-      if (t > 15.2) this._showEnd();
-    }
+    const s = this.time - this._orbitFrom;
+    const a = 0.65 + s * 0.18;
+    this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
+    this.cine.rate = 3;
+    if (this.mode === 'EPILOGUE' && this.beatT > 3) this._showEnd();
     k.fighter.update(dt);
-  }
-
-  _trueEnding() {
-    return this.state.letters.length >= 9;
-  }
-
-  _phoneNotes() {
-    const notes = [
-      { from: 'OPS · NOW', text: 'Asset lost at Site 7. Key upload confirmed.' },
-      { from: 'OPS · NOW', text: 'Do not pursue. Status of remaining keys follows.' },
-      { from: 'KEY TRACKER', text: '11 other keys ACTIVE — KEY-01 … KEY-11' },
-    ];
-    notes.push(this._trueEnding()
-      ? { from: 'UNKNOWN NUMBER', text: 'You read every letter, Kai. You know whose handwriting it was. Come and find the other eleven.', red: true }
-      : { from: 'UNKNOWN NUMBER', text: 'Eleven more keys. Eleven more of you.', red: true });
-    return notes;
   }
 
   _showEnd() {
     this._enterBeat('END');
+    this._shot = 'E0'; // keep the same slow circle going behind the card
     this.story.setCinematic(false);
-    this.story.hidePhone();
-    this.arena.setUpload(1, 'UPLOAD COMPLETE');
-    const found = this.state.letters.length;
-    const truth = this._trueEnding();
     this.story.showEnd({
-      title: truth ? 'TRUE ENDING' : 'ELEVEN MORE',
-      sub: truth
-        ? 'Every letter read. The handwriting was his. Eleven more of you are still out there.'
-        : 'The upload finished. Somewhere, eleven other keys are still running.',
-      letters: truth ? `ALL NINE LETTERS FOUND` : `LETTERS FOUND  ${found} / 9  ·  FIND ALL NINE FOR THE TRUE ENDING`,
+      title: 'VICTORY',
+      sub: 'You won. The Handler is down.',
       credits: CREDITS,
       action: { label: 'PLAY AGAIN', key: 'R', onClick: () => this.game.restart() },
     });
