@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import { attachModel as attachVehicleModel } from './attachModel.js';
 
 /** States in which he is actively attacking (lights strobe, HUD goes red). */
-export const ATTACK_STATES = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN'];
+export const ATTACK_STATES = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'SHOOT', 'DRONE'];
 
 const MOVE_LABEL = {
   SLAM: 'SIDE SLAM',
   PIT: 'PIT MANOEUVRE',
   SHUNT: 'REAR SHUNT',
   PIN: 'WALL PIN',
+  SHOOT: 'TYRE SHOT',
+  DRONE: 'DRONE LAUNCH',
 };
 
 const _v = new THREE.Vector2();
@@ -33,6 +35,9 @@ const _v = new THREE.Vector2();
  *     SHUNT      drops in directly behind and rams your rear bumper
  *     PIN        only when you're near a rail: he gets on the inside and
  *                shoves you into the wall, grinding you along it
+ *     SHOOT      (after ~18 s) drops back and shoots at your rear tyre —
+ *                see HandlerWeapons.js
+ *     DRONE      (after ~30 s) launches a spike-strip or kamikaze drone
  *   RECOVER    backs off after landing a hit
  *   DODGED     you avoided or escaped the move; he falls well back
  *
@@ -41,6 +46,9 @@ const _v = new THREE.Vector2();
  *   PIT    swerve away from him or boost — braking backs you into his nose
  *   SHUNT  change lane while he's lining up behind you, or boost
  *   PIN    brake or boost to break contact; steering alone won't beat his weight
+ *   SHOOT  keep moving sideways: his laser sight lags behind your wheel
+ *   DRONE  spikes: change lane before the strip; kamikaze: change speed or
+ *          lane when its light goes solid
  *
  * He gets more aggressive over ~90 s (shorter harass, quicker wind-up,
  * harder hits) and rubber-bands back if you boost far ahead.
@@ -98,6 +106,8 @@ export class HandlerAI {
     this.damageCooldown = 0;
     this.harassRange = 9;        // kept for anything still reading it
 
+    this.weapons = null;         // HandlerWeapons, set by Level02 (optional)
+
     this.onAttackResolved = null;
     this.onContact = null;
     this.onDodge = null;
@@ -145,8 +155,12 @@ export class HandlerAI {
     const p = this.target.mesh.position;
     const nearWall = Math.abs(p.x) > this.railX - 5.5 && Math.sign(p.x) === -this.side;
     if (nearWall && this.lastMove !== 'PIN' && Math.random() < 0.5) return 'PIN';
-    const options = ['SLAM', 'PIT', 'SHUNT'].filter((m) => m !== this.lastMove);
-    return options[Math.floor(Math.random() * options.length)];
+    const options = ['SLAM', 'PIT', 'SHUNT'];
+    // ranged attacks unlock as the chase goes on, and come up more often later
+    if (this.weapons && this.elapsed > 18) options.push('SHOOT', ...(this.aggro > 0.5 ? ['SHOOT'] : []));
+    if (this.weapons && this.elapsed > 30 && this.weapons.canLaunchDrone()) options.push('DRONE', 'DRONE');
+    const pool = options.filter((m) => m !== this.lastMove);
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   update(dt) {
@@ -235,6 +249,10 @@ export class HandlerAI {
         } else if (move === 'PIN') {
           tx = p.x + this.side * (GAP + 0.3);
           tz = p.z;
+        } else if (move === 'SHOOT' || move === 'DRONE') {
+          // falls back to a firing position off your rear quarter
+          tx = p.x + this.side * (GAP + 2.5);
+          tz = p.z - 9;
         }
         maxLat = 5;
         if (this.stateTimer > windUp) {
@@ -243,6 +261,10 @@ export class HandlerAI {
           this.pinContact = 0;
           this.lastMove = move;
           this._enter(move);
+          if (move === 'SHOOT') this.weapons.startTyreShot(a);
+          if (move === 'DRONE') {
+            this.weapons.launchDrone(m, Math.random() < 0.5 ? 'spikes' : 'kamikaze');
+          }
         }
         break;
       }
@@ -288,6 +310,19 @@ export class HandlerAI {
         this.pinContact = this.touching ? 0 : this.pinContact + dt;
         if (this.stateTimer > 2.2 + a) this._enter('RECOVER');
         else if (this.stateTimer > 0.5 && this.pinContact > 0.5) this._miss();
+        break;
+
+      case 'SHOOT':
+        // holds his firing position while the sight tracks you
+        tx = p.x + this.side * (GAP + 2.5);
+        tz = p.z - 9;
+        if (!this.weapons.busy) this._enter('APPROACH');
+        break;
+
+      case 'DRONE':
+        tx = p.x + this.side * (GAP + 2.5);
+        tz = p.z - 12;
+        if (this.stateTimer > 1) this._enter('APPROACH');
         break;
 
       case 'DODGED':

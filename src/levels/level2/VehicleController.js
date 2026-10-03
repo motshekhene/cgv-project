@@ -51,6 +51,7 @@ export class VehicleController {
     this.yawVel = 0;             // spin from off-centre hits (PIT, shunts), rad/s (decays)
     this.roll = 0;               // body lean, purely visual
     this.drifting = false;       // read by Level02 for skids/smoke
+    this.flat = null;            // { side, severity, t, total } while a tyre is punctured
 
     // road edges (the guardrails) — Level02 can overwrite from RoadSystem
     this.railX = 11.7;
@@ -74,6 +75,15 @@ export class VehicleController {
    * Sideways shove + speed loss, e.g. from the Handler's ram.
    * side: -1 pushes towards -x, +1 towards +x.
    */
+  /**
+   * Flat tyre. side: -1 / +1 = that rear wheel (pulls the car that way),
+   * 0 = both fronts (spike strip: no pull, heavy drag). Wears off after
+   * `duration` seconds — the run-flats re-seal.
+   */
+  puncture(side, severity = 0.6, duration = 7) {
+    this.flat = { side, severity, t: duration, total: duration };
+  }
+
   bump(side, strength = 1, speedLoss = 0.15) {
     this.lateralVel += side * 9 * strength;
     this.speed *= 1 - speedLoss;
@@ -105,13 +115,22 @@ export class VehicleController {
       this._coolDelay = Math.max(0, (this._coolDelay || 0) - dt);
       if (this._coolDelay === 0) this.heat = Math.max(0, this.heat - 25 * dt);
     }
+    // a flat tyre costs top speed until it re-seals
+    let flatK = 0;
+    if (this.flat) {
+      this.flat.t -= dt;
+      flatK = this.flat.severity * Math.min(1, this.flat.t / 1.5);   // fades out at the end
+      if (this.flat.t <= 0) this.flat = null;
+    }
     // boost lets you go past the normal limit; it bleeds back off afterwards
-    const cap = this.boosting ? this.maxSpeed * 1.25 : this.maxSpeed;
+    const cap = (this.boosting ? this.maxSpeed * 1.25 : this.maxSpeed) * (1 - 0.3 * flatK);
     if (this.speed > cap) this.speed = Math.max(cap, Math.min(this.speed, before - this.brakeRate * 0.5 * dt));
     this.speed = Math.max(this.speed, -this.maxSpeed * 0.4);
 
     // ---- steering ----
-    const want = (input.left ? 1 : 0) - (input.right ? 1 : 0);
+    // a flat rear tyre drags the car towards that side; you have to counter-steer
+    const pull = this.flat && this.flat.side ? this.flat.side * 0.35 * flatK : 0;
+    const want = THREE.MathUtils.clamp((input.left ? 1 : 0) - (input.right ? 1 : 0) + pull, -1, 1);
     const rate = want !== 0 && Math.sign(want) === Math.sign(this.steer || want) ? this.steerIn : this.steerOut;
     this.steer += THREE.MathUtils.clamp(want - this.steer, -rate * dt, rate * dt);
 
@@ -136,7 +155,8 @@ export class VehicleController {
 
     // a hard swerve at speed counts as a drift (skids + smoke)
     this.drifting = (v > 0.45 && Math.abs(this.steer) > 0.75 && Math.abs(this.heading) > 0.18)
-      || Math.abs(this.yawVel) > 0.5;
+      || Math.abs(this.yawVel) > 0.5
+      || flatK > 0.2;                  // a flat grinds and smokes
 
     // ---- integrate ----
     this.lateralVel *= Math.exp(-4 * dt);

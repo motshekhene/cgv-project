@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { VehicleController } from './level2/VehicleController.js';
 import { HandlerAI } from './level2/HandlerAI.js';
+import { HandlerWeapons } from './level2/HandlerWeapons.js';
 import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
@@ -64,6 +65,18 @@ export class Level02 extends Level {
     };
     this.handler.onDodge = (move, label) => this._flash(label, '#7dffb0');
 
+    // tyre shots, spike-strip drones, kamikaze drones
+    this.weapons = new HandlerWeapons(this.root, assets);
+    this.handler.weapons = this.weapons;
+    this.weapons.onHit = (hit) => {
+      this.car.takeDamage(hit.damage);
+      this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
+      const extra = hit.kind === 'drone' ? '' : '  · TYRE DAMAGED';
+      this._flash(`${hit.label}  -${hit.damage}${extra}`, '#ff5555');
+    };
+    this.weapons.onWarn = (text) => this._flash(text, '#ffb020');
+    this.weapons.onMiss = (text) => this._flash(text, '#7dffb0');
+
     // ---- 2A's visual systems ----
     this.carLights = new CarLights(this.car.mesh);
     this.policeLights = new PoliceLights(this.handler.mesh);
@@ -114,6 +127,7 @@ export class Level02 extends Level {
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds);
 
     await this.traffic.init(this.car.mesh.position.z);
+    await this.weapons.init();
     this._hud = createLevel2Hud();
     this._openCarPicker();
   }
@@ -216,6 +230,7 @@ export class Level02 extends Level {
     const previousHeading = this.car.heading;
     this.car.update(dt, i);
     const { dist, state: handlerState } = this.handler.update(dt);
+    this.weapons.update(dt, this.car, this.handler.mesh);
 
     // skid detection
     const headingRate = dt > 0 ? (this.car.heading - previousHeading) / dt : 0;

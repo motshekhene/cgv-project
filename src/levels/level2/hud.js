@@ -76,7 +76,7 @@ export function createLevel2Hud() {
       els.dist.textContent = dist.toFixed(1);
       els.state.textContent = handlerState;
       // red while a move is coming or happening (labels like "PIT MANOEUVRE !", "WALL PIN")
-      const attacking = /!|SLAM|PIT|SHUNT|PIN/.test(handlerState);
+      const attacking = /!|SLAM|PIT|SHUNT|PIN|TYRE|DRONE/.test(handlerState);
       handlerBox.style.color = attacking ? '#ff5555' : handlerState === 'DODGED' ? '#7dffb0' : '#ffb37a';
     },
     destroy() { root.remove(); },
