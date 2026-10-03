@@ -11,6 +11,9 @@ import { CARS, HANDLER_MODEL, createCarPicker, loadSavedCar, saveCar, loadSavedP
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
 import { createGameOverScreen } from './level2/gameOver.js';
+import { loadJungleKit, createJungleMaterials, createJungleSky, createPollen } from './level1/jungleWorld.js';
+import { populateJungleChunk } from './level2/JungleRoadside.js';
+import { Level2Sound } from './level2/sound.js';
 
 /**
  * Level 02 — Redline.
@@ -34,16 +37,33 @@ export class Level02 extends Level {
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
-    scene.background = new THREE.Color(0x0a0e14);
-    scene.fog = new THREE.Fog(0x0a0e14, 60, 220);
+    // ---- jungle at dusk (team guide, Level 2 "The River Road": sunset, low
+    // sun ahead-left, warm fog) — same jungle as Levels 1 and 3 ----
+    const FOG = 0xc99a6e;
+    scene.background = new THREE.Color(FOG);
+    scene.fog = new THREE.FogExp2(FOG, 0.0085);
 
-    this.root.add(new THREE.HemisphereLight(0x8fb3ff, 0x1a1008, 0.9));
-    const sun = new THREE.DirectionalLight(0xffcf9e, 1.1);
-    sun.position.set(-40, 60, -20);
+    this._sky = createJungleSky();
+    const u = this._sky.material.uniforms;
+    u.uTop.value.set(0x2e3d6e);          // deep blue overhead
+    u.uHorizon.value.set(0xf0a060);      // burnt-orange horizon
+    u.uBottom.value.set(0x3a3a22);
+    u.uSun.value.set(0xffb070);
+    u.uSunDir.value.set(-0.45, 0.1, 0.9).normalize();   // low, ahead of you
+    this.root.add(this._sky);
+
+    this.root.add(new THREE.HemisphereLight(0xffd2a0, 0x2f3a1c, 0.85));
+    const sun = new THREE.DirectionalLight(0xffc28a, 1.6);
+    sun.position.set(-45, 12, 90);       // matches the sky's sun
     this.root.add(sun);
 
-    // ---- infinite textured road — @2B ----
+    this._pollen = createPollen(500);
+    this._pollen.material.color.set(0xffd08a);
+    this.root.add(this._pollen);
+
+    // ---- infinite textured road — @2B — now through the jungle ----
     this.road = new RoadSystem(this.root);
+    this._jungleReady = this._buildJungle(assets);
 
     // ---- 2A's vehicle + handler ----
     this.car = new VehicleController(this.root);
@@ -56,27 +76,39 @@ export class Level02 extends Level {
     // the Handler's hits: a ram that connects hurts and shakes, a scrape
     // alongside nicks you, a dodged ram is called out on the HUD
     this.handler.onAttackResolved = (hit) => {
+      this.sound.crash(hit.impact, hit.side * -0.5);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.5 + hit.impact * 0.8);
       this._flash(`${hit.label}  -${hit.damage}`, '#ff5555');
     };
     this.handler.onContact = (hit) => {
+      this.sound.thump(hit.impact, hit.side * -0.5);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, hit.impact);
     };
-    this.handler.onDodge = (move, label) => this._flash(label, '#7dffb0');
+    this.handler.onDodge = (move, label) => { this._flash(label, '#7dffb0'); this.sound.dodge(); };
 
     // tyre shots, spike-strip drones, kamikaze drones
     this.weapons = new HandlerWeapons(this.root, assets);
     this.handler.weapons = this.weapons;
     this.weapons.onHit = (hit) => {
+      if (hit.kind === 'drone') this.sound.crash(0.9); else this.sound.tyrePop();
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
       const extra = hit.kind === 'drone' ? '' : '  · TYRE DAMAGED';
       this._flash(`${hit.label}  -${hit.damage}${extra}`, '#ff5555');
     };
-    this.weapons.onWarn = (text) => this._flash(text, '#ffb020');
-    this.weapons.onMiss = (text) => this._flash(text, '#7dffb0');
+    this.weapons.onWarn = (text) => { this._flash(text, '#ffb020'); this.sound.warn(); };
+    this.weapons.onMiss = (text) => { this._flash(text, '#7dffb0'); this.sound.dodge(); };
+
+    // ---- sound: everything synthesised, no audio files (level2/sound.js) ----
+    this.sound = new Level2Sound();
+    const panOf = (pos) => Math.max(-0.8, Math.min(0.8, -(pos.x - this.car.mesh.position.x) / 10));
+    const distTo = (pos) => pos.distanceTo(this.car.mesh.position);
+    this.weapons.onShot = (gun) => this.sound.gunshot(distTo(gun), panOf(gun));
+    this.weapons.onLaser = (t) => this.sound.laser(t);
+    this.weapons.onExplode = (pos) => this.sound.explosion(distTo(pos));
+    this.weapons.onStripDrop = () => this.sound.clatter();
 
     // ---- 2A's visual systems ----
     this.carLights = new CarLights(this.car.mesh);
@@ -131,9 +163,31 @@ export class Level02 extends Level {
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds);
 
     await this.traffic.init(this.car.mesh.position.z);
+    await this._jungleReady;
     await this.weapons.init();
     this._hud = createLevel2Hud();
     this._openCarPicker();
+  }
+
+  /** Loads the shared jungle kit and plants it along every road chunk. */
+  async _buildJungle(assets) {
+    const [kit, mats] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200)]);
+    const tile = (mat, rx, ry) => {
+      const m = mat.clone();
+      for (const k of ['map', 'normalMap', 'roughnessMap']) {
+        if (!m[k]) continue;
+        m[k] = m[k].clone();
+        m[k].wrapS = m[k].wrapT = THREE.RepeatWrapping;
+        m[k].repeat.set(rx, ry);
+        m[k].needsUpdate = true;
+      }
+      return m;
+    };
+    const L = this.road.chunkLength;
+    this.road.decorate(
+      (chunk, seed) => populateJungleChunk(chunk, kit, { length: L, roadWidth: this.road.roadWidth, seed }),
+      { verge: tile(mats.trail, 1.3, L / 3), ground: tile(mats.forest, 80, L / 5) },
+    );
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -280,28 +334,19 @@ export class Level02 extends Level {
 
     this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
     for (const hit of this.traffic.update(dt, this.car)) {
+      this.sound.crash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
     }
 
     this.road.update(this.car.mesh.position);
 
-    // rearview mirror — behind the car, looking forward
-    const rvOffset = 14;
-    this._rearview.position.set(
-      this.car.mesh.position.x - Math.sin(this.car.heading) * rvOffset,
-      this.car.mesh.position.y + 3.5,
-      this.car.mesh.position.z - Math.cos(this.car.heading) * rvOffset,
-    );
-    this._rearview.lookAt(
-      this.car.mesh.position.x + Math.sin(this.car.heading) * 30,
-      this.car.mesh.position.y + 1,
-      this.car.mesh.position.z + Math.cos(this.car.heading) * 30,
-    );
+    // sky dome and pollen travel with you
+    this._sky.position.copy(this.game.camera.position);
+    this._pollen.position.set(this.car.mesh.position.x, 0, this.car.mesh.position.z + 30);
 
-    // minimap — directly above the car, looking down
-    this._minimap.position.set(this.car.mesh.position.x, 120, this.car.mesh.position.z);
-    this._minimap.lookAt(this.car.mesh.position);
+
+    this._updateSecondaryCams();
 
     // chase camera with shake
     const cam = this.game.camera;
@@ -330,6 +375,29 @@ export class Level02 extends Level {
       handlerState: this.handler.label,
     });
 
+    // ---- sound ----
+    if (handlerState === 'TELEGRAPH' && this._prevHState !== 'TELEGRAPH') this.sound.warn();
+    this._prevHState = handlerState;
+    const p = this.car.mesh.position;
+    this.sound.update(dt, {
+      speed: this.car.speed,
+      maxSpeed: this.car.maxSpeed,
+      throttle: i.forward || i.boost,
+      boosting: this.car.boosting,
+      skid: skidding,
+      scrape: this.car.wallHit,
+      handler: {
+        dist,
+        dx: this.handler.mesh.position.x - p.x,
+        attacking: ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'SHOOT'].includes(handlerState),
+      },
+      drones: this.weapons.drones.filter((d) => d.active).map((d) => ({
+        dist: d.holder.position.distanceTo(p),
+        dx: d.holder.position.x - p.x,
+        dive: d.phase === 'dive' ? Math.min(1, d.t / 0.7) : 0,
+      })),
+    });
+
     // publish to shared state so 3B's HUD can read it
     state.health = this.car.health;
     state.boostHeat = this.car.heat;
@@ -339,13 +407,36 @@ export class Level02 extends Level {
     // game over
     if (this.car.health <= 0 && !this._gameOver) {
       this._gameOver = true;
+      this.sound.crash(1);
+      this.sound.silenceEngine();
       this._showGameOver();
     }
+  }
+
+  /** Rear-view mirror + minimap (2B) follow the car — also during the car picker. */
+  _updateSecondaryCams() {
+    // rearview mirror — behind the car, looking forward
+    const rvOffset = 14;
+    this._rearview.position.set(
+      this.car.mesh.position.x - Math.sin(this.car.heading) * rvOffset,
+      this.car.mesh.position.y + 3.5,
+      this.car.mesh.position.z - Math.cos(this.car.heading) * rvOffset,
+    );
+    this._rearview.lookAt(
+      this.car.mesh.position.x + Math.sin(this.car.heading) * 30,
+      this.car.mesh.position.y + 1,
+      this.car.mesh.position.z + Math.cos(this.car.heading) * 30,
+    );
+
+    // minimap — directly above the car, looking down
+    this._minimap.position.set(this.car.mesh.position.x, 120, this.car.mesh.position.z);
+    this._minimap.lookAt(this.car.mesh.position);
   }
 
   /* ======================== car picker camera ======================== */
 
   _updateCarPicker(dt) {
+    this._updateSecondaryCams();
     if (this.input.pressed('left')) this._selectCar(this._carIndex - 1);
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
     if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
@@ -402,6 +493,7 @@ export class Level02 extends Level {
     this._picker?.destroy();
     this._gameOverScreen?.destroy();
     this._flashEl?.remove();
+    this.sound?.dispose();
     this._flashEl = null;
     if (this.road) this.road.dispose();
     super.teardown();

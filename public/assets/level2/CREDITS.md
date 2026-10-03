@@ -12,3 +12,6 @@ Everything here that the team did not make. Copy these into the in-game credits 
 
 The CC BY models are used unmodified apart from scaling, positioning and recolouring at load time.
 In-game names are generic (Sedan, GT Coupe, …); no brand names are shown.
+
+Level 2 also uses the shared jungle kit in `assets/jungle/` (trees, bushes, grass, rocks, ruins, logs/crates, mud and forest-floor textures — Quaternius / ambientCG / Poly by Google, all CC0; see `assets/jungle/README.md`).
+All Level 2 sound is synthesised in code (`src/levels/level2/sound.js`) — no third-party audio.

@@ -1,16 +1,17 @@
 import * as THREE from 'three';
-import { populateChunk } from './CityEnvironment.js';
 
 /**
  * RoadSystem — Member 2B
  *
- * Infinite nighttime highway built from recycled chunks.  Each chunk is a
+ * Infinite jungle highway built from recycled chunks.  Each chunk is a
  * 200 m slice of road with:
  *
  *   - Procedural asphalt canvas (albedo + normal + roughness)
  *   - Yellow edge lines and white dashed centre lines
  *   - Metal guardrails on both sides
- *   - Streetlights with emissive lamp heads
+ *   - Mud verges and forest floor, and the jungle itself, added by
+ *     decorate() once the shared jungle kit has loaded (JungleRoadside.js).
+ *     (The old city blocks in CityEnvironment.js are no longer used.)
  *
  * Chunks recycle behind the car and reappear ahead, so the road never runs
  * out no matter how far the chase goes.  All geometry lives under one
@@ -206,11 +207,27 @@ export class RoadSystem {
     this.roadWidth   = 24;    // matches the old placeholder
     this.numChunks   = 8;     // 1 600 m total — always covers the fog
     this.chunks      = [];
-    this.lights      = [];    // point-lights that follow the car
 
     this._buildMaterials();
     this._buildChunks();
-    this._setupLights();
+  }
+
+  /**
+   * Jungle pass, once the kit has loaded: swaps the verge and ground to the
+   * jungle mud / forest-floor materials and fills every chunk via
+   * populate(chunk, seed).
+   */
+  decorate(populate, { verge = null, ground = null } = {}) {
+    if (verge) this._replaceMaterial(this.shoulderMat, verge);
+    if (ground) this._replaceMaterial(this.groundMat, ground);
+    this.chunks.forEach((chunk, i) => populate(chunk, 1000 + i * 7919));
+  }
+
+  _replaceMaterial(oldMat, newMat) {
+    for (const chunk of this.chunks) {
+      chunk.traverse((o) => { if (o.isMesh && o.material === oldMat) o.material = newMat; });
+    }
+    this._extraMats = [...(this._extraMats || []), newMat];
   }
 
   /* ---- materials (built once, shared by every chunk) ---- */
@@ -287,8 +304,6 @@ export class RoadSystem {
     for (let i = 0; i < this.numChunks; i++) {
       const chunk = this._createChunk();
       chunk.position.z = i * this.chunkLength;
-      // populate with 3D buildings and street props (unique seed per chunk)
-      populateChunk(chunk, this.chunkLength, this.roadWidth, 1000 + i * 7919);
       this.group.add(chunk);
       this.chunks.push(chunk);
     }
@@ -362,13 +377,6 @@ export class RoadSystem {
       }
     }
 
-    // streetlights — every 50 m, alternating sides
-    const spacing = 50;
-    for (let z = -L / 2 + 25; z < L / 2; z += spacing) {
-      const side = (Math.round((z + L / 2) / spacing) % 2 === 0) ? 1 : -1;
-      this._addStreetlight(g, side * (halfW + 4.5), z);
-    }
-
     return g;
   }
 
@@ -388,18 +396,7 @@ export class RoadSystem {
     parent.add(lamp);
   }
 
-  /* ---- a few point-lights that follow the car for atmosphere ---- */
-
-  _setupLights() {
-    for (let i = 0; i < 3; i++) {
-      const light = new THREE.PointLight(0xffa040, 1.8, 60, 1.5);
-      light.position.set(0, 6.5, 0);
-      this.group.add(light);
-      this.lights.push(light);
-    }
-  }
-
-  /* ---- per-frame update: recycle chunks + move the atmosphere lights ---- */
+  /* ---- per-frame update: recycle chunks ---- */
 
   /**
    * Call every frame with the car's world position.
@@ -416,11 +413,6 @@ export class RoadSystem {
         const farthest = Math.max(...this.chunks.map(c => c.position.z));
         chunk.position.z = farthest + L;
       }
-    }
-
-    // move the three atmosphere lights to span the road ahead of the car
-    for (let i = 0; i < this.lights.length; i++) {
-      this.lights[i].position.set(0, 6.5, carZ + 20 + i * 40);
     }
   }
 

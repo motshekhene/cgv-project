@@ -50,6 +50,11 @@ export class HandlerWeapons {
     this.onHit = null;
     this.onWarn = null;
     this.onMiss = null;
+    // sound hooks (Level02 wires these to Level2Sound)
+    this.onShot = null;        // (gunPosition)
+    this.onLaser = null;       // (sightSeconds)
+    this.onExplode = null;     // (position)
+    this.onStripDrop = null;   // (position)
 
     this._buildLaser();
     this._buildTracers();
@@ -241,6 +246,8 @@ export class HandlerWeapons {
 
   /** Starts a tyre-shot sequence from the Handler at the player. */
   startTyreShot(aggro = 0) {
+    const sightTime = THREE.MathUtils.lerp(1.1, 0.8, aggro);
+    if (this.onLaser) this.onLaser(sightTime);
     this.shot = {
       t: 0,
       aimDelay: THREE.MathUtils.lerp(0.45, 0.3, aggro),   // how far the sight lags behind you
@@ -331,6 +338,7 @@ export class HandlerWeapons {
   }
 
   _fire(gun, aim, car, side) {
+    if (this.onShot) this.onShot(gun);
     // tracer
     const tr = this.tracers.find((x) => !x.visible) || this.tracers[0];
     tr.visible = true;
@@ -439,6 +447,7 @@ export class HandlerWeapons {
 
   _explode(d, car) {
     const pos = d.holder.position;
+    if (this.onExplode) this.onExplode(pos);
     this.blast.visible = true;
     this.blast.userData.t = 0;
     this.blast.position.set(pos.x, 0.8, pos.z);
@@ -469,6 +478,7 @@ export class HandlerWeapons {
     s.z = z;
     s.holder.position.set(x, 0, z);
     s.holder.visible = true;
+    if (this.onStripDrop) this.onStripDrop(s.holder.position);
   }
 
   _updateStrip(dt, s, car) {
