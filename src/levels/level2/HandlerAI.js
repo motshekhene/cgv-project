@@ -37,7 +37,8 @@ const _v = new THREE.Vector2();
  *                shoves you into the wall, grinding you along it
  *     SHOOT      (after ~18 s) drops back and shoots at your rear tyre —
  *                see HandlerWeapons.js
- *     DRONE      (after ~30 s) launches a spike-strip or kamikaze drone
+ *     DRONE      first at ~25 s, then about every 30 s: a spike-strip or
+ *                kamikaze drone
  *   RECOVER    backs off after landing a hit
  *   DODGED     you avoided or escaped the move; he falls well back
  *
@@ -189,6 +190,11 @@ export class HandlerAI {
 
   _chooseMove() {
     const p = this.target.mesh.position;
+    // drones are the showpiece: the first one ~25 s in, then about every 30 s
+    if (this.weapons && this.elapsed > 25 && this.weapons.canLaunchDrone()
+        && this.elapsed - (this.lastDroneAt ?? -Infinity) > 30) {
+      return 'DRONE';
+    }
     const awayBlocked = this._boxedIn(-this.side);   // your escape route from him
     const nearWall = Math.abs(p.x) > this.railX - 5.5 && Math.sign(p.x) === -this.side;
     if (nearWall && this.lastMove !== 'PIN' && !this._hurt && Math.random() < 0.5) return 'PIN';
@@ -196,7 +202,7 @@ export class HandlerAI {
     const options = awayBlocked ? ['PIT', 'SHUNT'] : ['SLAM', 'PIT', 'SHUNT'];
     // ranged attacks unlock as the chase goes on, and come up more often later
     if (this.weapons && this.elapsed > 18) options.push('SHOOT');
-    if (this.weapons && this.elapsed > 30 && this.weapons.canLaunchDrone()) options.push('DRONE');
+    if (this.weapons && this.elapsed > 25 && this.weapons.canLaunchDrone()) options.push('DRONE');
     const pool = options.filter((m) => m !== this.lastMove);
     return pool[Math.floor(Math.random() * pool.length)];
   }
@@ -307,6 +313,7 @@ export class HandlerAI {
           this._enter(move);
           if (move === 'SHOOT') this.weapons.startTyreShot(a);
           if (move === 'DRONE') {
+            this.lastDroneAt = this.elapsed;
             this.weapons.launchDrone(m, Math.random() < 0.5 ? 'spikes' : 'kamikaze');
           }
         }
