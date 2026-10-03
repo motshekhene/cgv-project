@@ -31,6 +31,7 @@ export const DEFAULT_BINDINGS = {
   lockOn: ["tab"],
   pause: ["escape"],
   restart: ["r"],
+  skip: [" ", "enter", "mouse0"], // cutscenes and cards
 };
 
 export class Input {

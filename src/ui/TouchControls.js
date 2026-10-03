@@ -9,34 +9,50 @@
  * 360° view: while enabled, dragging the canvas, holding the side arrows or
  * using the wheel produces orbit input; the level reads it with consumeOrbit().
  */
-const CSS = `
-.tc { position:absolute; inset:0; pointer-events:none; font-family:'Segoe UI',system-ui,sans-serif; }
+import { THEME_CSS } from './theme.js';
+
+const CSS = THEME_CSS + `
+.tc { position:absolute; inset:0; pointer-events:none; font-family:var(--sans); color:var(--ink); }
 .tc * { touch-action:none; user-select:none; -webkit-user-select:none; box-sizing:border-box; }
 .tc-joy { position:absolute; left:36px; bottom:36px; width:136px; height:136px; border-radius:50%; pointer-events:auto;
-  background:radial-gradient(circle,#ffffff10,#ffffff06); border:2px solid #ffffff30; }
-.tc-joy::before { content:''; position:absolute; inset:34px; border-radius:50%; border:1px dashed #ffffff22; }
+  background:radial-gradient(circle, rgba(38,44,28,.55), rgba(13,17,11,.35)); border:1px solid var(--line);
+  box-shadow:0 4px 14px rgba(0,0,0,.4), inset 0 0 0 5px rgba(0,0,0,.18); }
+.tc-joy::before { content:''; position:absolute; inset:34px; border-radius:50%; border:1px dashed rgba(227,187,98,.3); }
 .tc-knob { position:absolute; left:50%; top:50%; width:58px; height:58px; margin:-29px 0 0 -29px; border-radius:50%;
-  background:radial-gradient(circle at 35% 30%,#ffd9a8,#ff8a3a); box-shadow:0 0 14px #ff7a2a88; }
-.tc-btn { position:absolute; pointer-events:auto; border-radius:50%; border:2px solid #ffffff44; color:#fff; font-weight:700;
-  letter-spacing:.08em; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; cursor:pointer;
-  background:radial-gradient(circle at 35% 30%,#ffffff26,#ffffff0d); backdrop-filter:blur(2px); }
-.tc-btn small { display:block; font-size:9px; font-weight:500; opacity:.7; letter-spacing:.12em; }
-.tc-btn.on, .tc-btn:active { background:radial-gradient(circle at 35% 30%,#ffb066,#e2561a); border-color:#ffd9a8; transform:scale(.94); }
-.tc-atk { right:36px; bottom:36px; width:98px; height:98px; font-size:15px; border-color:#ff8a3a99; }
-.tc-kick { right:152px; bottom:44px; width:78px; height:78px; font-size:13px; border-color:#ffb06699; }
+  background:radial-gradient(circle at 35% 30%, #fff1cf, var(--gold) 55%, var(--gold-dim)); box-shadow:0 0 14px rgba(227,187,98,.55), 0 2px 6px rgba(0,0,0,.5); }
+.tc-btn { position:absolute; pointer-events:auto; border-radius:50%; border:1px solid var(--line); color:var(--ink); font-weight:700;
+  letter-spacing:.1em; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; cursor:pointer;
+  background:radial-gradient(circle at 35% 30%, rgba(60,66,44,.72), rgba(13,17,11,.68)); backdrop-filter:blur(2px);
+  box-shadow:0 4px 12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08); text-shadow:0 1px 0 #000; transition:transform .08s ease; }
+.tc-btn small { display:block; font-size:9px; font-weight:600; color:var(--ink-dim); letter-spacing:.12em; }
+.tc-btn.on, .tc-btn:active { background:radial-gradient(circle at 35% 30%, #fff1cf, var(--gold) 60%, var(--gold-dim)); color:#21180a;
+  text-shadow:none; border-color:#fff1cf; transform:scale(.94); }
+.tc-btn.on small, .tc-btn:active small { color:#3a2c12; }
+.tc-atk { right:36px; bottom:36px; width:98px; height:98px; font-size:15px; border-color:rgba(242,147,79,.7); }
+.tc-kick { right:152px; bottom:44px; width:78px; height:78px; font-size:13px; border-color:rgba(242,147,79,.55); }
 .tc-dodge { right:170px; bottom:136px; width:68px; height:68px; font-size:12px; }
 .tc-block { right:44px; bottom:148px; width:72px; height:72px; font-size:12px; }
-.tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:#7fd8ff88; }
-.tc-view { position:absolute; top:18px; right:20px; pointer-events:auto; padding:9px 14px; border-radius:6px; font-size:11px;
-  font-weight:700; letter-spacing:.2em; color:#ffe7cf; background:#00000066; border:1px solid #ff9a5a77; cursor:pointer; }
-.tc-view:hover { background:#3a1a0aaa; }
-.tc-arrow { position:absolute; top:24%; bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
-  font-size:26px; color:#ffe7cf; cursor:pointer; }
-.tc-arrow.l { left:0; background:linear-gradient(90deg,#ff7a2a55,transparent); border-radius:0 40px 40px 0; }
-.tc-arrow.r { right:0; background:linear-gradient(270deg,#ff7a2a55,transparent); border-radius:40px 0 0 40px; }
+.tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:rgba(111,227,255,.65); color:var(--key); }
+.tc-key.on, .tc-key:active { background:radial-gradient(circle at 35% 30%, #e6fbff, var(--key) 60%, #2a8fae); color:#062430; }
+
+/* the one lock indicator: lives in the HUD grid's right-hand column */
+.tc-view { position:absolute; top:14px; right:14px; width:min(200px, calc(50vw - 300px)); min-width:150px; pointer-events:auto; cursor:pointer;
+  display:flex; align-items:center; gap:10px; padding:7px 12px 8px; text-align:left; color:var(--ink); font-family:var(--sans); }
+.tc-view:hover { border-color:var(--gold); }
+.tc-view i { font-style:normal; font-size:20px; line-height:1; color:var(--gold); width:22px; text-align:center; }
+.tc-view b { display:block; font-size:12px; letter-spacing:.24em; }
+.tc-view small { display:block; font-size:9px; font-weight:600; letter-spacing:.14em; color:var(--ink-dim); margin-top:2px; }
+.tc.orbit .tc-view { border-color:rgba(111,227,255,.6); }
+.tc.orbit .tc-view i { color:var(--key); }
+@media (max-width: 760px) { .tc-view { width:150px; min-width:0; } }
+
+.tc-arrow { position:absolute; top:max(24%, 150px); bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
+  font-size:24px; color:var(--gold); cursor:pointer; text-shadow:0 1px 2px #000; }
+.tc-arrow.l { left:0; background:linear-gradient(90deg, rgba(13,17,11,.6), transparent); border-radius:0 40px 40px 0; }
+.tc-arrow.r { right:0; background:linear-gradient(270deg, rgba(13,17,11,.6), transparent); border-radius:40px 0 0 40px; }
 .tc.orbit .tc-arrow { display:flex; }
-.tc-arrow.held { background:linear-gradient(90deg,#ff7a2aaa,transparent); }
-.tc-arrow.r.held { background:linear-gradient(270deg,#ff7a2aaa,transparent); }
+.tc-arrow.held { background:linear-gradient(90deg, rgba(227,187,98,.45), transparent); }
+.tc-arrow.r.held { background:linear-gradient(270deg, rgba(227,187,98,.45), transparent); }
 `;
 
 export class TouchControls {
@@ -60,7 +76,7 @@ export class TouchControls {
     this.el.innerHTML = `
       <div class="tc-arrow l">&#9664;</div>
       <div class="tc-arrow r">&#9654;</div>
-      <button class="tc-view"></button>
+      <button class="tc-view plaque"><i></i><span><b></b><small></small></span></button>
       <div class="tc-joy"><div class="tc-knob"></div></div>
       <div class="tc-btn tc-atk" data-a="attack">PUNCH<small>ENTER</small></div>
       <div class="tc-btn tc-kick" data-a="kick">KICK<small>K</small></div>
@@ -191,8 +207,20 @@ export class TouchControls {
   setOrbitEnabled(on) {
     this.orbitEnabled = on;
     this.el.classList.toggle('orbit', on);
-    this.viewBtn.textContent = on ? 'VIEW: 360°' : 'VIEW: LOCK-ON';
+    this.viewBtn.querySelector('i').textContent = on ? '⟲' : '◎';
+    this.viewBtn.querySelector('b').textContent = on ? 'FREE VIEW' : 'LOCK-ON';
+    this.viewBtn.querySelector('small').textContent = on ? 'DRAG · WHEEL · TAB' : 'TAB TO SWITCH VIEW';
     if (!on) this.strip = 0;
+  }
+
+  /** Hide every widget during cutscenes (and let go of anything held). */
+  setVisible(on) {
+    this.el.style.display = on ? '' : 'none';
+    if (!on) {
+      this.input.stick.x = 0;
+      this.input.stick.y = 0;
+      for (const a of ['attack', 'kick', 'dodge', 'block', 'ability']) this.input.setVirtual(a, false);
+    }
   }
 
   /** Orbit input since the last call: drag pixels, held-arrow direction, wheel steps. */

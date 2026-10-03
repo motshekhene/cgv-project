@@ -35,7 +35,7 @@ Collecting all nine unlocks the true ending. Store them in `state.letters` (ids 
 
 ## 2. Code layout to add
 
-Nothing here exists yet. This is where new code should go so the three pairs don't collide.
+This is where new code should go so the three pairs don't collide. Level 3 has built the shared pieces already: `jungle/props.js` (`loadProp`, `place`, `scatter`, `pbr`, `sign`), `jungle/palette.js`, `jungle/sky.js`, and the `waterfall.js`, `water.js` and `lightshaft.js` shaders. L1 and L2 should reuse them rather than write their own.
 
 ```
 src/
@@ -148,6 +148,13 @@ The road climbs onto **`props/bridge.glb`** (×1–1.5) across a gorge (`cliff-r
 
 **Keep, unchanged:** `CombatController.js`, `HandlerBoss.js`, `Fighter.js`, `FightHUD.js`, `TouchControls.js`, combat camera, phases, helmet reveal.
 **Replace in `Level03.js`:** `_buildArena()` and `_buildLights()` only, plus the lava shader. Full rationale is in [`LEVEL3_THEME_REDESIGN.md`](LEVEL3_THEME_REDESIGN.md), Option A.
+
+> **Status: built.** The world is `level3/ShrineArena.js`, the letters are `level3/Letters.js`, the cutscene overlay is `ui/StoryOverlay.js`, and `Level03.js` runs the beats (intro → fight → reveal → dusk → epilogue). Where it differs from the plan below:
+> - **No stairs at the gate.** `ruins/stairs` rises to a 2.3 m block under the arch and seals it, so a paved path runs from the courtyard, under the arch, to the pool instead.
+> - **No stage spotlight, torch point lights or HDRI environment.** On an Intel UHD 620 at 720p, each light costs every pixel even at intensity 0. The torches are emissive flames, and the hemisphere and fill lights carry the fighters. That took it from 15 to ~38 fps. The FBX packs also come in with ~200 material groups per mesh, so `props.js` merges them, and the jungle is instanced.
+> - **Phase III dusk** swings the sun west, so the columns throw long shadows across the court instead of the gate wall blacking it out.
+> - **Letters:** `l3-1` sits in the courtyard from the start, `l3-2` falls out of the Handler's coat at the reveal, and `l3-3` appears on the path at dusk. All nine collected gives the true-ending phone message and end card.
+> - **Restarts (R)** skip the intro. Space, Enter or a click skips any cutscene.
 
 ### Arena (radius ~13 m, same footprint as now, so combat camera maths doesn't change)
 | Element | Asset | Placement (from `themes.js → shrine`) |

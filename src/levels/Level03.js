@@ -2,22 +2,30 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { CombatController } from './level3/CombatController.js';
 import { HandlerBoss } from './level3/HandlerBoss.js';
-import { createLavaMaterial } from '../shaders/lava.js';
+import { ShrineArena } from './level3/ShrineArena.js';
+import { LetterDrops } from './level3/Letters.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
+import { StoryOverlay } from '../ui/StoryOverlay.js';
 
 /**
- * Level 03 — Deephold (fight MVP).
+ * Level 03 — FIGHT, "Site 7".
  *
- * A clean arena: a dark stone platform ringed by animated lava, lit from below,
- * with Kai and the Handler on it. Same split Level02 uses — CombatController
- * and HandlerBoss own their own logic and never touch each other; this file is
- * the only place that reads both, resolves hits/parries/dodges, and publishes
- * to the shared GameState (health, stamina, phase, handlerState, timeScale).
+ * The shrine courtyard by the waterfall, golden hour. Same split Level02 uses:
+ * CombatController and HandlerBoss own their own logic and never touch each
+ * other, ShrineArena owns the world, and this file is the only place that
+ * reads all of them — it resolves hits/parries/dodges, runs the story beats,
+ * and publishes to the shared GameState (health, stamina, phase, handlerState,
+ * handlerHelmetOff, letters, timeScale).
  *
- * Deliberately not here yet: the Level 2->3 transition, the mine/bridge art,
- * story cards, the arena-collapse in phase 3, audio. Everything visual below
- * is placeholder-clean so it can be restyled later without touching the fight.
+ * Beats (docs/JUNGLE_SHRINE_IMPLEMENTATION.md, section 6):
+ *   INTRO     Kai wakes in the pool, walks through the gate; the Handler drops
+ *             off the arch behind him. Skippable; skipped on restarts.
+ *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
+ *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
+ *             sky to dusk, lights the torches and runs the pool red.
+ *   EPILOGUE  the upload on the junction box, the Handler's phone ("11 other
+ *             keys"), then the end card. All nine letters -> the true ending.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -30,6 +38,27 @@ const safe = (p) => p.catch((e) => {
   console.warn('[level03] asset missing, using fallback:', e?.message || e);
   return null;
 });
+
+const smooth = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** What CombatController sees while a cutscene owns Kai. */
+const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
+
+const FIGHT_FOV = 62;
+const KAI_START = new THREE.Vector3(-0.4, 0, -0.6); // where the intro leaves Kai
+const BOSS_LAND = new THREE.Vector3(-3.0, 0, -11.2); // where the Handler lands off the arch
+const LETTER_SPOTS = {
+  'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
+  'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
+};
+const CREDITS =
+  'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
+  'Props: Poly by Google (CC0) · Built with three.js';
+
+let introSeen = false; // restarts skip straight to the fight
 
 export class Level03 extends Level {
   constructor() {
@@ -45,28 +74,32 @@ export class Level03 extends Level {
     this._endTimer = -1;
     this._ended = false;
     this._abilityWas = false;
+
+    this.mode = 'LOADING'; // INTRO | FIGHT | REVEAL | EPILOGUE | END
+    this.beatT = 0; // seconds into the current beat (real time, not slowed)
+    this.cine = null; // { pos, look, fov, rate } while a cutscene owns the camera
   }
 
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
-    const [kaiSrc, handlerSrc, lavaColor, lavaEmission] = await Promise.all([
+    this.arena = new ShrineArena(this.root, scene);
+    const [kaiSrc, handlerSrc] = await Promise.all([
       safe(assets.fbx('characters/kai.fbx')),
       safe(assets.fbx('characters/handler.fbx')),
-      safe(assets.texture('textures/lava-color.jpg')),
-      safe(assets.texture('textures/lava-emission.jpg')),
+      this.arena.build(assets),
     ]);
     if (!this.scene) return; // level was torn down while loading
 
-    scene.background = new THREE.Color(0x140705);
-    scene.fog = new THREE.Fog(0x1a0805, 34, 105);
-
-    this._buildLights();
-    this._buildArena(lavaColor, lavaEmission);
-
     this.combat = new CombatController(this.root, kaiSrc);
     this.boss = new HandlerBoss(this.root, this.combat, handlerSrc);
+    this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
+
+    this.letters = new LetterDrops(this.root, state, (id, text) => {
+      const found = state.letters.length;
+      this.story.showLetter(`DEAD DROP ${id.toUpperCase()}  ·  ${found} / 9 FOUND`, text);
+    });
 
     this.hud = new FightHUD();
     this.hud.setLock(this.lockOn);
@@ -74,149 +107,36 @@ export class Level03 extends Level {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
     });
+    this.story = new StoryOverlay();
+    this.story.onSkip = () => this._skip();
 
-    this.camYaw = Math.PI; // start looking toward -z, where the boss stands
     const cam = this.game.camera;
     cam.position.set(0, 3.6, 12.5);
     this._camLook = new THREE.Vector3(0, 1.4, 0);
     this._tmp = new THREE.Vector3();
     this._toBoss = new THREE.Vector3();
+
+    if (introSeen) this._startFight();
+    else this._startIntro();
   }
 
-  /* ---------------------------------------------------------------- world */
-
-  _buildLights() {
-    this.root.add(new THREE.HemisphereLight(0xffe6d4, 0x4a2c20, 0.7));
-
-    this.key = new THREE.DirectionalLight(0xffe3c8, 1.1);
-    this.key.position.set(9, 16, 10);
-    this.key.castShadow = true;
-    this.key.shadow.mapSize.set(1024, 1024);
-    const sc = this.key.shadow.camera;
-    sc.left = -17; sc.right = 17; sc.top = 17; sc.bottom = -17; sc.near = 1; sc.far = 50;
-    this.key.shadow.bias = -0.0004;
-    this.root.add(this.key, this.key.target);
-
-    const rim = new THREE.DirectionalLight(0x8fa8ff, 0.55);
-    rim.position.set(-10, 8, -12);
-    this.root.add(rim);
-
-    this.lavaLights = [];
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      const l = new THREE.PointLight(0xff5a1a, 40, 30, 2);
-      l.position.set(Math.cos(a) * 17, -1.5, Math.sin(a) * 17);
-      this.root.add(l);
-      this.lavaLights.push(l);
-    }
-
-    // stage light: keeps both fighters clean and bright in the middle of the arena
-    this.spot = new THREE.SpotLight(0xffe8d0, 130, 45, 0.62, 0.6, 1.4);
-    this.spot.position.set(0, 15, 0);
-    this.root.add(this.spot, this.spot.target);
-
-    this.fill = new THREE.PointLight(0xffd9b8, 26, 18, 2);
-    this.fill.position.set(0, 4.5, 0);
-    this.root.add(this.fill);
-  }
-
-  _buildArena(lavaColor, lavaEmission) {
-    // stone platform
-    const platform = new THREE.Mesh(
-      new THREE.CylinderGeometry(14, 14.8, 1.2, 56),
-      new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0.05 }),
+  /** The Key: a shielded drive glowing cyan in Kai's right hand, in every level. */
+  _attachKey(fighter) {
+    let palm = null;
+    fighter.model?.traverse((o) => {
+      if (o.isBone && o.name === 'PalmR') palm = o;
+    });
+    if (!palm) return null;
+    fighter.root.updateMatrixWorld(true);
+    const s = palm.getWorldScale(new THREE.Vector3()).x;
+    const key = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.12, 0.025),
+      new THREE.MeshStandardMaterial({ color: 0x141c26, emissive: 0x2fd8ff, emissiveIntensity: 2.4, metalness: 0.6, roughness: 0.3 }),
     );
-    platform.position.y = -0.6;
-    platform.receiveShadow = true;
-    this.root.add(platform);
-
-    const edge = new THREE.Mesh(
-      new THREE.TorusGeometry(14.02, 0.1, 8, 120),
-      new THREE.MeshBasicMaterial({ color: 0xff7a2a }),
-    );
-    edge.rotation.x = Math.PI / 2;
-    edge.position.y = 0.02;
-    this.root.add(edge);
-
-    const inner = new THREE.Mesh(
-      new THREE.RingGeometry(5.9, 6.0, 96),
-      new THREE.MeshBasicMaterial({ color: 0x6a3a22, side: THREE.DoubleSide }),
-    );
-    inner.rotation.x = -Math.PI / 2;
-    inner.position.y = 0.015;
-    this.root.add(inner);
-
-    // brighter stage disc in the middle so the fight reads clearly
-    const stage = new THREE.Mesh(
-      new THREE.CircleGeometry(6, 64),
-      new THREE.MeshStandardMaterial({ color: 0x463f39, roughness: 0.85, metalness: 0.05 }),
-    );
-    stage.rotation.x = -Math.PI / 2;
-    stage.position.y = 0.01;
-    stage.receiveShadow = true;
-    this.root.add(stage);
-
-    // lava sea: low and far, so it reads as background glow, not foreground
-    
-    if (lavaColor && lavaEmission) {
-      this.lavaMat = createLavaMaterial({ color: lavaColor, emission: lavaEmission, repeat: 36, glow: 1.15 });
-    } else {
-      this.lavaMat = new THREE.MeshBasicMaterial({ color: 0xff5a1a });
-    }
-    const lava = new THREE.Mesh(new THREE.PlaneGeometry(220, 220, 80, 80), this.lavaMat);
-    lava.rotation.x = -Math.PI / 2;
-    lava.position.y = -4.5;
-    this.root.add(lava);
-
-    // distant rock spires, one instanced mesh
-    const spires = new THREE.InstancedMesh(
-      new THREE.IcosahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0x2c1d18, emissive: 0x1a0803, roughness: 1, flatShading: true }),
-      26,
-    );
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    for (let i = 0; i < 26; i++) {
-      const a = (i / 26) * Math.PI * 2 + Math.sin(i * 12.9898) * 0.15;
-      const r = 30 + ((i * 37) % 19);
-      const h = 5 + ((i * 53) % 10);
-      const w = 1.4 + ((i * 29) % 4) * 0.6;
-      e.set(0, a * 3, 0);
-      q.setFromEuler(e);
-      m.compose(new THREE.Vector3(Math.cos(a) * r, h * 0.5 - 4.5, Math.sin(a) * r), q, new THREE.Vector3(w, h, w));
-      spires.setMatrixAt(i, m);
-    }
-    this.root.add(spires);
-
-    // embers rising off the lava
-    const N = 320;
-    const pos = new Float32Array(N * 3);
-    this.emberSpeed = new Float32Array(N);
-    for (let i = 0; i < N; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 8 + Math.random() * 38;
-      pos.set([Math.cos(a) * r, -1 + Math.random() * 14, Math.sin(a) * r], i * 3);
-      this.emberSpeed[i] = 0.5 + Math.random() * 1.6;
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const c = document.createElement('canvas');
-    c.width = c.height = 32;
-    const cx = c.getContext('2d');
-    const grad = cx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    cx.fillStyle = grad;
-    cx.fillRect(0, 0, 32, 32);
-    this.embers = new THREE.Points(
-      g,
-      new THREE.PointsMaterial({
-        color: 0xff9a4a, size: 0.16, map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.85,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      }),
-    );
-    this.root.add(this.embers);
+    key.scale.setScalar(1 / s);
+    key.position.set(0, 0.07 / s, 0.02 / s);
+    palm.add(key);
+    return key;
   }
 
   /* ---------------------------------------------------------------- fight */
@@ -226,7 +146,7 @@ export class Level03 extends Level {
 
     this.boss.onStrike = (info) => {
       const c = this.combat;
-      if (c.dead || this._ended) return 'dodged';
+      if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
       if (c.dodging) {
         hud().popup('DODGE', '#8fe8ff');
         return 'dodged';
@@ -256,14 +176,16 @@ export class Level03 extends Level {
     };
 
     this.boss.onHelmetOff = () => {
-      // TODO(3A/3B): the real reveal — camera cut, story card, VO. For now a shake and a flag.
       this._hitStop(0.12);
       this._addShake(0.5);
-      hud().popup('HELMET OFF', '#ffffff');
+      this._startReveal();
     };
     this.boss.onPhaseChange = (n) => {
-      if (n > 2) hud().popup('DESPERATION', '#ff5a3a');
-      else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
+      if (n > 2) {
+        hud().popup('DESPERATION', '#ff5a3a');
+        this.arena.setDuskTarget(1); // the sun goes down on Site 7
+        this.letters.spawn('l3-3', LETTER_SPOTS['l3-3']);
+      } else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
     };
     this.boss.onDefeated = () => {
       this._hitStop(0.2);
@@ -275,6 +197,7 @@ export class Level03 extends Level {
 
   /** Tab / the VIEW button: lock-on combat cam <-> free 360° orbit. */
   _toggleView() {
+    if (this.mode !== 'FIGHT') return;
     this.lockOn = !this.lockOn;
     this.hud.setLock(this.lockOn);
     this.touch.setOrbitEnabled(!this.lockOn);
@@ -301,9 +224,34 @@ export class Level03 extends Level {
 
   update(dt, state) {
     if (!this.combat) return;
-    this.time += dt;
+    // dt arrives already slowed by state.timeScale; cutscenes and the camera run on real time
+    const real = dt / Math.max(state.timeScale, 0.05);
+    this.time += real;
+    this.beatT += real;
     const input = this.input;
 
+    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) this._skip();
+
+    if (this.mode === 'INTRO') this._updateIntro(dt);
+    else if (this.mode === 'EPILOGUE' || this.mode === 'END') this._updateEpilogue(dt);
+    else this._updateFight(dt, real, state);
+
+    this._updateCamera(real);
+    this.arena.update(dt, this.time, this.game.camera);
+    this.letters.update(dt, this.time, this.mode === 'FIGHT' || this.mode === 'REVEAL' ? this.combat.root.position : null);
+    if (this.keyItem) {
+      const upload = this.mode === 'EPILOGUE' && this.beatT > 3 && this.beatT < 7.5;
+      this.keyItem.material.emissiveIntensity = this.combat.abilityActive || upload ? 5 + Math.sin(this.time * 18) * 1.5 : 2.4;
+    }
+
+    // shared state for whoever reads it (HUD, other levels' UI)
+    state.handlerState = this.boss.state;
+    state.phase = this.boss.phaseIndex + 1;
+    state.handlerHelmetOff = this.boss.helmetOff;
+  }
+
+  _updateFight(dt, real, state) {
+    const input = this.input;
     if (input.pressed('lockOn') && !this._ended) this._toggleView();
 
     // camera yaw: aim at the boss when locked on, otherwise the player orbits freely
@@ -314,13 +262,15 @@ export class Level03 extends Level {
       const want = Math.atan2(bp.x - cp.x, bp.z - cp.z);
       this.camYaw += shortestAngle(this.camYaw, want) * (1 - Math.exp(-7 * dt));
     } else {
-      // dt is game time (slowed by hit-stop), so use real frame time for camera input
-      this.camYaw += orbit.dx * 0.006 + orbit.strip * 1.7 * (dt / Math.max(this.state.timeScale, 0.2));
+      this.camYaw += orbit.dx * 0.006 + orbit.strip * 1.7 * real;
       this.orbitPitch = Math.min(1.2, Math.max(0.12, this.orbitPitch + orbit.dy * 0.004));
       this.orbitDist = Math.min(24, Math.max(6, this.orbitDist + orbit.zoom * 1.2));
     }
 
-    this.combat.update(dt, input, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp });
+    // the reveal shot holds Kai still for a beat; the key that skipped the intro doesn't also punch
+    const controls = this.mode === 'FIGHT' && !this._muteInput ? input : NO_INPUT;
+    this._muteInput = false;
+    this.combat.update(dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp });
 
     // Kai's swing
     if (this.combat.consumeHit() && this.boss.state !== 'DOWN') {
@@ -342,27 +292,31 @@ export class Level03 extends Level {
 
     const b = this.boss.update(dt);
     this._separate();
+    // HandlerBoss glows orange through his phase transition; for the reveal close-up
+    // we want his face, so put his materials back to their resting look
+    if (this.mode === 'REVEAL') {
+      for (const m of this.boss.fighter.materials) {
+        m.emissive.copy(m.userData.baseEmissive);
+        m.emissiveIntensity = 1;
+      }
+    }
 
     // the Key: popup on activation
     if (this.combat.abilityActive && !this._abilityWas) this.hud.popup('THE KEY', '#7fd8ff');
     this._abilityWas = this.combat.abilityActive;
 
-    // time scale: hit-stop beats the Key's slow-mo beats normal
-    state.timeScale = performance.now() < this._hitStopUntil ? 0.12 : this.combat.abilityActive ? 0.35 : 1;
+    if (this.mode === 'REVEAL') this._updateReveal();
 
-    this._updateCamera(dt);
-    this._updateWorld(dt);
+    // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
+    state.timeScale = performance.now() < this._hitStopUntil ? 0.12
+      : this.mode === 'REVEAL' ? 0.45
+      : this.combat.abilityActive ? 0.35 : 1;
 
-    // shared state for whoever reads it (HUD, other levels' UI)
-    state.handlerState = b.state;
-    state.phase = this.boss.phaseIndex + 1;
-    state.handlerHelmetOff = this.boss.helmetOff;
-
-    this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${state.phase} — ${b.phase}`);
+    this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
     this.hud.setPlayer(state.health / state.maxHealth, state.stamina / state.maxStamina);
 
     if (this._endTimer >= 0 && !this._ended) {
-      this._endTimer -= dt / Math.max(state.timeScale, 0.2);
+      this._endTimer -= real;
       if (this._endTimer < 0) this._finish(state);
     }
   }
@@ -385,31 +339,386 @@ export class Level03 extends Level {
     this._ended = true;
     this.finished = true;
     state.timeScale = 1;
-    if (this._endKind === 'win') this.hud.showBanner('VICTORY', 'THE HANDLER FALLS  ·  PRESS R TO PLAY AGAIN', '#ffd9a8');
-    else this.hud.showBanner('DEFEATED', 'PRESS R TO TRY AGAIN', '#ff5a5a');
+    if (this._endKind === 'win') {
+      this._startEpilogue();
+      return;
+    }
+    // clear the screen for the defeat card: no bars, no buttons, no lock widget
+    this.touch.setVisible(false);
+    this.hud.showBanner('DEFEATED', 'The Handler stands over you. The Key is still in your hand.', null, {
+      kind: 'lose',
+      action: { label: 'TRY AGAIN', key: 'R', onClick: () => this.game.restart() },
+    });
   }
+
+  /* ---------------------------------------------------------------- beats */
+
+  _setCine(pos, look, { fov = FIGHT_FOV, rate = 3, cut = false } = {}) {
+    if (!this.cine) this.cine = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov, rate };
+    this.cine.pos.copy(pos);
+    this.cine.look.copy(look);
+    this.cine.fov = fov;
+    this.cine.rate = rate;
+    if (cut) {
+      this._shakeOff.set(0, 0, 0);
+      this.game.camera.position.copy(pos);
+      this._camLook.copy(look);
+      this.game.camera.fov = fov;
+      this.game.camera.updateProjectionMatrix();
+    }
+  }
+
+  _enterBeat(mode) {
+    this.mode = mode;
+    this.beatT = 0;
+    this._shot = null;
+  }
+
+  /** Space / Enter / click, or the on-screen hint: jump to the end of the current cutscene. */
+  _skip() {
+    if (this.mode === 'INTRO') this._startFight();
+    else if (this.mode === 'EPILOGUE') this._showEnd();
+  }
+
+  _startIntro() {
+    this._enterBeat('INTRO');
+    this.story.setCinematic(true, true);
+    this.hud.setVisible(false);
+    this.touch.setVisible(false);
+    this.boss.root.visible = false;
+    const k = this.combat;
+    k.root.position.copy(this.arena.anchors.wake);
+    k.heading = 0.36; // facing the gate
+    k.root.rotation.y = k.heading;
+    k.fighter.play('sitting', { fade: 0 });
+  }
+
+  /**
+   * ~12 s, four shots: (A) Kai sits up in the pool, seen from inside the gate;
+   * (B) cut to the courtyard as he runs through the arch toward camera;
+   * (C) the Handler drops off the arch behind him, Kai turns; (D) settle into
+   * the fight camera.
+   */
+  _updateIntro(dt) {
+    const t = this.beatT;
+    const k = this.combat;
+    const kf = k.fighter;
+    const a = this.arena.anchors;
+    const kp = k.root.position;
+
+    if (t < 5.6) {
+      // ---- A: the wake-up
+      if (this._shot !== 'A') {
+        this._shot = 'A';
+        this._setCine(new THREE.Vector3(-3.25, 1.0, -17.7), new THREE.Vector3(-4.5, 0.55, -21.0), { fov: 50, cut: true });
+        this.story.showCard('SITE 7', 'The current carried him over the falls.');
+      }
+      const floor = this.arena.groundHeight(kp.x, kp.z);
+      if (t < 2.2) {
+        kp.y = floor - 0.45; // sitting on the pool bed
+      } else if (t < 3.6) {
+        if (this._pose !== 'stand') {
+          this._pose = 'stand';
+          kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
+        }
+        kp.y = floor - 0.45 * (1 - smooth(2.2, 3.5, t));
+      } else {
+        if (this._pose !== 'walk') {
+          this._pose = 'walk';
+          kf.play('walk', { fade: 0.25 });
+        }
+        kp.x += Math.sin(k.heading) * 1.35 * dt;
+        kp.z += Math.cos(k.heading) * 1.35 * dt;
+        kp.y = this.arena.groundHeight(kp.x, kp.z);
+      }
+      if (t > 3.6) this.story.hideCard();
+      // slow push-in, then lift to follow him up
+      this.cine.pos.set(-3.25 + smooth(0, 5.6, t) * 0.15, 1.0 + smooth(1.5, 5.0, t) * 0.55, -17.7 + smooth(0, 5.6, t) * 0.5);
+      this.cine.look.set(kp.x, kp.y + 0.55 + smooth(2.2, 3.6, t) * 0.75, kp.z);
+      this.cine.rate = 4;
+    } else if (t < 9.7) {
+      // ---- B: through the gate and down the path, running toward camera
+      if (this._shot !== 'B') {
+        this._shot = 'B';
+        this._introPath = [new THREE.Vector3(-3.18, 0, -17.6), new THREE.Vector3(-3.18, 0, -11.6), KAI_START.clone()];
+        this._setCine(new THREE.Vector3(3.4, 1.6, 6.8), new THREE.Vector3(-2.6, 1.6, -12), { fov: 55, cut: true });
+        kf.play('run', { fade: 0.1 });
+      }
+      const s = smooth(5.6, 9.7, t) * 0.22 + ((t - 5.6) / 4.1) * 0.78; // ease out at the end
+      this._alongPath(this._introPath, Math.min(1, s));
+      this._tmp.set(kp.x, 1.5, kp.z);
+      this.cine.look.set(-2.6, 1.6, -12).lerp(this._tmp, 0.55);
+      this.cine.rate = 5;
+    } else {
+      // ---- C: he lands
+      if (this._shot !== 'C') {
+        this._shot = 'C';
+        kp.copy(KAI_START);
+        kf.play('idle', { fade: 0.3 });
+        const b = this.boss;
+        b.root.visible = true;
+        b.root.position.copy(a.gateTop);
+        b.heading = Math.atan2(KAI_START.x - a.gateTop.x, KAI_START.z - a.gateTop.z);
+        b.root.rotation.y = b.heading;
+        b.fighter.play('idle', { fade: 0 });
+        this._landed = false;
+      }
+      const b = this.boss;
+      const drop = smooth(10.0, 10.75, t);
+      if (t >= 10.0 && !this._jumped) {
+        this._jumped = true;
+        b.fighter.playOnce('jump', { speed: 1.3 });
+      }
+      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, drop);
+      b.root.position.y = (1 - drop) * a.gateTop.y + Math.sin(drop * Math.PI) * 1.2;
+      if (drop >= 1 && !this._landed) {
+        this._landed = true;
+        b.root.position.y = 0;
+        b.fighter.play('idle', { fade: 0.2 });
+        this._addShake(0.75);
+        this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
+        this.story.showCard('THE HANDLER', 'He never slows down.');
+      }
+      // Kai hears it and turns round
+      if (t > 10.5) {
+        const want = Math.atan2(BOSS_LAND.x - kp.x, BOSS_LAND.z - kp.z);
+        k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-6 * dt));
+        kf.setGuard(t > 10.9, 0.8);
+      }
+      // the camera, already behind Kai's stop point, re-aims at the gate
+      this.cine.pos.set(2.6, 2.1, 7.4);
+      this.cine.look.set(-1.4, 1.6 + (1 - drop) * 3.5, -6.5);
+      this.cine.fov = 55;
+      this.cine.rate = 2.6;
+      b.fighter.update(dt);
+      if (t > 12.6) this._startFight();
+    }
+    k.root.rotation.y = k.heading;
+    kf.update(dt);
+  }
+
+  /** Put Kai at fraction s along a polyline, facing along it. */
+  _alongPath(pts, s) {
+    let total = 0;
+    const lens = [];
+    for (let i = 1; i < pts.length; i++) {
+      lens.push(pts[i].distanceTo(pts[i - 1]));
+      total += lens[i - 1];
+    }
+    let d = s * total;
+    const k = this.combat;
+    for (let i = 1; i < pts.length; i++) {
+      if (d <= lens[i - 1] || i === pts.length - 1) {
+        const f = Math.min(1, d / lens[i - 1]);
+        k.root.position.lerpVectors(pts[i - 1], pts[i], f);
+        const want = Math.atan2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+        k.heading += shortestAngle(k.heading, want) * 0.2;
+        return;
+      }
+      d -= lens[i - 1];
+    }
+  }
+
+  /** Hand control over: everyone on their marks, HUD in, boss off the leash after a beat. */
+  _startFight() {
+    introSeen = true;
+    this._enterBeat('FIGHT');
+    this._muteInput = true;
+    this.cine = null;
+    this.story.setCinematic(false);
+    this.story.hideCard();
+    this.hud.setVisible(true);
+    this.touch.setVisible(true);
+
+    const k = this.combat;
+    const b = this.boss;
+    k.root.position.copy(KAI_START);
+    k.fighter.setGuard(false);
+    b.root.visible = true;
+    b.root.position.copy(BOSS_LAND);
+    k.heading = Math.atan2(BOSS_LAND.x - KAI_START.x, BOSS_LAND.z - KAI_START.z);
+    k.root.rotation.y = k.heading;
+    b.heading = k.heading + Math.PI;
+    b.root.rotation.y = b.heading;
+    b.restFor = 0.9;
+    this.camYaw = k.heading;
+    this.hud.popup('FIGHT', '#ffd9a8');
+    this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
+  }
+
+  /** Phase II: the helmet comes off. A slow-mo look at his face over Kai's shoulder. */
+  _startReveal() {
+    this._enterBeat('REVEAL');
+    this._cutNext = true;
+    this.story.setCinematic(true, false);
+    this.hud.setVisible(false);
+    this.touch.setVisible(false);
+    // he drops a letter as the helmet goes
+    const bp = this.boss.root.position;
+    const kp = this.combat.root.position;
+    const side = new THREE.Vector3(kp.z - bp.z, 0, bp.x - kp.x).normalize().multiplyScalar(1.8);
+    const at = bp.clone().add(side);
+    const r = Math.hypot(at.x, at.z);
+    if (r > 11.5) at.multiplyScalar(11.5 / r);
+    this.letters.spawn('l3-2', at, { from: new THREE.Vector3(bp.x, 1.3, bp.z) });
+  }
+
+  _updateReveal() {
+    const kp = this.combat.root.position;
+    const bp = this.boss.root.position;
+    const d = this._tmp.set(kp.x - bp.x, 0, kp.z - bp.z).normalize();
+    const right = new THREE.Vector3(d.z, 0, -d.x);
+    const pos = kp.clone().addScaledVector(d, 1.5).addScaledVector(right, 0.8).setY(1.75);
+    const look = new THREE.Vector3(bp.x, 1.62, bp.z);
+    this._setCine(pos, look, { fov: 30, rate: 8, cut: this._cutNext });
+    this._cutNext = false;
+    if (this.boss.state !== 'TRANSITION' || this.beatT > 2.8) {
+      this._enterBeat('FIGHT');
+      this.cine = null;
+      this.story.setCinematic(false);
+      this.hud.setVisible(true);
+      this.touch.setVisible(true);
+    }
+  }
+
+  _startEpilogue() {
+    this._enterBeat('EPILOGUE');
+    this.story.setCinematic(true, true);
+    this.story.hideLetter();
+    this.hud.setVisible(false);
+    this.touch.setVisible(false);
+    if (!this.lockOn) {
+      this.lockOn = true;
+      this.hud.setLock(true);
+      this.touch.setOrbitEnabled(false);
+    }
+    this.input.ignored.delete('mouse0'); // a click skips the epilogue
+  }
+
+  /**
+   * (E0) the Handler down, camera circling; (E1) Kai at the junction box, the
+   * upload; (E2) the Handler's phone lights up; then the end card.
+   */
+  _updateEpilogue(dt) {
+    const t = this.beatT;
+    const k = this.combat;
+    const bp = this.boss.root.position;
+    this.boss.update(dt);
+    if (this.mode === 'END') {
+      k.fighter.update(dt);
+      return;
+    }
+
+    if (t < 2.8) {
+      if (this._shot !== 'E0') {
+        this._shot = 'E0';
+        k.fighter.play('idle', { fade: 0.3 });
+        k.fighter.setGuard(false);
+        this._setCine(new THREE.Vector3(bp.x + 3.4, 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, 0.4, bp.z), { fov: 45, cut: true });
+      }
+      const a = 0.65 + t * 0.22;
+      this.cine.pos.set(bp.x + Math.cos(a) * 3.6, 1.4 + t * 0.15, bp.z + Math.sin(a) * 3.6);
+      this.cine.rate = 3;
+    } else if (t < 8.4) {
+      const box = this.arena.anchors.box;
+      if (this._shot !== 'E1') {
+        this._shot = 'E1';
+        k.root.position.set(box.x - 0.1, 0, box.z + 0.9);
+        k.heading = Math.PI;
+        k.root.rotation.y = k.heading;
+        this._setCine(new THREE.Vector3(box.x - 1.0, 1.75, box.z + 2.3), new THREE.Vector3(box.x - 0.05, 1.25, box.z), { fov: 38, cut: true });
+      }
+      const up = smooth(3.4, 7.4, t);
+      if (t > 3.4) this.arena.setUpload(up, up >= 1 ? 'UPLOAD COMPLETE' : 'UPLOADING');
+      // ease in over his left shoulder (the fox's plinth is on the right)
+      const push = smooth(2.8, 8.4, t);
+      this.cine.pos.set(box.x - 1.0 + push * 0.35, 1.75 - push * 0.1, box.z + 2.3 - push * 0.6);
+      this.cine.rate = 2;
+    } else {
+      if (this._shot !== 'E2') {
+        this._shot = 'E2';
+        this._setCine(new THREE.Vector3(bp.x + 1.4, 0.8, bp.z + 1.9), new THREE.Vector3(bp.x, 0.25, bp.z), { fov: 42, cut: true });
+        this.story.showPhone(this._phoneNotes());
+      }
+      this.cine.pos.set(bp.x + 1.4, 0.8 + smooth(8.4, 15, t) * 0.6, bp.z + 1.9 + smooth(8.4, 15, t) * 0.6);
+      if (t > 15.2) this._showEnd();
+    }
+    k.fighter.update(dt);
+  }
+
+  _trueEnding() {
+    return this.state.letters.length >= 9;
+  }
+
+  _phoneNotes() {
+    const notes = [
+      { from: 'OPS · NOW', text: 'Asset lost at Site 7. Key upload confirmed.' },
+      { from: 'OPS · NOW', text: 'Do not pursue. Status of remaining keys follows.' },
+      { from: 'KEY TRACKER', text: '11 other keys ACTIVE — KEY-01 … KEY-11' },
+    ];
+    notes.push(this._trueEnding()
+      ? { from: 'UNKNOWN NUMBER', text: 'You read every letter, Kai. You know whose handwriting it was. Come and find the other eleven.', red: true }
+      : { from: 'UNKNOWN NUMBER', text: 'Eleven more keys. Eleven more of you.', red: true });
+    return notes;
+  }
+
+  _showEnd() {
+    this._enterBeat('END');
+    this.story.setCinematic(false);
+    this.story.hidePhone();
+    this.arena.setUpload(1, 'UPLOAD COMPLETE');
+    const found = this.state.letters.length;
+    const truth = this._trueEnding();
+    this.story.showEnd({
+      title: truth ? 'TRUE ENDING' : 'ELEVEN MORE',
+      sub: truth
+        ? 'Every letter read. The handwriting was his. Eleven more of you are still out there.'
+        : 'The upload finished. Somewhere, eleven other keys are still running.',
+      letters: truth ? `ALL NINE LETTERS FOUND` : `LETTERS FOUND  ${found} / 9  ·  FIND ALL NINE FOR THE TRUE ENDING`,
+      credits: CREDITS,
+      action: { label: 'PLAY AGAIN', key: 'R', onClick: () => this.game.restart() },
+    });
+  }
+
+  /* ---------------------------------------------------------------- camera */
 
   _updateCamera(dt) {
     const cam = this.game.camera;
-    const cp = this.combat.root.position;
-    const bp = this.boss.root.position;
-    let dist, height, bias;
-    if (this.lockOn) {
-      dist = 6.4; height = 3.5; bias = 0.32;
-    } else {
-      dist = this.orbitDist * Math.cos(this.orbitPitch);
-      height = this.orbitDist * Math.sin(this.orbitPitch) + 1;
-      bias = 0.5; // orbit around the midpoint so both fighters stay in frame
-    }
-    const fx = cp.x + (bp.x - cp.x) * bias;
-    const fz = cp.z + (bp.z - cp.z) * bias;
-
-    this._tmp.set(fx - Math.sin(this.camYaw) * dist, height, fz - Math.cos(this.camYaw) * dist);
     cam.position.sub(this._shakeOff);
-    cam.position.lerp(this._tmp, 1 - Math.exp(-15 * dt));
 
-    const target = new THREE.Vector3(fx, 1.4, fz);
-    this._camLook.lerp(target, 1 - Math.exp(-10 * dt));
+    if (this.cine) {
+      const c = this.cine;
+      const k = 1 - Math.exp(-c.rate * dt);
+      cam.position.lerp(c.pos, k);
+      this._camLook.lerp(c.look, k);
+      if (Math.abs(cam.fov - c.fov) > 0.01) {
+        cam.fov += (c.fov - cam.fov) * (1 - Math.exp(-6 * dt));
+        cam.updateProjectionMatrix();
+      }
+    } else {
+      const cp = this.combat.root.position;
+      const bp = this.boss.root.position;
+      let dist, height, bias;
+      if (this.lockOn) {
+        dist = 6.4; height = 3.5; bias = 0.32;
+      } else {
+        dist = this.orbitDist * Math.cos(this.orbitPitch);
+        height = this.orbitDist * Math.sin(this.orbitPitch) + 1;
+        bias = 0.5; // orbit around the midpoint so both fighters stay in frame
+      }
+      const fx = cp.x + (bp.x - cp.x) * bias;
+      const fz = cp.z + (bp.z - cp.z) * bias;
+      // slowed with the game during hit-stop, so impacts freeze the camera too
+      const gameDt = dt * Math.max(this.state.timeScale, 0.05);
+      this._tmp.set(fx - Math.sin(this.camYaw) * dist, height, fz - Math.cos(this.camYaw) * dist);
+      cam.position.lerp(this._tmp, 1 - Math.exp(-15 * gameDt));
+      this._tmp.set(fx, 1.4, fz);
+      this._camLook.lerp(this._tmp, 1 - Math.exp(-10 * gameDt));
+      if (Math.abs(cam.fov - FIGHT_FOV) > 0.01) {
+        cam.fov += (FIGHT_FOV - cam.fov) * (1 - Math.exp(-6 * dt));
+        cam.updateProjectionMatrix();
+      }
+    }
     cam.lookAt(this._camLook);
 
     this.shake *= Math.exp(-8 * dt);
@@ -422,31 +731,6 @@ export class Level03 extends Level {
     cam.position.add(this._shakeOff);
   }
 
-  _updateWorld(dt) {
-    if (this.lavaMat && this.lavaMat.uniforms) this.lavaMat.uniforms.uTime.value = this.time;
-    this.lavaLights.forEach((l, i) => {
-      l.intensity = 40 + Math.sin(this.time * 2.1 + i * 1.7) * 8 + Math.sin(this.time * 5.3 + i) * 4;
-    });
-
-    const cp = this.combat.root.position;
-    const bp = this.boss.root.position;
-    const mx = (cp.x + bp.x) / 2, mz = (cp.z + bp.z) / 2;
-    this.fill.position.set(mx, 4.5, mz);
-    this.spot.position.set(mx, 15, mz);
-    this.spot.target.position.set(mx, 0, mz);
-    this.key.position.set(cp.x + 9, 16, cp.z + 10);
-    this.key.target.position.set(cp.x, 0, cp.z);
-
-    const p = this.embers.geometry.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      let y = p.getY(i) + this.emberSpeed[i] * dt;
-      if (y > 14) y = -1;
-      p.setY(i, y);
-      p.setX(i, p.getX(i) + Math.sin(this.time * 0.7 + i) * 0.12 * dt);
-    }
-    p.needsUpdate = true;
-  }
-
   teardown() {
     if (this.touch) this.touch.dispose();
     if (this.input) this.input.ignored.delete('mouse0');
@@ -455,8 +739,14 @@ export class Level03 extends Level {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
     });
     if (this.hud) this.hud.dispose();
+    if (this.story) this.story.dispose();
+    if (this.letters) this.letters.dispose();
+    if (this.arena) this.arena.dispose();
     if (this.state) this.state.timeScale = 1;
-    if (this.scene) this.scene.fog = null;
+    if (this.game) {
+      this.game.camera.fov = FIGHT_FOV;
+      this.game.camera.updateProjectionMatrix();
+    }
     super.teardown();
   }
 }
