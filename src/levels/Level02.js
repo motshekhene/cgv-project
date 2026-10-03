@@ -46,7 +46,23 @@ export class Level02 extends Level {
     // ---- 2A's vehicle + handler ----
     this.car = new VehicleController(this.root);
     this.handler = new HandlerAI(this.root, this.car);
-    this.handler.onAttackResolved = () => this.car.takeDamage(12);
+    // rails sit just outside the road edge — keep both cars inside them
+    const railX = this.road.roadWidth / 2 - 0.3;
+    this.car.railX = railX;
+    this.handler.railX = railX;
+
+    // the Handler's hits: a ram that connects hurts and shakes, a scrape
+    // alongside nicks you, a dodged ram is called out on the HUD
+    this.handler.onAttackResolved = (hit) => {
+      this.car.takeDamage(hit.damage);
+      this.shake = Math.max(this.shake, 0.5 + hit.impact * 0.8);
+      this._flash(`${hit.label}  -${hit.damage}`, '#ff5555');
+    };
+    this.handler.onContact = (hit) => {
+      this.car.takeDamage(hit.damage);
+      this.shake = Math.max(this.shake, hit.impact);
+    };
+    this.handler.onDodge = (move, label) => this._flash(label, '#7dffb0');
 
     // ---- 2A's visual systems ----
     this.carLights = new CarLights(this.car.mesh);
@@ -100,6 +116,28 @@ export class Level02 extends Level {
     await this.traffic.init(this.car.mesh.position.z);
     this._hud = createLevel2Hud();
     this._openCarPicker();
+  }
+
+  /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
+  _flash(text, color) {
+    if (!this._flashEl) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;left:50%;top:28%;transform:translate(-50%,-50%);'
+        + 'font:800 42px system-ui,sans-serif;letter-spacing:4px;pointer-events:none;'
+        + 'text-shadow:0 0 18px currentColor;transition:opacity .5s,transform .5s;opacity:0;z-index:20';
+      document.body.appendChild(el);
+      this._flashEl = el;
+    }
+    const el = this._flashEl;
+    el.textContent = text;
+    el.style.color = color;
+    el.style.transition = 'none';
+    el.style.opacity = '1';
+    el.style.transform = 'translate(-50%,-50%) scale(1.15)';
+    void el.offsetWidth;
+    el.style.transition = 'opacity .6s ease .5s, transform .6s ease';
+    el.style.opacity = '0';
+    el.style.transform = 'translate(-50%,-50%) scale(1)';
   }
 
   /* ======================== car picker ======================== */
@@ -181,9 +219,20 @@ export class Level02 extends Level {
 
     // skid detection
     const headingRate = dt > 0 ? (this.car.heading - previousHeading) / dt : 0;
-    const skidding =
-      (Math.abs(this.car.speed) > 16 && Math.abs(this.car.speed * headingRate) > 26)
-      || (i.backward && this.car.speed > 14);
+    const skidding = this.car.drifting
+      || (Math.abs(this.car.speed) > 16 && Math.abs(this.car.speed * headingRate) > 26)
+      || (i.backward && this.car.speed > 14)
+      || this.car.wallHit > 0;
+
+    // scraping a guardrail: shake, and a real hit if you went in square
+    if (this.car.wallHit > 0) {
+      this.shake = Math.max(this.shake, 0.15 + this.car.wallHit * 0.6);
+      if (this.car.wallHit > 0.35 && this._wallCooldown <= 0) {
+        this.car.takeDamage(Math.round(3 + this.car.wallHit * 6));
+        this._wallCooldown = 0.6;
+      }
+    }
+    this._wallCooldown = Math.max(0, (this._wallCooldown || 0) - dt);
 
     this.skids.update(dt, this.car, skidding);
     this.smoke.update(dt, this.skids.wheels(this.car), skidding);
@@ -239,7 +288,7 @@ export class Level02 extends Level {
       dist,
       heat: this.car.heat,
       health: this.car.health,
-      handlerState,
+      handlerState: this.handler.label,
     });
 
     // publish to shared state so 3B's HUD can read it
@@ -311,6 +360,8 @@ export class Level02 extends Level {
     this._hud?.destroy();
     this._picker?.destroy();
     this._gameOverScreen?.destroy();
+    this._flashEl?.remove();
+    this._flashEl = null;
     if (this.road) this.road.dispose();
     super.teardown();
   }
