@@ -47,6 +47,10 @@ export class GameState {
     // Level 01 has two losses — "he catches you, or the southbound does".
     // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
     this.failCause = null;
+
+    // level 03 — the Handler's boss bar (HUD reads these directly)
+    this.bossHealth = 300;
+    this.bossMaxHealth = 300;
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -63,6 +67,7 @@ export class GameState {
     this.handlerGap = 0;
     this.failCause = null;
     this.alive = true;
+    this.bossHealth = this.bossMaxHealth;
   }
 
   damage(amount) {
