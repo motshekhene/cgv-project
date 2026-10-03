@@ -65,10 +65,23 @@ export class VehicleController {
 
     // --- health (written here, read by UI/3B later) ---
     this.health = 100;
+
+    // --- per-car qualities (see carSelect.js CARS[].stats) ---
+    this.strength = 1;           // damage taken is divided by this
+    this.mass = 1;               // heavier: shoved less by the Handler and traffic
+  }
+
+  /** Applies a car's stats: { speed, accel, handling, strength }. */
+  applyStats(stats = {}) {
+    this.maxSpeed = stats.speed ?? 42;
+    this.accelRate = stats.accel ?? 22;
+    this.steerRate = 1.6 * (stats.handling ?? 1);
+    this.strength = stats.strength ?? 1;
+    this.mass = this.strength;
   }
 
   takeDamage(amount) {
-    this.health = Math.max(0, this.health - amount);
+    this.health = Math.max(0, this.health - amount / this.strength);
   }
 
   /**
@@ -85,9 +98,10 @@ export class VehicleController {
   }
 
   bump(side, strength = 1, speedLoss = 0.15) {
-    this.lateralVel += side * 9 * strength;
-    this.speed *= 1 - speedLoss;
-    this.heading += side * 0.12 * strength;   // nose kicked sideways too
+    const k = strength / this.mass;            // heavy cars barely move
+    this.lateralVel += side * 9 * k;
+    this.speed *= 1 - speedLoss / Math.max(1, this.mass);
+    this.heading += side * 0.12 * k;           // nose kicked sideways too
   }
 
   attachModel(assets, path, options = {}) {

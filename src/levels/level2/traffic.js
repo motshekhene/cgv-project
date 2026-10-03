@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { attachModel } from './attachModel.js';
+import { applyPaint, detectPaint, TRAFFIC_PAINTS } from './paint.js';
 
 /**
  * Traffic — Member 2A
@@ -16,19 +17,33 @@ import { attachModel } from './attachModel.js';
  */
 export const LANES = [-9, -3, 3, 9];     // road is 24 wide, rails at ±12
 
+// weight = how often it appears; speed = m/s range; mass = how hard it hits
+// (damage multiplier) and how hard it is to shove; paint = random colours
 const TYPES = [
-  { path: 'level2/traffic/taxi.glb',     length: 3.8 },
-  { path: 'level2/traffic/van.glb',      length: 4.4 },
-  { path: 'level2/traffic/suv.glb',      length: 4.2 },
-  { path: 'level2/traffic/truck.glb',    length: 5.2 },
-  { path: 'level2/traffic/delivery.glb', length: 5.4 },
+  { name: 'taxi',     path: 'level2/traffic/taxi.glb',     length: 3.8, weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
+  { name: 'suv',      path: 'level2/traffic/suv.glb',      length: 4.2, weight: 2,   speed: [13, 21], mass: 1.2, paint: true },
+  { name: 'van',      path: 'level2/traffic/van.glb',      length: 4.6, weight: 2,   speed: [11, 18], mass: 1.5, paint: true },
+  { name: 'delivery', path: 'level2/traffic/delivery.glb', length: 5.6, weight: 2,   speed: [10, 16], mass: 1.8, paint: true },
+  { name: 'truck',    path: 'level2/traffic/truck.glb',    length: 5.4, weight: 2,   speed: [9, 15],  mass: 1.9, paint: true },
+  // the same truck scaled up into a freight rig: slow, huge, hurts
+  { name: 'freight',  path: 'level2/traffic/truck.glb',    length: 8.2, weight: 1.5, speed: [8, 12],  mass: 2.8, paint: true },
 ];
+
+/** A fixed, shuffled list of types for the pool, following the weights. */
+function typeList(count) {
+  const total = TYPES.reduce((a, t) => a + t.weight, 0);
+  const list = [];
+  for (const t of TYPES) for (let i = 0; i < Math.round((t.weight / total) * count); i++) list.push(t);
+  while (list.length < count) list.push(TYPES[list.length % TYPES.length]);
+  for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+  return list.slice(0, count);
+}
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
 export class Traffic {
   constructor(parent, assets, {
-    count = 12, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
+    count = 14, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
     minSpeed = 9, maxSpeed = 22,
   } = {}) {
     this.parent = parent;
@@ -39,8 +54,10 @@ export class Traffic {
 
   async init(playerZ = 0) {
     await Promise.allSettled(TYPES.map((t) => this.assets.model(t.path)));
+    const types = typeList(this.cfg.count);
+    const paintInfo = new Map();               // detected bodywork colour, per model file
     for (let i = 0; i < this.cfg.count; i++) {
-      const type = TYPES[i % TYPES.length];
+      const type = types[i];
       const holder = new THREE.Group();
       const model = await attachModel(this.assets, holder, type.path, { length: type.length });
       let bounds = model && model.userData.bounds;
@@ -60,7 +77,12 @@ export class Traffic {
         halfL: (bounds.max.z - bounds.min.z) / 2,
         x: 0, z: 0, yaw: 0, vx: 0, spin: 0,
         baseSpeed: 0, speed: 0, hitT: 0,
+        type, mass: type.mass, model,
       };
+      if (model && type.paint) {
+        if (!paintInfo.has(type.path)) paintInfo.set(type.path, detectPaint(model));
+        v.paintInfo = paintInfo.get(type.path);
+      }
       this.parent.add(holder);
       this.pool.push(v);
       this._spawn(v, playerZ);
@@ -89,7 +111,10 @@ export class Traffic {
       ok = this._isFree(v, lane, z);
     }
     v.x = LANES[lane]; v.z = z; v.yaw = 0; v.vx = 0; v.spin = 0; v.hitT = 0;
-    v.baseSpeed = v.speed = rand(minSpeed, maxSpeed);
+    const [lo, hi] = v.type ? v.type.speed : [minSpeed, maxSpeed];
+    v.baseSpeed = v.speed = rand(lo, hi);
+    // a fresh colour every time it respawns, so the road never looks cloned
+    if (v.paintInfo) applyPaint(v.model, TRAFFIC_PAINTS[Math.floor(Math.random() * TRAFFIC_PAINTS.length)], v.paintInfo);
     this._place(v);
   }
 
@@ -166,7 +191,7 @@ export class Traffic {
         bx.x -= side * cos * ox * 0.6;
         bx.z += side * sin * ox * 0.6;
         v.x += side * ox * 0.4;
-        v.vx = side * Math.max(Math.abs(v.vx), 2.5);
+        v.vx = side * Math.max(Math.abs(v.vx), 2.5 / (v.mass || 1));
         v.spin = side * 0.4;
         body.latVel = (body.latVel || 0) * 0.3;
       } else {
@@ -237,6 +262,7 @@ export class Traffic {
     v.vx = side * (3 + rel * 0.15);
     v.spin = side * (1 + rel * 0.06);
     v.hitT = 1.2;
-    return { damage: Math.min(25, Math.round(damage)), impact };
+    const mass = v.mass || 1;
+    return { damage: Math.min(30, Math.round(damage * mass)), impact: Math.min(1, impact * (0.7 + 0.3 * mass)) };
   }
 }

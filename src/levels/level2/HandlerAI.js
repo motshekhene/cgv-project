@@ -83,7 +83,7 @@ export class HandlerAI {
     this.speed = 0;
     this.latVel = 0;
     this.heading = 0;
-    this.maxSpeed = 46;          // player: 42 normal, 52.5 boosted
+    this.maxSpeed = 46;          // floor; really max(46, your top speed + 4) — see update()
     this.railX = 11.7;
     this.halfW = 0.95;
     this.halfL = 1.9;
@@ -399,7 +399,10 @@ export class HandlerAI {
 
     // ---------- drive there ----------
     // rubber band: boosting buys you a gap, not a permanent escape (but a real one)
-    const topSpeed = this.maxSpeed + THREE.MathUtils.clamp((dz - 20) * 0.3, 0, 6);
+    // his top speed follows your car: a bit above your normal top speed (so he
+    // can always close in) but below your boosted speed (so boost escapes him)
+    const baseTop = Math.max(this.maxSpeed, (car.maxSpeed || 42) + 4);
+    const topSpeed = baseTop + THREE.MathUtils.clamp((dz - 20) * 0.3, 0, 6);
     const desired = fixedSpeed !== null
       ? fixedSpeed
       : THREE.MathUtils.clamp(car.speed + THREE.MathUtils.clamp((tz - m.z) * 1.6, -14, 14), 0, topSpeed);
@@ -498,7 +501,8 @@ export class HandlerAI {
     // n points from the player towards the Handler
 
     // --- push apart, heavier car moves less ---
-    const share = this.mass / (1 + this.mass);     // the player's share
+    const carMass = car.mass || 1;
+    const share = this.mass / (carMass + this.mass);   // the player's share
     p.x -= nx * depth * share;  p.z -= nz * depth * share;
     m.x += nx * depth * (1 - share);  m.z += nz * depth * (1 - share);
 
@@ -519,8 +523,8 @@ export class HandlerAI {
     let j = 0;
     if (vn < 0) {
       const e = 0.25;                                  // a little bounce
-      j = -(1 + e) * vn / (1 + 1 / this.mass);
-      const dAx = -j * nx, dAz = -j * nz;              // player Δv (mass 1)
+      j = -(1 + e) * vn / (1 / carMass + 1 / this.mass);
+      const dAx = -j * nx / carMass, dAz = -j * nz / carMass;   // player Δv
       car.lateralVel = (car.lateralVel || 0) + dAx;
       car.speed += dAz;
       this.latVel += (j / this.mass) * nx;

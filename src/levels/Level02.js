@@ -7,7 +7,8 @@ import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
 import { Skids, Smoke } from './level2/skids.js';
-import { CARS, HANDLER_MODEL, createCarPicker, loadSavedCar, saveCar } from './level2/carSelect.js';
+import { CARS, HANDLER_MODEL, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
+import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
 import { createGameOverScreen } from './level2/gameOver.js';
 
@@ -123,6 +124,8 @@ export class Level02 extends Level {
     );
 
     this._carIndex = loadSavedCar();
+    this._paintIndex = loadSavedPaint();
+    this._paintInfo = new Map();                  // detected factory colour per model file
     await this._selectCar(this._carIndex);
     const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL);
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds);
@@ -163,7 +166,11 @@ export class Level02 extends Level {
     const selected = CARS[this._carIndex];
     this._modelSwap = this._modelSwap.then(async () => {
       const model = await this.car.attachModel(this.assets, selected.path);
+      this.car.applyStats(selected.stats);
       if (!model) return;
+      this._carModel = model;
+      if (!this._paintInfo.has(selected.path)) this._paintInfo.set(selected.path, detectPaint(model));
+      this._repaint();
       const bounds = model.userData.bounds;
       this.carLights.fit(bounds);
       this.skids.setDims(bounds);
@@ -175,6 +182,18 @@ export class Level02 extends Level {
     return this._modelSwap;
   }
 
+  _setPaint(index) {
+    this._paintIndex = (index + PAINTS.length) % PAINTS.length;
+    this._picker?.setPaint(this._paintIndex);
+    this._repaint();
+  }
+
+  _repaint() {
+    if (!this._carModel) return;
+    const info = this._paintInfo.get(CARS[this._carIndex].path);
+    applyPaint(this._carModel, PAINTS[this._paintIndex].color, info);
+  }
+
   _openCarPicker() {
     if (this._picker) return;
     this._selectingCar = true;
@@ -184,7 +203,9 @@ export class Level02 extends Level {
     this._hud?.setVisible(false);
     this._picker = createCarPicker({
       startIndex: this._carIndex,
+      startPaint: this._paintIndex,
       onChange: (i) => this._selectCar(i),
+      onPaint: (i) => this._setPaint(i),
       onConfirm: () => this._confirmCar(),
     });
   }
@@ -194,6 +215,7 @@ export class Level02 extends Level {
     this._confirmingCar = true;
     await this._modelSwap;
     saveCar(this._carIndex);
+    savePaint(this._paintIndex);
     this._picker?.destroy();
     this._picker = null;
     this._selectingCar = false;
@@ -326,6 +348,8 @@ export class Level02 extends Level {
   _updateCarPicker(dt) {
     if (this.input.pressed('left')) this._selectCar(this._carIndex - 1);
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
+    if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
+    if (this.input.pressed('interact')) this._setPaint(this._paintIndex + 1);   // E
     if (this.input.pressed('jump') || this.input.pressed('forward')) this._confirmCar();
 
     this._orbit += dt * 0.7;
