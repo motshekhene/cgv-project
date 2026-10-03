@@ -19,18 +19,19 @@ export const LANES = [-9, -3, 3, 9];     // road is 24 wide, rails at ±12
 
 // weight = how often it appears; speed = m/s range; mass = how hard it hits
 // (damage multiplier) and how hard it is to shove; paint = random colours
-// cars: Quaternius Cars Bundle (CC0). Vans/trucks: still Kenney Car Kit
-// (CC0) until replacements arrive — see CREDITS.md
+// cars: Quaternius Cars Bundle (CC0). Van: jeremy (CC BY 3.0). Bus: Poly by
+// Google (CC BY 3.0). See public/assets/level2/CREDITS.md
+// yaw turns a model that wasn't authored facing +Z; paintMaterials names the
+// body material(s) when automatic detection would guess wrong.
 const TYPES = [
-  { name: 'taxi',     path: 'level2/traffic/taxi.glb',     length: 4.6, weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
-  { name: 'sedan',    path: 'level2/cars/sedan.glb',       length: 4.5, weight: 1.5, speed: [15, 23], mass: 1.0, paint: true },
-  { name: 'hatch',    path: 'level2/cars/hatch.glb',       length: 3.9, weight: 1,   speed: [14, 22], mass: 0.9, paint: true },
-  { name: 'suv',      path: 'level2/cars/suv.glb',         length: 4.8, weight: 1.5, speed: [13, 21], mass: 1.3, paint: true },
-  { name: 'van',      path: 'level2/traffic/van.glb',      length: 4.6, weight: 2,   speed: [11, 18], mass: 1.5, paint: true },
-  { name: 'delivery', path: 'level2/traffic/delivery.glb', length: 5.6, weight: 2,   speed: [10, 16], mass: 1.8, paint: true },
-  { name: 'truck',    path: 'level2/traffic/truck.glb',    length: 5.4, weight: 2,   speed: [9, 15],  mass: 1.9, paint: true },
-  // the same truck scaled up into a freight rig: slow, huge, hurts
-  { name: 'freight',  path: 'level2/traffic/truck.glb',    length: 8.2, weight: 1.5, speed: [8, 12],  mass: 2.8, paint: true },
+  { name: 'taxi',  path: 'level2/traffic/taxi.glb', length: 4.6,  weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
+  { name: 'sedan', path: 'level2/cars/sedan.glb',   length: 4.5,  weight: 2,   speed: [15, 23], mass: 1.0, paint: true },
+  { name: 'hatch', path: 'level2/cars/hatch.glb',   length: 3.9,  weight: 1.5, speed: [14, 22], mass: 0.9, paint: true },
+  { name: 'suv',   path: 'level2/cars/suv.glb',     length: 4.8,  weight: 1.5, speed: [13, 21], mass: 1.3, paint: true },
+  { name: 'van',   path: 'level2/traffic/van.glb',  length: 5.3,  weight: 2,   speed: [11, 18], mass: 1.6, paint: true,
+    yaw: -Math.PI / 2, paintMaterials: ['FFFFFF'] },
+  // buses: long, slow, heavy, always white
+  { name: 'bus',   path: 'level2/traffic/bus.glb',  length: 11.5, weight: 1,   speed: [9, 14],  mass: 3.0, paint: false },
 ];
 
 /** A fixed, shuffled list of types for the pool, following the weights. */
@@ -63,7 +64,7 @@ export class Traffic {
     for (let i = 0; i < this.cfg.count; i++) {
       const type = types[i];
       const holder = new THREE.Group();
-      const model = await attachModel(this.assets, holder, type.path, { length: type.length });
+      const model = await attachModel(this.assets, holder, type.path, { length: type.length, yaw: type.yaw || 0 });
       let bounds = model && model.userData.bounds;
       if (!bounds) {
         // model failed to load: a plain box keeps the traffic (and its collisions) working
@@ -84,7 +85,11 @@ export class Traffic {
         type, mass: type.mass, model,
       };
       if (model && type.paint) {
-        if (!paintInfo.has(type.path)) paintInfo.set(type.path, detectPaint(model));
+        if (!paintInfo.has(type.path)) {
+          paintInfo.set(type.path, type.paintMaterials
+            ? { bodyMaterials: new Map(type.paintMaterials.map((n) => [n, 1])) }
+            : detectPaint(model));
+        }
         v.paintInfo = paintInfo.get(type.path);
       }
       this.parent.add(holder);

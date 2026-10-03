@@ -29,12 +29,6 @@ export const PAINTS = [
   { id: 'factory', name: 'Factory', color: null },
   { id: 'crimson', name: 'Crimson', color: 0xc8102e },
   { id: 'midnight', name: 'Midnight', color: 0x1c2e6b },
-  { id: 'racing-green', name: 'Racing Green', color: 0x0f5132 },
-  { id: 'pearl', name: 'Pearl White', color: 0xe9e9e6 },
-  { id: 'gunmetal', name: 'Gunmetal', color: 0x4a4f55 },
-  { id: 'sunset', name: 'Sunset', color: 0xff6a13 },
-  { id: 'toxic', name: 'Toxic', color: 0xc8e600 },
-  { id: 'violet', name: 'Violet', color: 0x6a2c91 },
   { id: 'black', name: 'Matte Black', color: 0x161616 },
 ];
 
