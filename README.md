@@ -56,6 +56,27 @@ Small changes are fine, don't sit on big, unpushed changes for days.
 
 If you're not sure whether something will break the project for everyone, check with the group first.
 
+## Documentation
+
+### API documentation
+
+Our related Wits-Quest application (backend + frontend) has generated API documentation, deployed here:
+
+- **API docs:** https://nkadimengkgothatso.github.io/-wits-quest/development/api-reference/ (quick-start version: https://nkadimengkgothatso.github.io/-wits-quest/development/api-quickstart/)
+- **Docs source repo:** https://github.com/NkadimengKgothatso/-wits-quest (source on `main`, built site on `gh-pages`)
+
+The docs cover the backend REST and socket API (`backend/src/`) — battle socket handling, matchmaking lobby, ELO/leaderboard services, authentication, and the offline queue. Every new backend feature ships with API tests (supertest) and every UI feature with React Testing Library tests, so the docs and the test suite stay in step.
+
+### Performance
+
+Performance targets and how to measure them (per-frame, on a mid-range laptop):
+
+- **Frame rate:** the game must hold 60 FPS during normal driving and no less than 30 FPS with the police chase, traffic, and shadow-casting headlights all active. Measure with the browser DevTools Performance tab, or `renderer.info.render.calls` logged per frame.
+- **Draw calls / triangles:** keep the scene under ~300 draw calls. Shared traffic models are cached in the `AssetRegistry` and cloned with `SkeletonUtils.clone`, so all 12 vehicles reuse one set of geometry/materials.
+- **Memory:** nothing is created or destroyed while playing — vehicles, skid marks, and smoke use fixed pools recycled each frame. `Level.teardown()` / `AssetRegistry.dispose()` free GPU resources on level change; check for leaks with DevTools Memory heap snapshots before and after a 5-minute session.
+- **Asset loading:** all models/textures/audio load once through `AssetRegistry` and are cached, so a second lap or a car swap never re-downloads. Verify on the Network tab (first load pulls assets; picking V → DRIVE again should not).
+- **Test coverage as a quality gate:** CI reports coverage for the frontend and backend of our Wits-Quest application and fails below 60% (the rubric's advanced band), rising to 80% for the final submission. Run locally with `npm run test` in each of `frontend/` and `backend/`.
+
 ## Questions?
 
 Ask in the group chat, or ask the PM (Junior),  don't sit stuck for too long.
