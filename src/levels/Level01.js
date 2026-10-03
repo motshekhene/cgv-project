@@ -7,6 +7,9 @@ import {
   createJungleMaterials,
   buildTrailBase,
   buildElevatedTrail,
+  buildJungleBackdrop,
+  createJungleWildlife,
+  updateJungleWildlife,
   jungleCourseHeight,
   BRIDGE_GAPS,
   updateTrailChunks,
@@ -294,7 +297,9 @@ const DARK_SHRINE_FADE = 28;
 
 const BRIDGE_START_Z = -1318;
 const BRIDGE_END_Z = -1450;
-const BRIDGE_DROP_BEHIND = 7;
+// Panels start dropping almost immediately after Kai's feet clear them, so the
+// bridge visibly peels away behind him instead of waiting several metres.
+const BRIDGE_DROP_BEHIND = 2.2;
 
 const BOULDER_Z = -1215;
 const SWING_LOG_Z = -2165;
@@ -404,8 +409,9 @@ export class Level01 extends Level {
     this.obstacles = [];
     this._fallingTrees = [];
 
-    // Authored Level 1B set pieces. The split keeps both routes equally hard:
-    // the same hazards are mirrored left/right and only the scenery changes.
+    // Authored Level 1B set pieces. The fork is now an actual risk choice:
+    // left is the readable relic path; right is the faster-feeling shrine trial
+    // with denser combinations and much less recovery space.
     this._routeSide = 0; // -1 left, +1 right, 0 not chosen yet
     this._lastRouteIntent = 0;
     this._worldX = 0;
@@ -415,6 +421,9 @@ export class Level01 extends Level {
     this._bridgeGapHits = new Set();
     this._specialHazards = [];
     this._guardianTeases = [];
+    this._wildlife = null;
+    this._backdrop = null;
+    this._worldTime = 0;
     this._storyLetters = [];
     this._handlerPressureEvents = [];
     this._transientBanner = null;
@@ -467,6 +476,7 @@ export class Level01 extends Level {
 
     this._audio = null;
     this._audioReady = false;
+    this._musicTrack = null;
     this._strideDistance = 0;
     // one stride ≈ 1.6 m of ground covered, so the footstep rate rises with
     // the speed ramp on its own instead of needing its own curve
@@ -499,6 +509,8 @@ export class Level01 extends Level {
     const mats = await createJungleMaterials(assets, TUNNEL_LENGTH);
     this._jungleMats = mats;
     this._buildTunnel(mats);
+    this._backdrop = buildJungleBackdrop(this.root, this._jungleKit, mats);
+    this._wildlife = createJungleWildlife(this.root);
     this._buildRouteSplit(mats);
     this._buildDarkShrine(mats);
     this._buildAdventureHazards(mats);
@@ -640,7 +652,7 @@ export class Level01 extends Level {
 
   _buildRouteSplit(mats) {
     const group = new THREE.Group();
-    group.name = "equal-difficulty-route-split";
+    group.name = "risk-choice-route-split";
     const step = 8;
 
     for (const side of [-1, 1]) {
@@ -680,11 +692,11 @@ export class Level01 extends Level {
     }
     group.add(island);
 
-    const left = createSign("LEFT PATH", { width: 2.1, height: 0.72 });
+    const left = createSign("LEFT: RELIC", { width: 2.5, height: 0.72 });
     left.position.set(-5.3, jungleCourseHeight(-686), -686);
     left.rotation.y = 0.12;
     group.add(left);
-    const right = createSign("RIGHT PATH", { width: 2.1, height: 0.72 });
+    const right = createSign("RIGHT: TRIAL", { width: 2.6, height: 0.72 });
     right.position.set(5.3, jungleCourseHeight(-686), -686);
     right.rotation.y = -0.12;
     group.add(right);
@@ -696,7 +708,7 @@ export class Level01 extends Level {
   _updateRouteChoice(localX) {
     if (!this._routeCueShown && this.z <= -620) {
       this._routeCueShown = true;
-      this._showTransientBanner("FORK AHEAD — BOTH ROUTES ARE EQUALLY DANGEROUS", 2.4);
+      this._showTransientBanner("FORK AHEAD — LEFT IS SAFER • RIGHT IS THE SHRINE TRIAL", 2.8);
     }
     if (this._routeSide !== 0 || this.z > ROUTE_CHOICE_Z) return;
 
@@ -706,7 +718,10 @@ export class Level01 extends Level {
     else if (this.z <= ROUTE_SPLIT_START_Z - 15) this._routeSide = -1; // last-resort fallback
     else return;
 
-    this._showTransientBanner(this._routeSide < 0 ? "LEFT ROUTE LOCKED" : "RIGHT ROUTE LOCKED", 1.1);
+    this._showTransientBanner(
+      this._routeSide < 0 ? "RELIC PATH — KEEP MOVING" : "SHRINE TRIAL — NO EASY LINE",
+      1.4,
+    );
   }
 
   _buildDarkShrine(mats) {
@@ -836,20 +851,32 @@ export class Level01 extends Level {
       z -= step * (0.84 + rng() * 0.32);
     }
 
-    // The fork is a real route split, but neither side is the "easy" route.
-    // The exact same four reads are mirrored, including one jump and one slide.
-    const branchPattern = [
-      { z: -806, kind: "barrier", lane: 1 },
+    // The fork is now a meaningful risk choice. LEFT is still active play —
+    // four clean reads, including a jump and slide — but gives the player more
+    // recovery space. RIGHT is the Shrine Trial: tighter spacing and several
+    // two-lane combinations, while always preserving one fair answer.
+    const leftPath = [
+      { z: -808, kind: "barrier", lane: 1 },
       { z: -850, kind: "trolley", lane: 0 },
-      { z: -895, kind: "crate", lane: 2 },
-      { z: -944, kind: "duct", lane: 1 },
+      { z: -892, kind: "duct", lane: 1 },
+      { z: -925, kind: "crate", lane: 2 },
     ];
-    for (const side of [-1, 1]) {
-      for (const spec of branchPattern) {
-        const mirroredLane = side < 0 ? spec.lane : 2 - spec.lane;
-        const offset = side * this._routeOffsetMagnitude(spec.z);
-        this._addObstacle(spec.kind, mirroredLane, spec.z, offset);
-      }
+    for (const spec of leftPath) {
+      const offset = -this._routeOffsetMagnitude(spec.z);
+      this._addObstacle(spec.kind, spec.lane, spec.z, offset);
+    }
+
+    const rightPath = [
+      { z: -800, items: [["trolley", 0], ["crate", 2]] },
+      { z: -826, items: [["barrier", 1]] },
+      { z: -852, items: [["trap", 1], ["wall", 2]] },
+      { z: -878, items: [["duct", 1]] },
+      { z: -904, items: [["barrel", 0], ["trolley", 1]] },
+      { z: -928, items: [["crate", 0], ["barrier", 2]] },
+    ];
+    for (const site of rightPath) {
+      const offset = this._routeOffsetMagnitude(site.z);
+      for (const [kind, lane] of site.items) this._addObstacle(kind, lane, site.z, offset);
     }
 
     this.obstacles.sort((a, b) => b.z - a.z);
@@ -1011,10 +1038,21 @@ export class Level01 extends Level {
     };
 
     for (const h of this._specialHazards) {
+      // The pendulum is part of the world, not a one-shot animation. It keeps
+      // swinging even before Kai reaches its warning range, so the player can
+      // read the rhythm and choose a lane / jump instead of watching it move
+      // once and freeze.
+      if (h.type === "swing") {
+        h.swingT = (h.swingT || 0) + dt;
+        h.swingAngle = Math.sin(h.swingT * 2.55) * 1.08;
+        h.object.rotation.z = h.swingAngle;
+      }
+
       if (!h.active && this.z <= h.triggerZ) {
         h.active = true;
         h.t = 0;
         if (this._audio) this._audio.playOneShot("stoneGrind", { volume: h.type === "boulder" ? 0.52 : 0.38 });
+        if (h.type === "swing") this._showTransientBanner("SWINGING STONE — TIME THE GAP", 1.7);
       }
       if (!h.active) continue;
       h.t += dt;
@@ -1029,12 +1067,39 @@ export class Level01 extends Level {
           registerHit(h, h.object.position.x);
         }
       } else if (h.type === "swing") {
-        const angle = Math.sin((this.z - h.z) * 0.11) * 0.95;
-        h.object.rotation.z = angle;
-        const crossed = prevZ >= h.z - 0.7 && this.z <= h.z + 0.7;
-        const beamIsDangerous = Math.abs(angle) < 0.48;
-        if (!h.hit && crossed && beamIsDangerous && feet < 1.65 && head > 0.9) {
-          registerHit(h, 0);
+        const angle = h.swingAngle || 0;
+        const crossed = prevZ >= h.z - 0.82 && this.z <= h.z + 0.82;
+        if (!h.hit && crossed) {
+          // Exact 2D beam segment in X/Y. Because the pendulum swings through
+          // more than sixty degrees, one side of the trail can be high while
+          // the other is low: lane choice, jump and slide all become legitimate
+          // dodges instead of a binary "beam happened to be low" test.
+          const floor = jungleCourseHeight(h.z);
+          const pivotY = floor + 3.6;
+          const half = 3.8;
+          const localY = -2.15;
+          const c = Math.cos(angle);
+          const sn = Math.sin(angle);
+          const ax = -half * c - localY * sn;
+          const ay = pivotY + (-half * sn + localY * c);
+          const bx = half * c - localY * sn;
+          const by = pivotY + (half * sn + localY * c);
+          const vx = bx - ax;
+          const vy = by - ay;
+          const len2 = vx * vx + vy * vy;
+          const samples = [
+            floor + feet + 0.12,
+            floor + (feet + head) * 0.5,
+            floor + head - 0.12,
+          ];
+          let minDist = Infinity;
+          for (const py of samples) {
+            const u = THREE.MathUtils.clamp(((x - ax) * vx + (py - ay) * vy) / len2, 0, 1);
+            const qx = ax + vx * u;
+            const qy = ay + vy * u;
+            minDist = Math.min(minDist, Math.hypot(x - qx, py - qy));
+          }
+          if (minDist < 0.50) registerHit(h, x);
         }
       } else if (h.type === "fallingBlock") {
         const u = THREE.MathUtils.clamp(h.t / 0.95, 0, 1);
@@ -1359,7 +1424,7 @@ export class Level01 extends Level {
   _updateCollapsingBridge(dt, x, prevZ, state) {
     if (!this._bridgeCueShown && this.z <= BRIDGE_START_Z + 34) {
       this._bridgeCueShown = true;
-      this._showTransientBanner("BRIDGE UNSTABLE — WATCH THE MISSING PANELS", 2.0);
+      this._showTransientBanner("BRIDGE COLLAPSING — DODGE THE GAPS AND DON'T STOP", 2.3);
     }
 
     for (const gap of BRIDGE_GAPS) {
@@ -1386,10 +1451,10 @@ export class Level01 extends Level {
       }
       if (panel.userData.collapseT >= 0 && panel.visible) {
         panel.userData.collapseT += dt;
-        const t = THREE.MathUtils.clamp(panel.userData.collapseT / 1.2, 0, 1);
-        panel.position.y = panel.userData.baseY - t * t * 18;
-        panel.rotation.x = panel.userData.baseRotX + t * 0.9;
-        panel.rotation.z = (panel.userData.bridgeLane - 1) * t * 0.28;
+        const t = THREE.MathUtils.clamp(panel.userData.collapseT / 0.82, 0, 1);
+        panel.position.y = panel.userData.baseY - t * t * 24;
+        panel.rotation.x = panel.userData.baseRotX + t * (0.9 + panel.userData.bridgeLane * 0.22);
+        panel.rotation.z = (panel.userData.bridgeLane - 1) * t * 0.62;
         if (t >= 1) panel.visible = false;
       }
     }
@@ -2149,9 +2214,14 @@ export class Level01 extends Level {
       const insects = Math.sin(t * Math.PI * 2 * 3100) * (Math.sin(t * Math.PI * 2 * 0.73) > 0.84 ? 0.02 : 0);
       return THREE.MathUtils.clamp(brown * 0.09 + insects, -0.22, 0.22);
     });
-    const footstep = makeBuffer(0.2, (t) => {
-      const e = Math.exp(-t * 24);
-      return ((Math.random() * 2 - 1) * 0.45 + Math.sin(t * Math.PI * 2 * 78) * 0.5) * e;
+    const footstep = makeBuffer(0.22, (t) => {
+      // Dirt/stone footfall: a low heel thump plus a short gritty transient.
+      // This is deliberately clearer than the old hissy step because the user
+      // should be able to feel Kai's cadence underneath the music.
+      const thump = Math.sin(t * Math.PI * 2 * 72) * Math.exp(-t * 22) * 0.62;
+      const grit = Math.sin(t * Math.PI * 2 * 1680) * Math.sin(t * Math.PI * 2 * 2330)
+        * Math.exp(-t * 42) * 0.24;
+      return thump + grit;
     });
     const impact = makeBuffer(0.32, (t) => {
       const e = Math.exp(-t * 16);
@@ -2216,9 +2286,37 @@ export class Level01 extends Level {
     });
     const tension = makeBuffer(4.0, (t) => {
       const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2 * 1.0)), 10);
-      const sub = Math.sin(t * Math.PI * 2 * 44) * 0.10;
-      const drone = Math.sin(t * Math.PI * 2 * 71) * 0.035;
+      const sub = Math.sin(t * Math.PI * 2 * 44) * 0.065;
+      const drone = Math.sin(t * Math.PI * 2 * 71) * 0.022;
       return sub * beat + drone;
+    });
+
+    // Eight-second jungle pursuit loop: hand-drum pulse + pentatonic wooden
+    // melody + a quiet bass drone. It is intentionally musical rather than an
+    // ambience/noise bed, while leaving room for footsteps and hazard cues.
+    const musicNotes = [220.0, 261.63, 293.66, 329.63, 392.0, 329.63, 293.66, 261.63,
+                        220.0, 293.66, 329.63, 392.0, 440.0, 392.0, 329.63, 293.66];
+    const bpm = 112;
+    const beatLen = 60 / bpm;
+    const music = makeBuffer(8.0, (t) => {
+      const beatPhase = t % beatLen;
+      const drumEnv = Math.exp(-beatPhase * 18);
+      const drum = (Math.sin(2 * Math.PI * 62 * beatPhase) * 0.16
+        + Math.sin(2 * Math.PI * 108 * beatPhase) * 0.045) * drumEnv;
+
+      const eighth = beatLen * 0.5;
+      const noteIndex = Math.floor(t / eighth) % musicNotes.length;
+      const noteT = t % eighth;
+      const noteEnv = Math.min(1, noteT * 28) * Math.exp(-noteT * 5.2);
+      const f = musicNotes[noteIndex];
+      const melody = (Math.sin(2 * Math.PI * f * noteT) * 0.052
+        + Math.sin(2 * Math.PI * f * 2 * noteT) * 0.018) * noteEnv;
+
+      const shakerPhase = t % (beatLen * 0.25);
+      const shaker = Math.sin(2 * Math.PI * 3150 * t) * Math.sin(2 * Math.PI * 4870 * t)
+        * Math.exp(-shakerPhase * 48) * 0.018;
+      const bass = Math.sin(2 * Math.PI * 55 * t) * 0.018;
+      return THREE.MathUtils.clamp(drum + melody + shaker + bass, -0.72, 0.72);
     });
 
     this._audio.buffers.set("ambience", ambience);
@@ -2234,17 +2332,26 @@ export class Level01 extends Level {
     this._audio.buffers.set("shrinePulse", shrinePulse);
     this._audio.buffers.set("bridgeCrack", bridgeCrack);
     this._audio.buffers.set("tension", tension);
+    this._audio.buffers.set("jungleMusic", music);
 
     const resume = () => ctx.resume();
     this._resumeAudio = resume;
     window.addEventListener("pointerdown", resume, { once: true });
     window.addEventListener("keydown", resume, { once: true });
 
-    this._audio.playAmbience("ambience", { volume: 0.28 });
+    // Keep the synthetic wind/insects very quiet; the audible bed is now the
+    // music plus Kai's footsteps instead of a constant noisy ambience.
+    this._audio.playAmbience("ambience", { volume: 0.07 });
+    this._musicTrack = new THREE.Audio(this._audio.listener);
+    this._musicTrack.setBuffer(music);
+    this._musicTrack.setLoop(true);
+    this._musicTrack.setVolume(0.16);
+    this._musicTrack.play();
+
     this._tensionTrack = new THREE.Audio(this._audio.listener);
     this._tensionTrack.setBuffer(tension);
     this._tensionTrack.setLoop(true);
-    this._tensionTrack.setVolume(0.03);
+    this._tensionTrack.setVolume(0.012);
     this._tensionTrack.play();
     if (this.handler) {
       this._audio.attachPositional(this.handler, "handlerBreath", {
@@ -2534,11 +2641,17 @@ export class Level01 extends Level {
     // it, since that is what decides which lights are live this frame.
     const pulse = 1.0 + Math.sin(performance.now() * 0.004 * (1 + normalizedSpeed)) * 0.15;
     this._updateTunnelDetail(pulse);
+    updateJungleWildlife(this._wildlife, dt, this.z, this._worldX);
     this._updateDarkShrine(dt);
+    if (this._musicTrack) {
+      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.025 : 0.045;
+      const chaseLift = this._handlerRageT > 0 ? 0.035 : 0;
+      this._musicTrack.setVolume(0.15 + phaseLift + chaseLift);
+    }
     if (this._tensionTrack) {
-      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.035 : 0.075;
-      const guardianLift = this._guardianActive ? 0.07 : 0;
-      this._tensionTrack.setVolume(0.025 + phaseLift + this._darkFactor * 0.065 + guardianLift);
+      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.012 : 0.025;
+      const guardianLift = this._guardianActive ? 0.045 : 0;
+      this._tensionTrack.setVolume(0.008 + phaseLift + this._darkFactor * 0.03 + guardianLift);
     }
 
     // --- footsteps: trigger on stride distance, only while grounded ---
@@ -2546,7 +2659,7 @@ export class Level01 extends Level {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
-        this._audio.playFootstep({ volume: 0.34, minInterval: 0, dt });
+        this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
       }
     }
   }
@@ -2559,6 +2672,10 @@ export class Level01 extends Level {
     if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
     this._transientBanner = null;
     this._storyCard = null;
+    if (this._musicTrack) {
+      if (this._musicTrack.isPlaying) this._musicTrack.stop();
+      this._musicTrack = null;
+    }
     if (this._tensionTrack) {
       if (this._tensionTrack.isPlaying) this._tensionTrack.stop();
       this._tensionTrack = null;
