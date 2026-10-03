@@ -2,13 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>BLACKOUT Protocol — Level 2 (REDLINE) Alpha</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="./favicon.svg" />
+<title>BLACKOUT PROTOCOL — Level 2 (REDLINE)</title>
 <style>
   html, body { margin: 0; padding: 0; overflow: hidden; background: #05070a; }
   canvas { display: block; }
 </style>
 </head>
 <body>
-<script type="module" src="./src/levels/level2/main.js"></script>
+<div id="hud"></div>
+<script type="module">
+  // Redirect to shared engine with level02 query param
+  window.location.href = './?level=level02';
+</script>
 </body>
 </html>
