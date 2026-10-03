@@ -72,6 +72,7 @@ export class HandlerBoss {
     this.heading = 0;
     this.staggered = false;
     this.flying = null; // the helmet, once it comes off
+    this.arenaLimit = 13.4; // he follows Kai anywhere inside this radius
 
     this.onStrike = null;
     this.onHelmetOff = null;
@@ -299,8 +300,8 @@ export class HandlerBoss {
     }
 
     const r = Math.hypot(this.root.position.x, this.root.position.z);
-    if (r > 13.4) {
-      const k = 13.4 / r;
+    if (r > this.arenaLimit) {
+      const k = this.arenaLimit / r;
       this.root.position.x *= k;
       this.root.position.z *= k;
     }

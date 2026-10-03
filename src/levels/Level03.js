@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { CombatController } from './level3/CombatController.js';
 import { HandlerBoss } from './level3/HandlerBoss.js';
-import { ShrineArena } from './level3/ShrineArena.js';
+import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { LetterDrops } from './level3/Letters.js';
+import { ShrineGifts } from './level3/Awards.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -23,7 +24,9 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
  *             off the arch behind him. Skippable; skipped on restarts.
  *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
  *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
- *             sky to dusk, lights the torches and runs the pool red.
+ *             sky to dusk, lights the torches and runs the pool red. The fight
+ *             isn't penned in: Kai can break for the jungle ring, where three
+ *             shrines each give one gift (Awards.js), with the Handler after him.
  *   EPILOGUE  the upload on the junction box, the Handler's phone ("11 other
  *             keys"), then the end card. All nine letters -> the true ending.
  */
@@ -54,6 +57,12 @@ const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
 };
+/** What the Strategy gift tells you about each of the Handler's attacks. */
+const TELLS = {
+  lunge: { name: 'LUNGE', advice: 'dodge sideways or block', color: '#ff9a4a' },
+  sweep: { name: 'SWEEP', advice: 'dodge out \u2014 a block only halves it', color: '#ff5a6a' },
+  combo: { name: 'COMBO', advice: 'two hits: block or parry both', color: '#c78bff' },
+};
 const CREDITS =
   'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
   'Props: Poly by Google (CC0) · Built with three.js';
@@ -64,7 +73,10 @@ export class Level03 extends Level {
   constructor() {
     super('level03');
     this.time = 0;
-    this.lockOn = true; // true = lock-on combat cam, false = free 360° orbit view
+    // camera: 'follow' = rotational, behind Kai, turns as he turns (default)
+    //         'lock'   = lock-on, aimed at the Handler, Kai strafes
+    //         'orbit'  = free 360° view (drag / hold the side arrows / wheel)
+    this.camMode = 'follow';
     this.camYaw = 0;
     this.orbitPitch = 0.55;
     this.orbitDist = 11;
@@ -93,8 +105,13 @@ export class Level03 extends Level {
 
     this.combat = new CombatController(this.root, kaiSrc);
     this.boss = new HandlerBoss(this.root, this.combat, handlerSrc);
+    this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
+
+    this._baseMaxHealth = state.maxHealth;
+    this._baseParry = this.combat.parryWindow;
+    this.gifts = new ShrineGifts(this.arena, state, (id, gift) => this._onGift(id, gift));
 
     this.letters = new LetterDrops(this.root, state, (id, text) => {
       const found = state.letters.length;
@@ -102,13 +119,14 @@ export class Level03 extends Level {
     });
 
     this.hud = new FightHUD();
-    this.hud.setLock(this.lockOn);
     this.touch = new TouchControls(input, {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
     });
+    this._applyCamMode(true);
     this.story = new StoryOverlay();
     this.story.onSkip = () => this._skip();
+    this._applyGifts(); // gifts taken on an earlier attempt stay taken
 
     const cam = this.game.camera;
     cam.position.set(0, 3.6, 12.5);
@@ -137,6 +155,54 @@ export class Level03 extends Level {
     key.position.set(0, 0.07 / s, 0.02 / s);
     palm.add(key);
     return key;
+  }
+
+  /* ---------------------------------------------------------------- gifts */
+
+  /** Make Kai match state.awards. Safe to call again after each new gift. */
+  _applyGifts(fresh = null) {
+    const has = (id) => this.state.awards.includes(id);
+    const st = this.state;
+    const max = this._baseMaxHealth * (has('vitality') ? 1.4 : 1);
+    if (max !== st.maxHealth || fresh === 'vitality') {
+      st.maxHealth = max;
+      st.health = max; // the gift heals as it grows the bar
+    }
+    this.combat.parryWindow = this._baseParry * (has('strategy') ? 1.5 : 1);
+    this.strategy = has('strategy');
+    this.combat.damageMul = has('power') ? 1.4 : 1;
+    this.power = has('power');
+    this._setFistGlow(this.power);
+    this.hud.setAwards(st.awards, fresh);
+  }
+
+  _onGift(id, gift) {
+    this._applyGifts(id);
+    this.story.showAward(gift.icon, gift.name, gift.desc, gift.css);
+    this._addShake(0.2);
+    const left = this.gifts.remaining;
+    if (left > 0) this.hud.toast('SHRINES', `${left} more gift${left > 1 ? 's' : ''} in the jungle`, 3);
+  }
+
+  /** Power gift: embers in both fists. */
+  _setFistGlow(on) {
+    if (!this._fists) {
+      if (!on) return;
+      this._fists = [];
+      this.combat.fighter.root.updateMatrixWorld(true);
+      this.combat.fighter.model?.traverse((o) => {
+        if (!o.isBone || (o.name !== 'PalmL' && o.name !== 'PalmR')) return;
+        const s = o.getWorldScale(new THREE.Vector3()).x;
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: this.arena.dot, color: 0xffa040, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85,
+        }));
+        glow.scale.setScalar(0.42 / s);
+        glow.position.set(0, 0.06 / s, 0);
+        o.add(glow);
+        this._fists.push(glow);
+      });
+    }
+    for (const f of this._fists) f.visible = on;
   }
 
   /* ---------------------------------------------------------------- fight */
@@ -195,15 +261,41 @@ export class Level03 extends Level {
     };
   }
 
-  /** Tab / the VIEW button: lock-on combat cam <-> free 360° orbit. */
+  get lockOn() {
+    return this.camMode === 'lock';
+  }
+
+  /** Tab / the corner icon: follow -> lock-on -> 360° view -> follow. */
   _toggleView() {
     if (this.mode !== 'FIGHT') return;
-    this.lockOn = !this.lockOn;
-    this.hud.setLock(this.lockOn);
-    this.touch.setOrbitEnabled(!this.lockOn);
+    const order = ['follow', 'lock', 'orbit'];
+    this.camMode = order[(order.indexOf(this.camMode) + 1) % order.length];
+    this._applyCamMode();
+  }
+
+  _applyCamMode(silent = false) {
+    const m = this.camMode;
+    this.touch.setMode(m);
+    if (!silent) this.hud.setCamMode(m);
     // while dragging the camera with the mouse, left-click must not also attack
-    if (this.lockOn) this.input.ignored.delete('mouse0');
-    else this.input.ignored.add('mouse0');
+    if (m === 'orbit') this.input.ignored.add('mouse0');
+    else this.input.ignored.delete('mouse0');
+  }
+
+  /** An arrow on the screen edge toward the Handler whenever he's out of shot. */
+  _updatePointer() {
+    if (this.mode !== 'FIGHT' || this._ended || this.boss.state === 'DOWN') {
+      this.hud.setPointer(null);
+      return;
+    }
+    const cam = this.game.camera;
+    const v = this._ptr || (this._ptr = new THREE.Vector3());
+    v.copy(this.boss.root.position);
+    v.y += 1.2;
+    v.applyMatrix4(cam.matrixWorldInverse); // camera space: +x right, -z ahead
+    const a = Math.atan2(v.x, -v.z); // 0 = dead ahead, +pi/2 = to the right, pi = behind
+    const halfFov = Math.atan(Math.tan((cam.fov * Math.PI) / 360) * cam.aspect) * 0.92;
+    this.hud.setPointer(Math.abs(a) < halfFov ? null : a);
   }
 
   _checkPlayerDeath(state) {
@@ -237,8 +329,17 @@ export class Level03 extends Level {
     else this._updateFight(dt, real, state);
 
     this._updateCamera(real);
+    this._updatePointer();
+    this.arena.updateOcclusion(real, this.game.camera.position, this._camLook);
     this.arena.update(dt, this.time, this.game.camera);
-    this.letters.update(dt, this.time, this.mode === 'FIGHT' || this.mode === 'REVEAL' ? this.combat.root.position : null);
+    const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
+    const kp = this.combat.root.position;
+    this.letters.update(dt, this.time, fighting ? kp : null);
+    this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null);
+    if (fighting) {
+      const bp = this.boss.root.position;
+      this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
+    } else this.arena.setFocus(kp.x, kp.z);
     if (this.keyItem) {
       const upload = this.mode === 'EPILOGUE' && this.beatT > 3 && this.beatT < 7.5;
       this.keyItem.material.emissiveIntensity = this.combat.abilityActive || upload ? 5 + Math.sin(this.time * 18) * 1.5 : 2.4;
@@ -254,11 +355,13 @@ export class Level03 extends Level {
     const input = this.input;
     if (input.pressed('lockOn') && !this._ended) this._toggleView();
 
-    // camera yaw: aim at the boss when locked on, otherwise the player orbits freely
+    // camera yaw: swing round behind Kai (follow), aim at the boss (lock-on), or the player orbits freely
     const cp = this.combat.root.position;
     const bp = this.boss.root.position;
     const orbit = this.touch.consumeOrbit();
-    if (this.lockOn) {
+    if (this.camMode === 'follow') {
+      this.camYaw += shortestAngle(this.camYaw, this.combat.heading) * (1 - Math.exp(-7 * dt));
+    } else if (this.camMode === 'lock') {
       const want = Math.atan2(bp.x - cp.x, bp.z - cp.z);
       this.camYaw += shortestAngle(this.camYaw, want) * (1 - Math.exp(-7 * dt));
     } else {
@@ -270,7 +373,7 @@ export class Level03 extends Level {
     // the reveal shot holds Kai still for a beat; the key that skipped the intro doesn't also punch
     const controls = this.mode === 'FIGHT' && !this._muteInput ? input : NO_INPUT;
     this._muteInput = false;
-    this.combat.update(dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp });
+    this.combat.update(dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
 
     // Kai's swing
     if (this.combat.consumeHit() && this.boss.state !== 'DOWN') {
@@ -282,7 +385,12 @@ export class Level03 extends Level {
         const fin = this.combat.comboFinisher;
         const dealt = this.boss.takeDamage(this.combat.attackDamage);
         if (dealt > 0) {
-          this.boss.root.position.addScaledVector(this._toBoss, fin ? 0.9 : 0.3);
+          this.boss.root.position.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1));
+          if (this.power) {
+            this.arena.burst(bp.x - this._toBoss.x * 0.4, bp.z - this._toBoss.z * 0.4, {
+              color: 0xffb347, count: fin ? 30 : 16, speed: fin ? 3.4 : 2.4, size: 0.2, y: bp.y + 1.1, lift: 1.4, additive: true,
+            });
+          }
           this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
           if (this.boss.vulnerable) this.hud.popup('CRITICAL', '#ffd23a');
@@ -292,6 +400,11 @@ export class Level03 extends Level {
 
     const b = this.boss.update(dt);
     this._separate();
+    // out in the jungle: trees, statues and walls are solid, and the ground isn't flat
+    this.arena.collide(cp, 0.4);
+    this.arena.collide(bp, 0.45);
+    cp.y = this.arena.fighterY(cp.x, cp.z);
+    bp.y = this.arena.fighterY(bp.x, bp.z);
     // HandlerBoss glows orange through his phase transition; for the reveal close-up
     // we want his face, so put his materials back to their resting look
     if (this.mode === 'REVEAL') {
@@ -313,7 +426,13 @@ export class Level03 extends Level {
       : this.combat.abilityActive ? 0.35 : 1;
 
     this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
-    this.hud.setPlayer(state.health / state.maxHealth, state.stamina / state.maxStamina);
+    this.hud.setPlayer(state.health / state.maxHealth, state.stamina / state.maxStamina, state.maxHealth / this._baseMaxHealth);
+
+    // Strategy gift: call his next move while he lines it up
+    const tell = this.strategy && this.mode === 'FIGHT' && !this._ended && TELLS[this.boss.attackName];
+    if (tell && (b.state === 'APPROACH' || b.state === 'TELEGRAPH')) {
+      this.hud.setTell(b.state === 'TELEGRAPH' ? `${tell.name} \u2014 NOW` : `NEXT \u00b7 ${tell.name}`, tell.advice, tell.color);
+    } else this.hud.setTell('');
 
     if (this._endTimer >= 0 && !this._ended) {
       this._endTimer -= real;
@@ -544,6 +663,8 @@ export class Level03 extends Level {
     this.camYaw = k.heading;
     this.hud.popup('FIGHT', '#ffd9a8');
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
+    const left = this.gifts.remaining;
+    if (left > 0) this.hud.toast('SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5);
   }
 
   /** Phase II: the helmet comes off. A slow-mo look at his face over Kai's shoulder. */
@@ -568,8 +689,8 @@ export class Level03 extends Level {
     const bp = this.boss.root.position;
     const d = this._tmp.set(kp.x - bp.x, 0, kp.z - bp.z).normalize();
     const right = new THREE.Vector3(d.z, 0, -d.x);
-    const pos = kp.clone().addScaledVector(d, 1.5).addScaledVector(right, 0.8).setY(1.75);
-    const look = new THREE.Vector3(bp.x, 1.62, bp.z);
+    const pos = kp.clone().addScaledVector(d, 1.5).addScaledVector(right, 0.8).setY(kp.y + 1.75);
+    const look = new THREE.Vector3(bp.x, bp.y + 1.62, bp.z);
     this._setCine(pos, look, { fov: 30, rate: 8, cut: this._cutNext });
     this._cutNext = false;
     if (this.boss.state !== 'TRANSITION' || this.beatT > 2.8) {
@@ -587,10 +708,9 @@ export class Level03 extends Level {
     this.story.hideLetter();
     this.hud.setVisible(false);
     this.touch.setVisible(false);
-    if (!this.lockOn) {
-      this.lockOn = true;
-      this.hud.setLock(true);
-      this.touch.setOrbitEnabled(false);
+    if (this.camMode === 'orbit') {
+      this.camMode = 'follow';
+      this._applyCamMode(true);
     }
     this.input.ignored.delete('mouse0'); // a click skips the epilogue
   }
@@ -614,16 +734,17 @@ export class Level03 extends Level {
         this._shot = 'E0';
         k.fighter.play('idle', { fade: 0.3 });
         k.fighter.setGuard(false);
-        this._setCine(new THREE.Vector3(bp.x + 3.4, 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, 0.4, bp.z), { fov: 45, cut: true });
+        this._setCine(new THREE.Vector3(bp.x + 3.4, bp.y + 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
       }
       const a = 0.65 + t * 0.22;
-      this.cine.pos.set(bp.x + Math.cos(a) * 3.6, 1.4 + t * 0.15, bp.z + Math.sin(a) * 3.6);
+      this.cine.pos.set(bp.x + Math.cos(a) * 3.6, bp.y + 1.4 + t * 0.15, bp.z + Math.sin(a) * 3.6);
       this.cine.rate = 3;
     } else if (t < 8.4) {
       const box = this.arena.anchors.box;
       if (this._shot !== 'E1') {
         this._shot = 'E1';
         k.root.position.set(box.x - 0.1, 0, box.z + 0.9);
+        k.root.position.y = this.arena.fighterY(k.root.position.x, k.root.position.z);
         k.heading = Math.PI;
         k.root.rotation.y = k.heading;
         this._setCine(new THREE.Vector3(box.x - 1.0, 1.75, box.z + 2.3), new THREE.Vector3(box.x - 0.05, 1.25, box.z), { fov: 38, cut: true });
@@ -637,10 +758,10 @@ export class Level03 extends Level {
     } else {
       if (this._shot !== 'E2') {
         this._shot = 'E2';
-        this._setCine(new THREE.Vector3(bp.x + 1.4, 0.8, bp.z + 1.9), new THREE.Vector3(bp.x, 0.25, bp.z), { fov: 42, cut: true });
+        this._setCine(new THREE.Vector3(bp.x + 1.4, bp.y + 0.8, bp.z + 1.9), new THREE.Vector3(bp.x, bp.y + 0.25, bp.z), { fov: 42, cut: true });
         this.story.showPhone(this._phoneNotes());
       }
-      this.cine.pos.set(bp.x + 1.4, 0.8 + smooth(8.4, 15, t) * 0.6, bp.z + 1.9 + smooth(8.4, 15, t) * 0.6);
+      this.cine.pos.set(bp.x + 1.4, bp.y + 0.8 + smooth(8.4, 15, t) * 0.6, bp.z + 1.9 + smooth(8.4, 15, t) * 0.6);
       if (t > 15.2) this._showEnd();
     }
     k.fighter.update(dt);
@@ -698,21 +819,35 @@ export class Level03 extends Level {
     } else {
       const cp = this.combat.root.position;
       const bp = this.boss.root.position;
-      let dist, height, bias;
-      if (this.lockOn) {
-        dist = 6.4; height = 3.5; bias = 0.32;
+      let dist, height, fx, fz, fy;
+      if (this.camMode === 'follow') {
+        // over Kai's back, looking a couple of metres ahead of him: his left is the screen's left
+        dist = 7.4; height = 2.8;
+        fx = cp.x + Math.sin(this.camYaw) * 2.2;
+        fz = cp.z + Math.cos(this.camYaw) * 2.2;
+        fy = cp.y;
       } else {
-        dist = this.orbitDist * Math.cos(this.orbitPitch);
-        height = this.orbitDist * Math.sin(this.orbitPitch) + 1;
-        bias = 0.5; // orbit around the midpoint so both fighters stay in frame
+        let bias;
+        if (this.lockOn) {
+          dist = 6.4; height = 3.5; bias = 0.32;
+        } else {
+          dist = this.orbitDist * Math.cos(this.orbitPitch);
+          height = this.orbitDist * Math.sin(this.orbitPitch) + 1;
+          bias = 0.5; // orbit around the midpoint so both fighters stay in frame
+        }
+        // lead toward the Handler, but never so far that the camera ends up in front of Kai
+        const sep = Math.hypot(bp.x - cp.x, bp.z - cp.z);
+        const lead = this.lockOn ? Math.min(sep * bias, 3) : sep * bias;
+        const k = sep > 0.001 ? lead / sep : 0;
+        fx = cp.x + (bp.x - cp.x) * k;
+        fz = cp.z + (bp.z - cp.z) * k;
+        fy = (cp.y + bp.y) / 2;
       }
-      const fx = cp.x + (bp.x - cp.x) * bias;
-      const fz = cp.z + (bp.z - cp.z) * bias;
       // slowed with the game during hit-stop, so impacts freeze the camera too
       const gameDt = dt * Math.max(this.state.timeScale, 0.05);
-      this._tmp.set(fx - Math.sin(this.camYaw) * dist, height, fz - Math.cos(this.camYaw) * dist);
+      this._tmp.set(fx - Math.sin(this.camYaw) * dist, height + fy, fz - Math.cos(this.camYaw) * dist);
       cam.position.lerp(this._tmp, 1 - Math.exp(-15 * gameDt));
-      this._tmp.set(fx, 1.4, fz);
+      this._tmp.set(fx, 1.4 + fy, fz);
       this._camLook.lerp(this._tmp, 1 - Math.exp(-10 * gameDt));
       if (Math.abs(cam.fov - FIGHT_FOV) > 0.01) {
         cam.fov += (FIGHT_FOV - cam.fov) * (1 - Math.exp(-6 * dt));
@@ -741,6 +876,12 @@ export class Level03 extends Level {
     if (this.hud) this.hud.dispose();
     if (this.story) this.story.dispose();
     if (this.letters) this.letters.dispose();
+    if (this.gifts) this.gifts.dispose();
+    if (this.state && this._baseMaxHealth) {
+      // Vitality is re-applied from state.awards on the next init; other levels see the normal max
+      this.state.maxHealth = this._baseMaxHealth;
+      this.state.health = Math.min(this.state.health, this.state.maxHealth);
+    }
     if (this.arena) this.arena.dispose();
     if (this.state) this.state.timeScale = 1;
     if (this.game) {

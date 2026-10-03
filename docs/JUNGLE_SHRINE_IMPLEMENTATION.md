@@ -155,6 +155,8 @@ The road climbs onto **`props/bridge.glb`** (×1–1.5) across a gorge (`cliff-r
 > - **Phase III dusk** swings the sun west, so the columns throw long shadows across the court instead of the gate wall blacking it out.
 > - **Letters:** `l3-1` sits in the courtyard from the start, `l3-2` falls out of the Handler's coat at the reveal, and `l3-3` appears on the path at dusk. All nine collected gives the true-ending phone message and end card.
 > - **Restarts (R)** skip the intro. Space, Enter or a click skips any cutscene.
+> - **The jungle is playable.** Kai can leave the courtyard (up to 34 m out) and the Handler follows. Trees, statues, walls and cliff rocks are solid, and anything blocking the camera shrinks out of the way. Three shrines (`level3/Awards.js`) each give one gift, stored in `state.awards`, so a gift survives restarts and is never given twice. **Vitality** adds 40 max health and lengthens the life bar. **Strategy** calls out the Handler's next attack and widens the parry window ×1.5. **Power** makes hits do ×1.4 damage, with sparks and glowing fists.
+> - **UI theme** is in `ui/theme.js`: stone plaques, gold trim and a serif for titles, shared by the HUD, story overlay and touch controls. The end screens (DEFEATED, the epilogue card) have clickable TRY AGAIN / PLAY AGAIN buttons, so touch players can restart without an R key.
 
 ### Arena (radius ~13 m, same footprint as now, so combat camera maths doesn't change)
 | Element | Asset | Placement (from `themes.js → shrine`) |

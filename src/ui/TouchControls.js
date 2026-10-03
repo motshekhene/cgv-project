@@ -35,18 +35,18 @@ const CSS = THEME_CSS + `
 .tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:rgba(111,227,255,.65); color:var(--key); }
 .tc-key.on, .tc-key:active { background:radial-gradient(circle at 35% 30%, #e6fbff, var(--key) 60%, #2a8fae); color:#062430; }
 
-/* the one lock indicator: lives in the HUD grid's right-hand column */
-.tc-view { position:absolute; top:14px; right:14px; width:min(200px, calc(50vw - 300px)); min-width:150px; pointer-events:auto; cursor:pointer;
-  display:flex; align-items:center; gap:10px; padding:7px 12px 8px; text-align:left; color:var(--ink); font-family:var(--sans); }
-.tc-view:hover { border-color:var(--gold); }
-.tc-view i { font-style:normal; font-size:20px; line-height:1; color:var(--gold); width:22px; text-align:center; }
-.tc-view b { display:block; font-size:12px; letter-spacing:.24em; }
-.tc-view small { display:block; font-size:9px; font-weight:600; letter-spacing:.14em; color:var(--ink-dim); margin-top:2px; }
-.tc.orbit .tc-view { border-color:rgba(111,227,255,.6); }
-.tc.orbit .tc-view i { color:var(--key); }
-@media (max-width: 760px) { .tc-view { width:150px; min-width:0; } }
+/* the lock indicator: one round icon in the HUD grid's right-hand column */
+.tc-view { position:absolute; top:12px; right:12px; width:38px; height:38px; padding:0; border-radius:50%; pointer-events:auto; cursor:pointer;
+  display:grid; place-items:center; border:1px solid var(--line); background:radial-gradient(circle at 35% 30%, rgba(60,66,44,.85), rgba(13,17,11,.85));
+  box-shadow:0 4px 12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08); color:var(--gold); transition:border-color .2s, box-shadow .2s, color .2s; }
+.tc-view:hover { border-color:var(--gold); box-shadow:0 0 14px rgba(227,187,98,.4); }
+.tc-view i { font-style:normal; font-size:20px; line-height:1; }
+.tc.orbit .tc-view { color:var(--key); border-color:rgba(111,227,255,.6); }
 
-.tc-arrow { position:absolute; top:max(24%, 150px); bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
+/* phones in landscape: shrink the pad and buttons toward their corners */
+@media (max-height: 500px) { .tc-joy, .tc-btn { zoom:.7; } }
+
+.tc-arrow { position:absolute; top:max(24%, 120px); bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
   font-size:24px; color:var(--gold); cursor:pointer; text-shadow:0 1px 2px #000; }
 .tc-arrow.l { left:0; background:linear-gradient(90deg, rgba(13,17,11,.6), transparent); border-radius:0 40px 40px 0; }
 .tc-arrow.r { right:0; background:linear-gradient(270deg, rgba(13,17,11,.6), transparent); border-radius:40px 0 0 40px; }
@@ -76,7 +76,7 @@ export class TouchControls {
     this.el.innerHTML = `
       <div class="tc-arrow l">&#9664;</div>
       <div class="tc-arrow r">&#9654;</div>
-      <button class="tc-view plaque"><i></i><span><b></b><small></small></span></button>
+      <button class="tc-view"><i></i></button>
       <div class="tc-joy"><div class="tc-knob"></div></div>
       <div class="tc-btn tc-atk" data-a="attack">PUNCH<small>ENTER</small></div>
       <div class="tc-btn tc-kick" data-a="kick">KICK<small>K</small></div>
@@ -208,9 +208,20 @@ export class TouchControls {
     this.orbitEnabled = on;
     this.el.classList.toggle('orbit', on);
     this.viewBtn.querySelector('i').textContent = on ? '⟲' : '◎';
-    this.viewBtn.querySelector('b').textContent = on ? 'FREE VIEW' : 'LOCK-ON';
-    this.viewBtn.querySelector('small').textContent = on ? 'DRAG · WHEEL · TAB' : 'TAB TO SWITCH VIEW';
+    this.viewBtn.title = on ? 'Free view — drag to look around (Tab to lock on)' : 'Lock-on camera (Tab for free view)';
     if (!on) this.strip = 0;
+  }
+
+  /** Camera-mode icon on the corner button; drag/arrows/wheel only drive the camera in 360° view. */
+  setMode(mode) {
+    this.setOrbitEnabled(mode === 'orbit');
+    const [icon, title] = {
+      follow: ['➤', 'Follow camera — left/right turn Kai and the view (Tab: lock-on)'],
+      lock: ['◎', 'Lock-on camera — stays on the Handler (Tab: 360° view)'],
+      orbit: ['↻', '360° view — drag to look around (Tab: follow)'],
+    }[mode] || ['◎', ''];
+    this.viewBtn.querySelector('i').textContent = icon;
+    this.viewBtn.title = title;
   }
 
   /** Hide every widget during cutscenes (and let go of anything held). */

@@ -43,6 +43,13 @@ const CSS = THEME_CSS + END_CSS + `
 .so-note b { display:block; font-size:10px; letter-spacing:.14em; color:#8fa0b3; margin-bottom:3px; }
 .so-note span { font-size:13px; color:#e9edf2; line-height:1.35; }
 .so-note.red span { color:#ff8a7a; }
+.so-award { position:absolute; left:50%; top:max(22%, 110px); display:flex; align-items:center; gap:14px; padding:10px 22px 11px 14px;
+  transform:translate(-50%, -10px) scale(.96); opacity:0; transition:opacity .4s ease, transform .4s cubic-bezier(.2,.9,.3,1.3); }
+.so-award.show { opacity:1; transform:translate(-50%, 0) scale(1); }
+.so-award i { font-style:normal; font-size:30px; line-height:1; color:var(--c); text-shadow:0 0 14px var(--c); width:34px; text-align:center; }
+.so-award small { display:block; font-size:9px; font-weight:600; letter-spacing:.32em; color:var(--ink-dim); }
+.so-award b { display:block; font-family:var(--serif); font-size:20px; letter-spacing:.22em; color:var(--c); margin:1px 0 2px; }
+.so-award span { display:block; font-size:12px; color:var(--ink); letter-spacing:.04em; }
 @keyframes soTrack { from { opacity:0; letter-spacing:.9em; text-indent:.9em; filter:blur(6px); } to { opacity:1; } }
 @keyframes soLine { to { transform:scaleX(1); } }
 @keyframes soUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
@@ -61,6 +68,7 @@ export class StoryOverlay {
       <div class="so-card"><h2></h2><hr><p></p></div>
       <div class="so-skip">SPACE / CLICK TO SKIP &#9656;</div>
       <div class="so-letter"><small></small><q></q></div>
+      <div class="so-award plaque"><i></i><div><small>SHRINE GIFT · ONCE ONLY</small><b></b><span></span></div></div>
       <div class="so-phone"><div class="so-ph-time"></div><div class="so-ph-date"></div><div class="so-ph-list"></div></div>
       <div class="end"></div>`;
     host.appendChild(this.el);
@@ -69,6 +77,7 @@ export class StoryOverlay {
     this.card = q('.so-card');
     this.skipEl = q('.so-skip');
     this.letterEl = q('.so-letter');
+    this.awardEl = q('.so-award');
     this.phone = q('.so-phone');
     this.end = q('.end');
     this._timers = [];
@@ -105,6 +114,17 @@ export class StoryOverlay {
     this.letterEl.classList.add('show');
     clearTimeout(this._letterTimer);
     this._letterTimer = setTimeout(() => this.letterEl.classList.remove('show'), seconds * 1000);
+  }
+
+  /** A forest shrine's gift: icon, name, what it does. */
+  showAward(icon, title, desc, color, seconds = 4) {
+    this.awardEl.style.setProperty('--c', color);
+    this.awardEl.querySelector('i').textContent = icon;
+    this.awardEl.querySelector('b').textContent = title;
+    this.awardEl.querySelector('span').textContent = desc;
+    this.awardEl.classList.add('show');
+    clearTimeout(this._awardTimer);
+    this._awardTimer = setTimeout(() => this.awardEl.classList.remove('show'), seconds * 1000);
   }
 
   hideLetter() {
@@ -149,6 +169,7 @@ export class StoryOverlay {
   dispose() {
     for (const t of this._timers) clearTimeout(t);
     clearTimeout(this._letterTimer);
+    clearTimeout(this._awardTimer);
     this.el.remove();
     this.style.remove();
   }

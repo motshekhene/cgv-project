@@ -16,11 +16,13 @@ export const THEME_CSS = `
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
   --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
-.plaque { position:relative; background:linear-gradient(180deg, var(--stone-hi), var(--stone)); border:1px solid var(--line);
+/* give .plaque elements a position yourself (relative/absolute): the theme sheet is injected by several
+   components, so a position set here would override theirs depending on injection order */
+.plaque { background:linear-gradient(180deg, var(--stone-hi), var(--stone)); border:1px solid var(--line);
   border-radius:3px; box-shadow:0 4px 14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07); backdrop-filter:blur(3px); }
-.plaque::before, .plaque::after { content:''; position:absolute; top:50%; width:7px; height:7px; margin-top:-4px;
+.plaque::before, .plaque::after { content:''; position:absolute; top:50%; width:6px; height:6px; margin-top:-3px;
   background:var(--gold); transform:rotate(45deg); box-shadow:0 0 6px rgba(227,187,98,.6); }
-.plaque::before { left:-4px; } .plaque::after { right:-4px; }
+.plaque::before { left:-3px; } .plaque::after { right:-3px; }
 `;
 
 /** Full-screen end card: DEFEATED / VICTORY / the epilogue's last word. */

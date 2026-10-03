@@ -15,7 +15,10 @@ import { createLightShaft } from '../../shaders/lightshaft.js';
  * behind it the waterfall cliff and the pool Kai wakes up in. Jungle all round.
  *
  * Owns its lights, sky and fog. Knows nothing about the fight: Level03 calls
- * update() each frame and setDuskTarget(1) when phase III starts.
+ * update() each frame, setFocus() so the sun's shadow box follows the fight,
+ * setDuskTarget(1) when phase III starts, and collide()/fighterY() to keep
+ * both fighters on the ground and out of trees, statues and walls when the
+ * fight spills out of the courtyard into the jungle.
  *
  * Budget notes (measured on an Intel UHD 620 at 720p): every light is paid
  * for on every pixel, even at intensity 0, so the torches are emissive flames
@@ -29,6 +32,14 @@ export const POOL = { x: -7, z: -28, r: 11, y: -0.18 };
 const FALL = { x: -7, z: -33.5, w: 7, h: 19 };
 const WALL_Z = -17.2;
 const GATE_S = RU * 1.6;
+export const WALK_R = 34; // how far into the jungle Kai (and the Handler after him) can go
+
+/** Clearings in the jungle ring where the shrine gifts stand (level3/Awards.js). */
+export const GIFT_SPOTS = {
+  vitality: new THREE.Vector3(-25.5, 0, 9.5),
+  strategy: new THREE.Vector3(25, 0, 10.5),
+  power: new THREE.Vector3(-2.5, 0, 27.5),
+};
 
 const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -60,6 +71,12 @@ export class ShrineArena {
     this.dot = dotTexture();
     this._c = new THREE.Color();
     this.bursts = [];
+    this.obstacles = []; // { x, z, r } circles: trunks, columns, statues, cliff rocks, altars
+    this.occluders = []; // instanced trees/bushes that shrink out of the camera's way
+    this.walls = [ // the gate wall line, open under the arch
+      { ax: -22.4, bx: -5.1, z: WALL_Z - 0.25, r: 0.5 },
+      { ax: -0.9, bx: 13.2, z: WALL_Z - 0.25, r: 0.5 },
+    ];
 
     /** Story beats need to know where things are. */
     this.anchors = {
@@ -152,6 +169,7 @@ export class ShrineArena {
       const x = Math.cos(a) * 13.6, z = Math.sin(a) * 13.6;
       const broken = k % 3 === 1;
       add(broken ? colShort : col, x, 0, z, { s: RU * (broken ? 1.25 : 1.1), rz: k === 4 ? 0.14 : 0, rx: k === 8 ? -0.1 : 0 });
+      this.obstacles.push({ x, z, r: 0.6 });
       if (!broken && k !== 4 && k !== 8) this.torchSpots.push(a);
     }
 
@@ -162,6 +180,8 @@ export class ShrineArena {
     }
     add(stag, -8.6, 0, -14.2, { s: RU * 0.85, ry: 0.35 });
     add(fox, 3.2, 0, -14.4, { s: RU * 1.1, ry: -0.4 });
+    this.obstacles.push({ x: -8.6, z: -14.2, r: 1.5 }, { x: 3.2, z: -14.4, r: 1.5 });
+    this.templates = { pedestal: colShort };
     // paved path from the courtyard edge, under the arch, to the pool's rim
     if (floor) scatter(this.root, floor, [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z, s: RU, ry: i * Math.PI / 2 })));
     add(pot, 8.9, 0, -9.9, { s: RU });
@@ -175,7 +195,10 @@ export class ShrineArena {
     for (const [x, y, z, s, ry, src] of [
       [-24, -2, -42, 0.13, 0.4, rock1], [-4, -3, -46, 0.16, 2.1, rock2], [16, -2, -40, 0.12, 1.2, rock1],
       [-38, -2, -32, 0.1, 0.9, rock2], [30, -2, -32, 0.1, 2.7, rock2],
-    ]) add(src, x, y, z, { s, ry });
+    ]) {
+      add(src, x, y, z, { s, ry });
+      this.obstacles.push({ x, z, r: 0.8 * s * (src === rock1 ? 130 : 102) });
+    }
     this._buildWater();
 
     // ---- jungle ring (instanced: one draw call per model, not per tree)
@@ -186,13 +209,24 @@ export class ShrineArena {
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
       if (z < -22 && Math.abs(x - FALL.x) < 10) continue; // keep the waterfall in view
       if (Math.hypot(x - POOL.x, z - POOL.z) < POOL.r + 1) continue;
+      if (Object.values(GIFT_SPOTS).some((g) => Math.hypot(x - g.x, z - g.z) < 5)) continue; // shrine clearings
       const t = Math.floor(r() * treeSrc.length);
       const s = (t === 4 ? 0.03 : 0.028) * (0.8 + r() * 0.6);
       treeSpots[t].push({ x, y: this.groundHeight(x, z) - 0.15, z, s, ry: r() * 6.28 });
+      if (d < WALK_R + 1) this.obstacles.push({ x, z, r: 0.55 });
     }
-    treeSrc.forEach((src, t) => src && scatter(this.root, src, treeSpots[t]));
+    treeSrc.forEach((src, t) => src && this._occluder(scatter(this.root, src, treeSpots[t]), treeSpots[t], () => 1.9));
 
     const bushSpots = [[], []];
+    const ringSpots = [[], []];
+    // a thick ring of undergrowth marks how far into the jungle the fight can go (no shadows: it's all edge)
+    for (let k = 0; k < 70; k++) {
+      const a = (k / 70) * Math.PI * 2 + r() * 0.06, d = WALK_R + 1.2 + r() * 2.5;
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (z < -17 && x > -24 && x < 15) continue; // behind the shrine: the cliffs close it off
+      const big = r() < 0.6;
+      ringSpots[big ? 1 : 0].push({ x, y: this.groundHeight(x, z) - 0.1, z, s: (big ? RU * 1.3 : 0.02) * (0.9 + r() * 0.5), ry: r() * 6.28 });
+    }
     for (let k = 0; k < 44; k++) {
       const a = r() * Math.PI * 2, d = 14.6 + r() * 6;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
@@ -200,8 +234,10 @@ export class ShrineArena {
       const big = r() < 0.5;
       bushSpots[big ? 1 : 0].push({ x, y: this.groundHeight(x, z) - 0.1, z, s: (big ? RU : 0.016) * (0.8 + r() * 0.7), ry: r() * 6.28 });
     }
-    if (bush) scatter(this.root, bush, bushSpots[0], { shadow: true });
-    if (bushL) scatter(this.root, bushL, bushSpots[1], { shadow: true });
+    if (bush) this._occluder(scatter(this.root, bush, bushSpots[0], { shadow: true }), bushSpots[0], (sp) => sp.s * 54 + 0.3);
+    if (bushL) this._occluder(scatter(this.root, bushL, bushSpots[1], { shadow: true }), bushSpots[1], (sp) => sp.s * 100 + 0.3);
+    if (bush) this._occluder(scatter(this.root, bush, ringSpots[0]), ringSpots[0], (sp) => sp.s * 54 + 0.3);
+    if (bushL) this._occluder(scatter(this.root, bushL, ringSpots[1]), ringSpots[1], (sp) => sp.s * 100 + 0.3);
 
     const grassSpots = [[], []];
     for (let k = 0; k < 560; k++) {
@@ -402,22 +438,108 @@ export class ShrineArena {
   /* ------------------------------------------------------------ runtime */
 
   /** A ring of dust kicked up at (x, z), e.g. where the Handler lands. */
-  burst(x, z, { count = 46, color = 0xcbb894, speed = 4.2, size = 0.5 } = {}) {
+  burst(x, z, { count = 46, color = 0xcbb894, speed = 4.2, size = 0.5, y = 0.15, lift = 1.6, additive = false } = {}) {
     const pos = new Float32Array(count * 3);
     const vel = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.3;
       const v = speed * (0.6 + Math.random() * 0.6);
-      pos.set([x, 0.15 + Math.random() * 0.3, z], i * 3);
-      vel.set([Math.cos(a) * v, 0.6 + Math.random() * 1.6, Math.sin(a) * v], i * 3);
+      pos.set([x, y + Math.random() * 0.3, z], i * 3);
+      vel.set([Math.cos(a) * v, 0.6 + Math.random() * lift, Math.sin(a) * v], i * 3);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const pts = new THREE.Points(g, new THREE.PointsMaterial({
       map: this.dot, size, color, transparent: true, opacity: 0.8, depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     }));
     this.root.add(pts);
-    this.bursts.push({ pts, vel, life: 1.1, max: 1.1 });
+    this.bursts.push({ pts, vel, life: 1.1, max: 1.1, size });
+  }
+
+  /** Keep the sun's shadow box over the fight (snapped, so static shadows don't crawl). */
+  setFocus(x, z) {
+    const sx = Math.round(x / 4) * 4, sz = Math.round(z / 4) * 4 - 3;
+    const t = this.sun.target.position;
+    if (t.x === sx && t.z === sz) return;
+    t.set(sx, 0, sz);
+    this.sun.position.copy(this.sky.material.uniforms.uSunDir.value).multiplyScalar(60).add(t);
+  }
+
+  _occluder(group, spots, radius) {
+    const meshes = group.children.filter((m) => m.isInstancedMesh);
+    if (!meshes.length) return;
+    this.occluders.push({
+      meshes, spots, radius: spots.map(radius),
+      base: meshes.map((m) => m.instanceMatrix.array.slice()),
+      k: new Float32Array(spots.length).fill(1),
+    });
+  }
+
+  /**
+   * Camera cut-away: any tree or bush standing between the camera and what it
+   * looks at shrinks away (and grows back once the camera has passed), so the
+   * fight stays visible when it spills into the jungle. Only the 3x3 part of
+   * each instance matrix is scaled, so it shrinks about its own root.
+   */
+  updateOcclusion(dt, from, to) {
+    const ax = from.x, az = from.z;
+    const dx = to.x - ax, dz = to.z - az;
+    const len2 = dx * dx + dz * dz || 1e-6;
+    const len = Math.sqrt(len2);
+    for (const o of this.occluders) {
+      let dirty = false;
+      for (let i = 0; i < o.spots.length; i++) {
+        const sp = o.spots[i];
+        const t = Math.min(1, Math.max(0, ((sp.x - ax) * dx + (sp.z - az) * dz) / len2));
+        const px = ax + dx * t - sp.x, pz = az + dz * t - sp.z;
+        const blocks = px * px + pz * pz < o.radius[i] * o.radius[i] && (1 - t) * len > 0.8;
+        const k = o.k[i];
+        const nk = blocks ? Math.max(0.0001, k - dt * 6) : Math.min(1, k + dt * 3);
+        if (nk === k) continue;
+        o.k[i] = nk;
+        dirty = true;
+        o.meshes.forEach((m, mi) => {
+          const a = m.instanceMatrix.array, b = o.base[mi], j = i * 16;
+          for (const e of [0, 1, 2, 4, 5, 6, 8, 9, 10]) a[j + e] = b[j + e] * nk;
+        });
+      }
+      if (dirty) for (const m of o.meshes) m.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Height a fighter stands at: the tiles in the courtyard, the real ground (hills, pool bed) outside. */
+  fighterY(x, z) {
+    const k = smooth(12.4, 13.6, Math.hypot(x, z));
+    return k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0;
+  }
+
+  /** Push a fighter at `pos` (radius `rad`) out of every obstacle and back inside the walkable ring. */
+  collide(pos, rad = 0.4) {
+    for (const o of this.obstacles) {
+      const dx = pos.x - o.x, dz = pos.z - o.z;
+      const min = o.r + rad;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= min * min) continue;
+      const d = Math.sqrt(d2) || 0.0001;
+      pos.x = o.x + (dx / d) * min;
+      pos.z = o.z + (dz / d) * min;
+    }
+    for (const w of this.walls) {
+      const cx = Math.min(w.bx, Math.max(w.ax, pos.x));
+      const dx = pos.x - cx, dz = pos.z - w.z;
+      const min = w.r + rad;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= min * min) continue;
+      const d = Math.sqrt(d2) || 0.0001;
+      pos.x = cx + (dx / d) * min;
+      pos.z = w.z + (d2 > 1e-8 ? dz / d : 1) * min;
+    }
+    const r = Math.hypot(pos.x, pos.z);
+    if (r > WALK_R) {
+      pos.x *= WALK_R / r;
+      pos.z *= WALK_R / r;
+    }
   }
 
   _updateBursts(dt) {
@@ -434,7 +556,7 @@ export class ShrineArena {
       }
       p.needsUpdate = true;
       b.pts.material.opacity = 0.8 * Math.max(0, b.life / b.max);
-      b.pts.material.size = 0.5 + (1 - b.life / b.max) * 0.9;
+      b.pts.material.size = b.size * (1 + (1 - b.life / b.max) * 1.8);
       if (b.life <= 0) {
         this.root.remove(b.pts);
         b.pts.geometry.dispose();

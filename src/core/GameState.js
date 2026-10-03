@@ -29,6 +29,7 @@ export class GameState {
     this.distance = 0; // metres travelled in the current level
     this.bestDistance = 0;
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.awards = []; // one-time shrine gifts collected in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 
     this.handlerState = 'IDLE';
@@ -70,6 +71,12 @@ export class GameState {
   collectLetter(id) {
     if (this.letters.includes(id)) return false;
     this.letters.push(id);
+    return true;
+  }
+
+  collectAward(id) {
+    if (this.awards.includes(id)) return false;
+    this.awards.push(id);
     return true;
   }
 

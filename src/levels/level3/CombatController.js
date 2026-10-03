@@ -9,6 +9,12 @@ import { Fighter } from './Fighter.js';
  * both fighters exist, and it resolves who hits whom. Health and stamina live
  * in the shared GameState (state.health / state.stamina), not here.
  *
+ * Two ways to steer (Level03 picks with the `steer` flag):
+ *   steer: true   rotational. left/right turn Kai on the spot (the follow camera
+ *                 turns with him), forward/back walk along his facing. A swing
+ *                 snaps onto the target if it's roughly in front of him.
+ *   steer: false  relative to the camera (lock-on strafing, 360° view).
+ *
  * Controls (shared Input actions): forward/back/left/right move, attack =
  * ATTACK = punch chain, KICK = kick chain; dodge = roll; block (hold) / parry (tap just
  * before impact); ability = the Key slow-mo; lockOn toggles camera + strafing.
@@ -28,6 +34,8 @@ const MOVES = {
 };
 const PARRY_WINDOW = 0.28;
 const ARENA_LIMIT = 12.6;
+const TURN_SPEED = 2.8; // rad/s while steering: a quarter turn in ~0.55 s
+const AIM_ASSIST = 1.1; // rad: how far off-centre a swing will still snap onto the target
 
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -71,6 +79,11 @@ export class CombatController {
     this.attackDamage = 0;
     this.attackRange = 2.7;
 
+    // tunables the level can change (forest gifts, a bigger walkable area)
+    this.damageMul = 1;
+    this.parryWindow = PARRY_WINDOW;
+    this.arenaLimit = ARENA_LIMIT;
+
     this.abilityCD = 0;
     this.abilityT = 0;
     this.abilityActive = false;
@@ -85,10 +98,10 @@ export class CombatController {
   }
 
   parryReady() {
-    return this.blocking && this.blockAge <= PARRY_WINDOW;
+    return this.blocking && this.blockAge <= this.parryWindow;
   }
 
-  update(dt, input, state, { camYaw, lockOn, targetPos }) {
+  update(dt, input, state, { camYaw, lockOn, targetPos, steer = false }) {
     const f = this.fighter;
     if (this.dead) {
       f.update(dt);
@@ -97,14 +110,24 @@ export class CombatController {
 
     state.regenStamina(this.blocking || this.attacking ? 4 : 16, dt);
 
-    // ---- move basis relative to the camera ----
-    this._fwd.set(Math.sin(camYaw), 0, Math.cos(camYaw));
-    this._right.set(-Math.cos(camYaw), 0, Math.sin(camYaw));
     const ix = input.axis('left', 'right');
     const iz = input.axis('back', 'forward');
-    this._move.set(0, 0, 0).addScaledVector(this._fwd, iz).addScaledVector(this._right, ix);
+    if (steer) {
+      // ---- rotational: left/right turn the whole body, forward/back walk along it ----
+      if (!this.dodging && !this.attacking) this.heading -= ix * TURN_SPEED * (this.blocking ? 0.6 : 1) * dt;
+      this._fwd.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+      this._right.set(-Math.cos(this.heading), 0, Math.sin(this.heading));
+      this._move.copy(this._fwd).multiplyScalar(Math.abs(iz) > 0.05 ? Math.sign(iz) : 0);
+    } else {
+      // ---- move basis relative to the camera ----
+      this._fwd.set(Math.sin(camYaw), 0, Math.cos(camYaw));
+      this._right.set(-Math.cos(camYaw), 0, Math.sin(camYaw));
+      this._move.set(0, 0, 0).addScaledVector(this._fwd, iz).addScaledVector(this._right, ix);
+    }
     const moving = this._move.lengthSq() > 0.0001;
     if (moving) this._move.normalize();
+    const backing = steer && iz < -0.05;
+    const turning = steer && Math.abs(ix) > 0.05;
 
     // ---- block / parry ----
     const recovering = this.attacking && this.attackT >= this.attackDef.windup + this.attackDef.active;
@@ -125,7 +148,10 @@ export class CombatController {
       this.dodging = true;
       this.dodgeT = this.dodgeDuration;
       this.dodgeCD = this.dodgeDuration + 0.25;
-      this.dodgeDir.copy(moving ? this._move : this._fwd);
+      // steering: a dodge while turning sidesteps that way
+      if (moving) this.dodgeDir.copy(this._move);
+      else if (turning) this.dodgeDir.copy(this._right).multiplyScalar(Math.sign(ix));
+      else this.dodgeDir.copy(this._fwd);
       f.roll(this.dodgeDuration);
     }
     if (this.dodging) {
@@ -140,8 +166,12 @@ export class CombatController {
       if (this.comboWindow <= 0) this.combo.attack = this.combo.kick = 0;
     }
     const pressed = input.pressed('kick') ? 'kick' : input.pressed('attack') ? 'attack' : null;
+    const start = (kind) => {
+      if (steer) this._aimAt(targetPos);
+      this._startAttack(state, kind);
+    };
     if (pressed && !this.dodging && !this.blocking) {
-      if (!this.attacking) this._startAttack(state, pressed);
+      if (!this.attacking) start(pressed);
       else if (this.attackT > this.attackDef.total * 0.2) this.queued = pressed;
     }
     if (this.attacking) {
@@ -160,31 +190,33 @@ export class CombatController {
         if (this.queued) {
           const next = this.queued;
           this.queued = null;
-          this._startAttack(state, next);
+          start(next);
         }
       }
     }
 
     // ---- walking ----
     if (moving && !this.dodging && !this.attacking) {
-      const speed = this.moveSpeed * (this.blocking ? 0.45 : 1);
+      const speed = this.moveSpeed * (this.blocking ? 0.45 : 1) * (backing ? 0.55 : 1);
       this.root.position.addScaledVector(this._move, speed * dt);
     }
 
-    // ---- facing ----
-    let wantHeading = this.heading;
-    if (lockOn && targetPos && !this.dodging) {
-      wantHeading = Math.atan2(targetPos.x - this.root.position.x, targetPos.z - this.root.position.z);
-    } else if (moving && !this.attacking) {
-      wantHeading = Math.atan2(this._move.x, this._move.z);
+    // ---- facing (steering already turned him directly) ----
+    if (!steer) {
+      let wantHeading = this.heading;
+      if (lockOn && targetPos && !this.dodging) {
+        wantHeading = Math.atan2(targetPos.x - this.root.position.x, targetPos.z - this.root.position.z);
+      } else if (moving && !this.attacking) {
+        wantHeading = Math.atan2(this._move.x, this._move.z);
+      }
+      this.heading += shortestAngle(this.heading, wantHeading) * (1 - Math.exp(-16 * dt));
     }
-    this.heading += shortestAngle(this.heading, wantHeading) * (1 - Math.exp(-16 * dt));
     this.root.rotation.y = this.heading;
 
     // ---- keep inside the platform ----
     const r = Math.hypot(this.root.position.x, this.root.position.z);
-    if (r > ARENA_LIMIT) {
-      const k = ARENA_LIMIT / r;
+    if (r > this.arenaLimit) {
+      const k = this.arenaLimit / r;
       this.root.position.x *= k;
       this.root.position.z *= k;
     }
@@ -215,10 +247,21 @@ export class CombatController {
     }
     if (!this.attacking) {
       if (this.dodging) f.play('run', { speed: 1.6 });
+      else if (backing) f.play('walk', { speed: -0.9 }); // back-step: the walk cycle reversed
       else if (moving) f.play('run', { speed: this.blocking ? 0.6 : 1 });
+      else if (turning) f.play('walk', { speed: 0.7 }); // stepping round on the spot
       else f.play('idle');
     }
     f.update(dt);
+  }
+
+  /** Steering aim-assist: snap onto the target if it's close and roughly ahead. */
+  _aimAt(target) {
+    if (!target) return;
+    const dx = target.x - this.root.position.x, dz = target.z - this.root.position.z;
+    if (Math.hypot(dx, dz) > this.attackRange + 2) return;
+    const d = shortestAngle(this.heading, Math.atan2(dx, dz));
+    if (Math.abs(d) < AIM_ASSIST) this.heading += d;
   }
 
   _startAttack(state, kind) {
@@ -228,7 +271,7 @@ export class CombatController {
     this.attackDef = a;
     this.attackT = 0;
     this._hitConsumed = false;
-    this.attackDamage = a.damage;
+    this.attackDamage = a.damage * this.damageMul;
     this.combo[kind] = (this.combo[kind] + 1) % chain.length;
     // switching between punches and kicks restarts the other chain
     this.combo[kind === 'kick' ? 'attack' : 'kick'] = 0;
