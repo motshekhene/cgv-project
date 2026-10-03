@@ -3,6 +3,8 @@ export const CARS = [
   { id: 'hatchback-sports', name: 'Sports Hatch', path: 'level2/cars/hatchback-sports.glb' },
   { id: 'race', name: 'GT Racer', path: 'level2/cars/race.glb' },
   { id: 'race-future', name: 'Future Racer', path: 'level2/cars/race-future.glb' },
+  // "CAR Model" by Ignition Labs, CC BY 3.0 — see public/assets/level2/CREDITS.md
+  { id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb' },
 ];
 
 export const HANDLER_MODEL = 'level2/handler-car.glb';

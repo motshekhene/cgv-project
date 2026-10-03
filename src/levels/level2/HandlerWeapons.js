@@ -35,8 +35,8 @@ import { LANES } from './traffic.js';
  *   onMiss(text)                              shots / dive avoided
  */
 export const HAZARD_MODELS = {
-  drone: null,   // 'level2/hazards/drone.glb'
-  spikes: null,  // 'level2/hazards/spike-strip.glb'
+  drone: 'level2/hazards/drone.glb',   // "Richie" by joney_lol, CC BY 3.0 (see CREDITS.md)
+  spikes: null,                        // 'level2/hazards/spike-strip.glb'
 };
 
 const RED = 0xff2a2a;
@@ -66,8 +66,13 @@ export class HandlerWeapons {
   async init() {
     if (HAZARD_MODELS.drone) {
       for (const d of this.drones) {
-        const m = await attachModel(this.assets, d.body, HAZARD_MODELS.drone, { length: 1.4 });
-        if (m) d.rotors.forEach((r) => { r.visible = false; });
+        const m = await attachModel(this.assets, d.body, HAZARD_MODELS.drone, { length: 1.7 });
+        if (m) {
+          d.rotors.forEach((r) => { r.visible = false; });
+          // the model sits on y = 0 after fitting; hang it around the holder instead
+          m.position.y -= (m.userData.bounds.max.y - m.userData.bounds.min.y) / 2;
+          d.eye.position.set(0, 0.05, (m.userData.bounds.max.z) + 0.02);   // warning light on its nose
+        }
       }
     }
     if (HAZARD_MODELS.spikes) {
@@ -406,9 +411,17 @@ export class HandlerWeapons {
       want.z += car.speed;
       d.vel.lerp(want, Math.min(1, dt * (d.phase === 'dive' ? 8 : 3)));
       pos.addScaledVector(d.vel, dt);
-      d.body.rotation.x = THREE.MathUtils.clamp(d.vel.z * 0.012, -0.5, 0.5);
+      d.body.rotation.x = THREE.MathUtils.clamp((d.vel.z - car.speed) * 0.02, -0.4, 0.4);
       d.body.rotation.z = THREE.MathUtils.clamp(-d.vel.x * 0.03, -0.5, 0.5);
     }
+    // guns towards the car while hunting it; nose-first while flying off to drop spikes
+    const facePlayer = d.mode === 'kamikaze' || d.phase === 'climb';
+    const look = facePlayer
+      ? Math.atan2(p.x - pos.x, p.z - pos.z)
+      : Math.atan2(d.vel.x, d.vel.z - car.speed + 1e-3);
+    let dy = look - d.holder.rotation.y;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    d.holder.rotation.y += dy * Math.min(1, dt * 6);
 
     // eye: slow blink while cruising, fast in the hover, solid once it dives
     const rate = d.phase === 'hover' ? 2 + d.t * 6 : d.phase === 'dive' ? 0 : 1.5;

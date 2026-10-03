@@ -139,6 +139,49 @@ export class Traffic {
     return hits;
   }
 
+  /**
+   * Keeps another vehicle (the Handler) out of the traffic. Unlike the
+   * player's collisions this has no cooldown and deals no damage: it just
+   * separates the bodies every frame and shoves the traffic aside, so he
+   * can barge through a gap but never drive inside a truck.
+   *   body: { mesh, heading, halfW, halfL, speed, latVel }
+   */
+  collideBody(body) {
+    const h = body.heading, cos = Math.cos(h), sin = Math.sin(h);
+    const bx = body.mesh.position;
+    for (const v of this.pool) {
+      const dx = v.x - bx.x, dz = v.z - bx.z;
+      if (Math.abs(dz) > 12 || Math.abs(dx) > 6) continue;
+      const lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
+      const cy = Math.abs(Math.cos(v.yaw)), sy = Math.abs(Math.sin(v.yaw));
+      const tx = v.halfW * cy + v.halfL * sy, tz = v.halfL * cy + v.halfW * sy;
+      const ax = Math.abs(cos), az = Math.abs(sin);
+      const ex = tx * ax + tz * az, ez = tz * ax + tx * az;
+      const ox = body.halfW + ex - Math.abs(lx);
+      const oz = body.halfL + ez - Math.abs(lz);
+      if (ox <= 0 || oz <= 0) continue;
+
+      if (ox < oz) {
+        // side by side: split the push, the traffic gets knocked sideways
+        const side = Math.sign(lx) || 1;
+        bx.x -= side * cos * ox * 0.6;
+        bx.z += side * sin * ox * 0.6;
+        v.x += side * ox * 0.4;
+        v.vx = side * Math.max(Math.abs(v.vx), 2.5);
+        v.spin = side * 0.4;
+        body.latVel = (body.latVel || 0) * 0.3;
+      } else {
+        // nose to tail: he's pushed back out and has to slow to its speed
+        const ahead = lz >= 0;
+        bx.x -= (ahead ? 1 : -1) * sin * oz;
+        bx.z -= (ahead ? 1 : -1) * cos * oz;
+        if (ahead) body.speed = Math.min(body.speed, v.speed);
+        else v.speed = Math.max(v.speed, body.speed);
+      }
+      this._place(v);
+    }
+  }
+
   _collide(v, car, px, pz) {
     const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
     const dx = v.x - px, dz = v.z - pz;

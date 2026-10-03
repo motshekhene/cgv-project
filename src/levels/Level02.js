@@ -255,6 +255,7 @@ export class Level02 extends Level {
     this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
     this.policeLights.update(dt, handlerState);
 
+    this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
     for (const hit of this.traffic.update(dt, this.car)) {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
