@@ -101,6 +101,10 @@ const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1
  * material colour).
  */
 export function detectPaint(model) {
+  // untextured models (Quaternius etc.) name their materials: paint the body ones
+  const named = detectBodyMaterials(model);
+  if (named) return named;
+
   const bins = new Float32Array(36), vals = new Float32Array(36), hues = new Float32Array(36);
   let canvasCache = new Map();
   model.traverse((o) => {
@@ -169,6 +173,7 @@ export function detectPaint(model) {
  */
 export function applyPaint(model, color, info) {
   if (!info) return;
+  if (info.bodyMaterials) return applyMaterialPaint(model, color, info);
   const target = new THREE.Color();
   if (color !== null) target.setHex(color);   // hex is sRGB; Color stores linear
   const [h, s, v] = rgbToHsv(target.r, target.g, target.b);
@@ -187,6 +192,68 @@ export function applyPaint(model, color, info) {
       u.uSrcVal.value = info.val;
       u.uPaintHSV.value.set(h, s, Math.max(0.02, v));
     }
+  });
+}
+
+// material names that are NOT bodywork
+const NOT_BODY = /window|glass|black|grey|gray|headlight|taillight|lights|lamp|chrome|tyre|tire|wheel|rim|siren|interior|plate|material\./i;   // 'LightBlue' paint is fine
+
+/**
+ * For models without a texture: the body is the non-excluded material(s)
+ * covering the most surface. Returns { bodyMaterials: Map(name -> relative
+ * brightness) } so two-tone bodies (Orange + DarkOrange) keep their contrast.
+ */
+function detectBodyMaterials(model) {
+  let textured = false;
+  const area = new Map(), mats = new Map();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    if (list.some((m) => m.map)) textured = true;
+    const pos = o.geometry.attributes.position, index = o.geometry.index;
+    const groups = o.geometry.groups.length ? o.geometry.groups : [{ start: 0, count: index ? index.count : pos.count, materialIndex: 0 }];
+    for (const g of groups) {
+      const m = list[g.materialIndex] || list[0];
+      if (!m || NOT_BODY.test(m.name || '')) continue;
+      let sum = 0;
+      for (let k = g.start; k < g.start + g.count; k += 3) {
+        const i0 = index ? index.getX(k) : k, i1 = index ? index.getX(k + 1) : k + 1, i2 = index ? index.getX(k + 2) : k + 2;
+        a.fromBufferAttribute(pos, i0); b.fromBufferAttribute(pos, i1); c.fromBufferAttribute(pos, i2);
+        sum += b.sub(a).cross(c.sub(a)).length();
+      }
+      area.set(m.name, (area.get(m.name) || 0) + sum);
+      mats.set(m.name, m);
+    }
+  });
+  if (textured || !area.size) return null;
+  // keep every body material with at least 15% of the biggest one's area
+  const max = Math.max(...area.values());
+  const body = [...area.entries()].filter(([, v]) => v >= max * 0.15).map(([n]) => n);
+  const bright = (n) => { const col = mats.get(n).color; return Math.max(col.r, col.g, col.b); };
+  const top = Math.max(...body.map(bright), 1e-3);
+  return { bodyMaterials: new Map(body.map((n) => [n, bright(n) / top])) };
+}
+
+function applyMaterialPaint(model, color, info) {
+  const target = new THREE.Color();
+  if (color !== null) target.setHex(color);
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    const out = list.map((m) => {
+      const rel = info.bodyMaterials.get(m.userData.paintOf || m.name);
+      if (rel === undefined) return m;
+      // clone once per model instance so other copies keep their colour
+      const mine = m.userData.paintOwner === o ? m : Object.assign(m.clone(), {});
+      if (mine !== m) {
+        mine.userData = { ...m.userData, paintOwner: o, paintOf: m.name, factory: m.color.clone() };
+      }
+      if (color === null) mine.color.copy(mine.userData.factory);
+      else mine.color.copy(target).multiplyScalar(rel);   // darker tones stay darker
+      return mine;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
   });
 }
 

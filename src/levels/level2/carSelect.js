@@ -8,35 +8,37 @@ import { PAINTS } from './paint.js';
  *   strength  armour + weight: damage taken is divided by it, and a heavier
  *             car is shoved less by the Handler and by traffic
  */
+// Models: Quaternius "Cars Bundle" (CC0) + "CAR Model" by Ignition Labs (CC BY 3.0).
+// `length` is the car's real-world length in metres; everything (lights,
+// skid marks, collisions) is fitted to it. See public/assets/level2/CREDITS.md
 export const CARS = [
   {
-    id: 'sedan-sports', name: 'Sports Sedan', path: 'level2/cars/sedan-sports.glb',
+    id: 'sedan', name: 'Sedan', path: 'level2/cars/sedan.glb', length: 4.5,
     blurb: 'All-rounder', stats: { speed: 42, accel: 22, handling: 1.0, strength: 1.0 },
   },
   {
-    id: 'hatchback-sports', name: 'Sports Hatch', path: 'level2/cars/hatchback-sports.glb',
+    id: 'hatch', name: 'Hatch', path: 'level2/cars/hatch.glb', length: 3.9,
     blurb: 'Nimble and quick off the line, but light', stats: { speed: 39, accel: 27, handling: 1.25, strength: 0.8 },
   },
   {
-    id: 'race', name: 'GT Racer', path: 'level2/cars/race.glb',
-    blurb: 'Fast, planted at speed', stats: { speed: 46, accel: 21, handling: 0.9, strength: 0.9 },
+    id: 'coupe', name: 'GT Coupe', path: 'level2/cars/coupe.glb', length: 4.5,
+    blurb: 'Fast, planted at speed', stats: { speed: 46, accel: 22, handling: 0.95, strength: 0.9 },
   },
   {
-    id: 'race-future', name: 'Future Racer', path: 'level2/cars/race-future.glb',
-    blurb: 'Very fast, very fragile', stats: { speed: 48, accel: 25, handling: 0.95, strength: 0.7 },
+    id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4,
+    blurb: 'Very fast, very fragile', stats: { speed: 48, accel: 25, handling: 1.0, strength: 0.75 },
   },
-  // "CAR Model" by Ignition Labs, CC BY 3.0 — see public/assets/level2/CREDITS.md
   {
-    id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb',
+    id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb', length: 4.8,
     blurb: 'Fastest car here — one bad PIT and it is in pieces', stats: { speed: 50, accel: 24, handling: 0.9, strength: 0.65 },
   },
   {
-    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/suv.glb',
+    id: 'bruiser', name: 'Bruiser', path: 'level2/cars/suv.glb', length: 4.8,
     blurb: 'Slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
   },
 ];
 
-export const HANDLER_MODEL = 'level2/handler-car.glb';
+export const HANDLER_MODEL = 'level2/police-car.glb';   // Quaternius, CC0
 
 const KEY = 'blackout.level2.car';
 const PAINT_KEY = 'blackout.level2.paint';

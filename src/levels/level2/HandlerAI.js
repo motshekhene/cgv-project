@@ -164,7 +164,7 @@ export class HandlerAI {
   }
 
   attachModel(assets, path, options = {}) {
-    return attachVehicleModel(assets, this.mesh, path, { length: 3.8, ...options }).then((model) => {
+    return attachVehicleModel(assets, this.mesh, path, { length: 4.6, ...options }).then((model) => {
       const b = model && model.userData.bounds;
       if (b) {
         this.halfW = (b.max.x - b.min.x) / 2;

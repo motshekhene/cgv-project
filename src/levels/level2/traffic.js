@@ -19,9 +19,13 @@ export const LANES = [-9, -3, 3, 9];     // road is 24 wide, rails at ±12
 
 // weight = how often it appears; speed = m/s range; mass = how hard it hits
 // (damage multiplier) and how hard it is to shove; paint = random colours
+// cars: Quaternius Cars Bundle (CC0). Vans/trucks: still Kenney Car Kit
+// (CC0) until replacements arrive — see CREDITS.md
 const TYPES = [
-  { name: 'taxi',     path: 'level2/traffic/taxi.glb',     length: 3.8, weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
-  { name: 'suv',      path: 'level2/traffic/suv.glb',      length: 4.2, weight: 2,   speed: [13, 21], mass: 1.2, paint: true },
+  { name: 'taxi',     path: 'level2/traffic/taxi.glb',     length: 4.6, weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
+  { name: 'sedan',    path: 'level2/cars/sedan.glb',       length: 4.5, weight: 1.5, speed: [15, 23], mass: 1.0, paint: true },
+  { name: 'hatch',    path: 'level2/cars/hatch.glb',       length: 3.9, weight: 1,   speed: [14, 22], mass: 0.9, paint: true },
+  { name: 'suv',      path: 'level2/cars/suv.glb',         length: 4.8, weight: 1.5, speed: [13, 21], mass: 1.3, paint: true },
   { name: 'van',      path: 'level2/traffic/van.glb',      length: 4.6, weight: 2,   speed: [11, 18], mass: 1.5, paint: true },
   { name: 'delivery', path: 'level2/traffic/delivery.glb', length: 5.6, weight: 2,   speed: [10, 16], mass: 1.8, paint: true },
   { name: 'truck',    path: 'level2/traffic/truck.glb',    length: 5.4, weight: 2,   speed: [9, 15],  mass: 1.9, paint: true },
@@ -43,7 +47,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 export class Traffic {
   constructor(parent, assets, {
-    count = 14, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
+    count = 16, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
     minSpeed = 9, maxSpeed = 22,
   } = {}) {
     this.parent = parent;
