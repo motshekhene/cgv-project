@@ -89,10 +89,13 @@ export async function loadJungleKit(assets) {
     tree4: assets.fbx("jungle/models/nature/tree-4.fbx"),
     bush1: assets.fbx("jungle/models/nature/bush-1.fbx"),
     bush2: assets.fbx("jungle/models/nature/bush-2.fbx"),
+    bush3: assets.fbx("jungle/models/nature/bush-3.fbx"),
     grass1: assets.fbx("jungle/models/nature/grass-1.fbx"),
     grass2: assets.fbx("jungle/models/nature/grass-2.fbx"),
+    grass3: assets.fbx("jungle/models/nature/grass-3.fbx"),
     rock1: assets.fbx("jungle/models/nature/rock-1.fbx"),
     rock2: assets.fbx("jungle/models/nature/rock-2.fbx"),
+    rock3: assets.fbx("jungle/models/nature/rock-3.fbx"),
     ruinTree: assets.fbx("jungle/models/ruins/tree-1.fbx"),
     deadTree: assets.fbx("jungle/models/ruins/dead-tree-1.fbx"),
     column: assets.fbx("jungle/models/ruins/column-round.fbx"),
@@ -102,12 +105,17 @@ export async function loadJungleKit(assets) {
     gateDoor: assets.fbx("jungle/models/ruins/doors-round-arch.fbx"),
     wall: assets.fbx("jungle/models/ruins/wall-overgrown.fbx"),
     stag: assets.fbx("jungle/models/ruins/statue-stag.fbx"),
+    fox: assets.fbx("jungle/models/ruins/statue-fox.fbx"),
     trap: assets.fbx("jungle/models/ruins/bear-trap-open.fbx"),
     bridgeSection: assets.fbx("jungle/models/ruins/bridge-section.fbx"),
     logs: assets.model("jungle/models/props/logs.gltf"),
     crates: assets.model("jungle/models/props/crate-stack-big.gltf"),
     barrel: assets.model("jungle/models/props/barrel.gltf"),
     cutTrees: assets.model("jungle/models/props/tree-cluster-cut.gltf"),
+    treeSmall1: assets.model("jungle/models/props/tree-small-1.gltf"),
+    treeSmall2: assets.model("jungle/models/props/tree-small-2.gltf"),
+    treeCluster: assets.model("jungle/models/props/tree-cluster.gltf"),
+    boulderGroup: assets.model("jungle/models/props/boulder-group.gltf"),
   };
 
   const entries = await Promise.all(
@@ -129,10 +137,13 @@ export async function loadJungleKit(assets) {
     tree4: p("tree4", { castShadow: false }),
     bush1: p("bush1", { castShadow: false }),
     bush2: p("bush2", { castShadow: false }),
+    bush3: p("bush3", { castShadow: false }),
     grass1: p("grass1", { castShadow: false }),
     grass2: p("grass2", { castShadow: false }),
+    grass3: p("grass3", { castShadow: false }),
     rock1: p("rock1", { tint: { Rock: 0x7d8274 } }),
     rock2: p("rock2", { tint: { Rock: 0x737a6a } }),
+    rock3: p("rock3", { tint: { Rock: 0x697161 } }),
     ruinTree: p("ruinTree", { castShadow: false }),
     deadTree: p("deadTree", { castShadow: true }),
     column: p("column", { tint: MOSS_TINT }),
@@ -142,12 +153,17 @@ export async function loadJungleKit(assets) {
     gateDoor: p("gateDoor", { tint: MOSS_TINT }),
     wall: p("wall", { tint: MOSS_TINT }),
     stag: p("stag", { tint: { Stone: 0xa9a892 } }),
+    fox: p("fox", { tint: { Stone: 0x9b9a82 } }),
     trap: p("trap", { tint: MOSS_TINT }),
     bridgeSection: p("bridgeSection", { tint: MOSS_TINT }),
     logs: p("logs"),
     crates: p("crates"),
     barrel: p("barrel"),
     cutTrees: p("cutTrees", { castShadow: false }),
+    treeSmall1: p("treeSmall1", { castShadow: false }),
+    treeSmall2: p("treeSmall2", { castShadow: false }),
+    treeCluster: p("treeCluster", { castShadow: false }),
+    boulderGroup: p("boulderGroup", { castShadow: false }),
   };
 }
 
@@ -262,8 +278,9 @@ export function buildTrailBase(root, kit, mats, {
   // like one identical copy pasted hundreds of times.
   const chunks = [];
   const trees = [kit.tree1, kit.tree2, kit.tree3, kit.tree4, kit.ruinTree];
-  const bushes = [kit.bush1, kit.bush2];
-  const grasses = [kit.grass1, kit.grass2];
+  const bushes = [kit.bush1, kit.bush2, kit.bush3];
+  const grasses = [kit.grass1, kit.grass2, kit.grass3];
+  const rocks = [kit.rock1, kit.rock2, kit.rock3];
 
   for (let i = 0; i < 12; i++) {
     const g = new THREE.Group();
@@ -276,11 +293,11 @@ export function buildTrailBase(root, kit, mats, {
     // inside it. This matters even more on the high shrine climbs where the
     // player needs to read the crest and the Handler at the same time.
     for (const side of [-1, 1]) {
-      for (let n = 0; n < 5; n++) {
+      for (let n = 0; n < 7; n++) {
         const p = cloneProp(trees[(i + n + (side > 0 ? 1 : 0)) % trees.length]);
-        const dist = 11.8 + r() * 18.0;
+        const dist = 12.2 + r() * 20.0;
         p.position.set(side * dist, 0, -13 + r() * 26);
-        const s = 0.020 + r() * 0.010;
+        const s = 0.020 + r() * 0.012;
         p.scale.setScalar(s);
         p.rotation.y = r() * Math.PI * 2;
         g.add(p);
@@ -290,22 +307,33 @@ export function buildTrailBase(root, kit, mats, {
     // Low vegetation is pushed even farther away from the running lanes. It
     // still fills the jungle floor in peripheral vision, but never masks an
     // obstacle or the beginning of a ramp.
-    for (let n = 0; n < 8; n++) {
+    for (let n = 0; n < 12; n++) {
       const side = r() < 0.5 ? -1 : 1;
       const p = cloneProp(bushes[n % bushes.length]);
-      p.position.set(side * (10.4 + r() * 6.4), 0, -14 + r() * 28);
-      p.scale.setScalar(0.010 + r() * 0.006);
+      p.position.set(side * (10.8 + r() * 9.0), 0, -14 + r() * 28);
+      p.scale.setScalar(0.010 + r() * 0.007);
       p.rotation.y = r() * Math.PI * 2;
       g.add(p);
     }
 
-    for (let n = 0; n < 14; n++) {
+    for (let n = 0; n < 20; n++) {
       const side = r() < 0.5 ? -1 : 1;
       const p = cloneProp(grasses[n % grasses.length]);
-      p.position.set(side * (9.6 + r() * 8.0), 0, -14 + r() * 28);
-      p.scale.setScalar(0.009 + r() * 0.006);
+      p.position.set(side * (10.0 + r() * 10.0), 0, -14 + r() * 28);
+      p.scale.setScalar(0.009 + r() * 0.007);
       p.rotation.y = r() * Math.PI * 2;
       g.add(p);
+    }
+
+    // Far-background rock shelves and mossy boulders add depth without
+    // stealing obstacle visibility from the three-lane corridor.
+    for (let n = 0; n < 4; n++) {
+      const side = r() < 0.5 ? -1 : 1;
+      const rock = cloneProp(rocks[(i + n) % rocks.length]);
+      rock.position.set(side * (14.5 + r() * 14.0), -0.18, -13 + r() * 26);
+      rock.scale.setScalar(0.010 + r() * 0.009);
+      rock.rotation.y = r() * Math.PI * 2;
+      g.add(rock);
     }
 
     // Every other prefab contains a piece of the old shrine so the trail
@@ -542,6 +570,276 @@ export function buildElevatedTrail(root, kit, mats, {
 
   root.add(group);
   return group;
+}
+
+
+/**
+ * Bigger jungle silhouettes that stay well outside the play corridor.
+ * They are intentionally cheap geometry / existing props: the foreground
+ * remains readable while the background finally feels like a living valley.
+ */
+export function buildJungleBackdrop(root, kit, mats) {
+  const group = new THREE.Group();
+  group.name = "jungle-background-features";
+
+  const cliffMat = mats.stone.clone();
+  cliffMat.color.multiplyScalar(0.72);
+  cliffMat.roughness = 1;
+
+  const addCliff = (x, z, w, h, d, ry = 0) => {
+    const cliff = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cliffMat);
+    cliff.position.set(x, h * 0.5 - 0.8, z);
+    cliff.rotation.y = ry;
+    cliff.receiveShadow = true;
+    group.add(cliff);
+    return cliff;
+  };
+
+  // Layered rock walls around the dramatic temple climb. They frame the route
+  // without coming anywhere near the lane sight-line.
+  addCliff(-25, -1230, 13, 16, 30, 0.18);
+  addCliff(26, -1425, 15, 23, 42, -0.12);
+  addCliff(-27, -1650, 17, 20, 48, 0.08);
+  addCliff(24, -2260, 14, 15, 38, -0.2);
+
+  // Waterfall and pool off the right-hand side of the high shrine. The water
+  // is environmental only — it never intersects Kai's collision corridor.
+  const waterMat = new THREE.MeshStandardMaterial({
+    color: 0x8bd9d4,
+    emissive: 0x17494a,
+    emissiveIntensity: 0.42,
+    transparent: true,
+    opacity: 0.72,
+    roughness: 0.18,
+    metalness: 0.02,
+    side: THREE.DoubleSide,
+  });
+  const fall = new THREE.Mesh(new THREE.PlaneGeometry(5.4, 17.5, 1, 12), waterMat);
+  fall.position.set(18.3, 10.2, -1442);
+  fall.rotation.y = -0.12;
+  group.add(fall);
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(8.6, 32), waterMat.clone());
+  pool.material.opacity = 0.52;
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.set(18.4, 0.08, -1434);
+  group.add(pool);
+
+  // Broken temple silhouette on the opposite ridge.
+  const temple = new THREE.Group();
+  temple.position.set(-20.5, 0, -2050);
+  for (const x of [-4.8, -2.4, 0, 2.4, 4.8]) {
+    const col = cloneProp(Math.abs(x) < 0.1 ? kit.column : kit.columnShort);
+    col.scale.setScalar(Math.abs(x) < 0.1 ? 0.028 : 0.024);
+    col.position.set(x, 0, Math.abs(x) * 0.18);
+    col.rotation.z = x * 0.006;
+    temple.add(col);
+  }
+  const arch = cloneProp(kit.gateArch);
+  arch.scale.setScalar(0.032);
+  arch.position.set(0, 0, -0.6);
+  temple.add(arch);
+  group.add(temple);
+
+  // Huge exposed roots curl through the deep background, selling an old jungle
+  // that has swallowed the ruins rather than a flat forest floor with props.
+  const rootMat = new THREE.MeshStandardMaterial({ color: 0x4d3523, roughness: 1 });
+  for (const [x, z, ry, s] of [
+    [-16, -520, 0.3, 1.0],
+    [18, -1870, -0.4, 1.2],
+    [-19, -2780, 0.18, 0.95],
+  ]) {
+    const rootArch = new THREE.Mesh(new THREE.TorusGeometry(6.2 * s, 0.42 * s, 8, 28, Math.PI), rootMat);
+    rootArch.position.set(x, 0.5, z);
+    rootArch.rotation.set(0, ry, 0);
+    group.add(rootArch);
+  }
+
+  // Hanging vines around the route edges. TubeGeometry is cheap at this count
+  // and reads far better than another row of identical tree trunks.
+  const vineMat = new THREE.MeshStandardMaterial({ color: 0x315f2d, roughness: 0.95 });
+  const vineDefs = [
+    [-10.5, -420, 8.0], [12.5, -760, 10.5], [-13.0, -1110, 9.0],
+    [14.0, -1710, 12.0], [-11.5, -2190, 9.5], [13.5, -2660, 11.0],
+  ];
+  for (const [x, z, h] of vineDefs) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x, h, z),
+      new THREE.Vector3(x + 0.9, h * 0.68, z - 0.8),
+      new THREE.Vector3(x - 0.6, h * 0.34, z + 0.5),
+      new THREE.Vector3(x + 0.3, 0.7, z - 0.4),
+    ]);
+    const vine = new THREE.Mesh(new THREE.TubeGeometry(curve, 18, 0.07, 6, false), vineMat);
+    group.add(vine);
+  }
+
+  // Mossy rock gardens and animal-statue relics punctuate the background.
+  for (const [x, z, proto, scale] of [
+    [-15.5, -335, kit.rock3, 0.018], [16.5, -980, kit.rock2, 0.020],
+    [-18.0, -1810, kit.rock1, 0.022], [17.5, -2520, kit.rock3, 0.020],
+  ]) {
+    const rock = cloneProp(proto);
+    rock.position.set(x, -0.1, z);
+    rock.scale.setScalar(scale);
+    rock.rotation.y = (x > 0 ? -1 : 1) * 0.4;
+    group.add(rock);
+  }
+  for (const [x, z, ry] of [[-13.5, -940, 0.6], [14.0, -2420, -0.7]]) {
+    const fox = cloneProp(kit.fox);
+    fox.position.set(x, 0, z);
+    fox.scale.setScalar(0.0105);
+    fox.rotation.y = ry;
+    group.add(fox);
+  }
+
+  root.add(group);
+  return group;
+}
+
+function makeBird(material) {
+  const bird = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 5), material);
+  body.scale.set(0.8, 0.65, 2.1);
+  bird.add(body);
+
+  const wingGeo = new THREE.BoxGeometry(0.58, 0.035, 0.20);
+  const leftPivot = new THREE.Group();
+  const rightPivot = new THREE.Group();
+  leftPivot.position.x = -0.08;
+  rightPivot.position.x = 0.08;
+  const leftWing = new THREE.Mesh(wingGeo, material);
+  const rightWing = new THREE.Mesh(wingGeo, material);
+  leftWing.position.x = -0.30;
+  rightWing.position.x = 0.30;
+  leftPivot.add(leftWing);
+  rightPivot.add(rightWing);
+  bird.add(leftPivot, rightPivot);
+  bird.userData.leftWing = leftPivot;
+  bird.userData.rightWing = rightPivot;
+  return bird;
+}
+
+function makeMonkey(material) {
+  const monkey = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 6), material);
+  body.scale.set(0.75, 1.15, 0.62);
+  body.position.y = 0.55;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.20, 7, 6), material);
+  head.position.set(0, 0.98, -0.02);
+  monkey.add(body, head);
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.62, 6), material);
+    arm.position.set(side * 0.26, 0.56, 0);
+    arm.rotation.z = side * 0.55;
+    monkey.add(arm);
+  }
+  const tail = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 6, 16, Math.PI * 1.45), material);
+  tail.position.set(0.12, 0.48, 0.18);
+  tail.rotation.set(Math.PI / 2, 0.25, 0.4);
+  monkey.add(tail);
+  monkey.userData.head = head;
+  return monkey;
+}
+
+/**
+ * Non-colliding wildlife: flocks periodically fly from deep ahead toward Kai,
+ * butterflies hover at the vegetation edge, and monkeys watch from the ruins.
+ */
+export function createJungleWildlife(root) {
+  const group = new THREE.Group();
+  group.name = "jungle-wildlife";
+  const birdMat = new THREE.MeshStandardMaterial({ color: 0x17231d, roughness: 0.92 });
+  const butterflyMats = [
+    new THREE.MeshBasicMaterial({ color: 0xe7b95b, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0x79b9c8, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0xd58c79, side: THREE.DoubleSide }),
+  ];
+  const monkeyMat = new THREE.MeshStandardMaterial({ color: 0x4b3526, roughness: 1 });
+
+  const birds = [];
+  for (let i = 0; i < 18; i++) {
+    const bird = makeBird(birdMat);
+    bird.scale.setScalar(0.85 + (i % 4) * 0.08);
+    group.add(bird);
+    birds.push(bird);
+  }
+
+  const butterflies = [];
+  for (let i = 0; i < 14; i++) {
+    const b = new THREE.Group();
+    const wingGeo = new THREE.PlaneGeometry(0.22, 0.14);
+    const left = new THREE.Mesh(wingGeo, butterflyMats[i % butterflyMats.length]);
+    const right = new THREE.Mesh(wingGeo, butterflyMats[(i + 1) % butterflyMats.length]);
+    left.position.x = -0.11;
+    right.position.x = 0.11;
+    b.add(left, right);
+    b.userData.leftWing = left;
+    b.userData.rightWing = right;
+    group.add(b);
+    butterflies.push(b);
+  }
+
+  const monkeys = [];
+  const monkeyDefs = [
+    [-12.8, -430, 2.2], [14.5, -970, 2.8], [-15.5, -1570, 3.4],
+    [13.8, -2140, 2.5], [-14.2, -2680, 3.0], [15.0, -3020, 2.3],
+  ];
+  for (let i = 0; i < monkeyDefs.length; i++) {
+    const [x, z, y] = monkeyDefs[i];
+    const monkey = makeMonkey(monkeyMat);
+    monkey.position.set(x, jungleCourseHeight(z) + y, z);
+    monkey.rotation.y = x < 0 ? -1.15 : 1.15;
+    monkey.scale.setScalar(0.85 + (i % 2) * 0.12);
+    group.add(monkey);
+    monkeys.push(monkey);
+  }
+
+  root.add(group);
+  return { group, birds, butterflies, monkeys, time: 0 };
+}
+
+export function updateJungleWildlife(wildlife, dt, kaiZ, kaiX = 0) {
+  if (!wildlife) return;
+  wildlife.time += dt;
+  const t = wildlife.time;
+
+  // Three loose flocks. Their z is relative to Kai, so each flock visibly
+  // approaches him, passes overhead, then silently recycles far ahead.
+  for (let i = 0; i < wildlife.birds.length; i++) {
+    const bird = wildlife.birds[i];
+    const flock = Math.floor(i / 6);
+    const member = i % 6;
+    const cycle = (t * (0.055 + flock * 0.009) + flock * 0.31 + member * 0.017) % 1;
+    const z = kaiZ - 135 + cycle * 205;
+    const side = flock % 2 === 0 ? -1 : 1;
+    const x = kaiX + side * (4.5 + member * 1.25) + Math.sin(t * 0.8 + i) * 2.0;
+    const y = jungleCourseHeight(z) + 8.5 + flock * 2.0 + Math.sin(t * 1.4 + i) * 1.2;
+    bird.position.set(x, y, z);
+    bird.rotation.y = Math.PI + Math.sin(t * 0.45 + i) * 0.14;
+    const flap = Math.sin(t * (12 + flock * 1.5) + member * 0.8) * 0.72;
+    bird.userData.leftWing.rotation.z = flap;
+    bird.userData.rightWing.rotation.z = -flap;
+  }
+
+  // Butterflies stay outside the lane corridor and orbit patches of foliage.
+  for (let i = 0; i < wildlife.butterflies.length; i++) {
+    const b = wildlife.butterflies[i];
+    const side = i % 2 === 0 ? -1 : 1;
+    const z = kaiZ - 65 + ((i * 17 + t * 8) % 125);
+    b.position.set(
+      kaiX + side * (7.5 + (i % 5) * 0.9) + Math.sin(t * 1.8 + i) * 0.8,
+      jungleCourseHeight(z) + 1.4 + Math.sin(t * 2.1 + i * 0.7) * 0.7,
+      z,
+    );
+    const flap = 0.35 + Math.abs(Math.sin(t * 10 + i)) * 1.0;
+    b.userData.leftWing.rotation.y = flap;
+    b.userData.rightWing.rotation.y = -flap;
+  }
+
+  for (let i = 0; i < wildlife.monkeys.length; i++) {
+    const m = wildlife.monkeys[i];
+    m.userData.head.rotation.y = Math.sin(t * 0.7 + i) * 0.3;
+    m.rotation.z = Math.sin(t * 0.9 + i * 1.7) * 0.018;
+  }
 }
 
 export function createSign(text = "SITE 7 →", { width = 2.4, height = 0.85 } = {}) {
