@@ -29,24 +29,11 @@ export class GameState {
     this.distance = 0; // metres travelled in the current level
     this.bestDistance = 0;
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.awards = []; // one-time shrine gifts collected in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 
-    // The pursuer. Level 01's only currency is distance, so handlerGap IS the
-    // health bar for that level — the run ends when it reaches 0.
-    // handlerState:
-    //   IDLE          not in the chase yet
-    //   LOSING_GROUND Kai is pulling away — the gap is growing
-    //   CLOSING       Kai is slower than the pursuer — the gap is shrinking
-    //   CAUGHT        gap hit 0; the run is lost
-    //   SEALED        a gate cut him off, or Kai reached the exit; out of play
     this.handlerState = 'IDLE';
-    this.handlerGap = 0; // metres between Kai and the Handler
-    this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
-
-    // Why the run ended, so the fail screen can say it instead of guessing.
-    // Level 01 has two losses — "he catches you, or the southbound does".
-    // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
-    this.failCause = null;
+    this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -58,10 +45,6 @@ export class GameState {
     this.stamina = this.maxStamina;
     this.boostHeat = 0;
     this.distance = 0;
-    this.normalizedSpeed = 0;
-    this.handlerState = 'IDLE';
-    this.handlerGap = 0;
-    this.failCause = null;
     this.alive = true;
   }
 
@@ -88,6 +71,12 @@ export class GameState {
   collectLetter(id) {
     if (this.letters.includes(id)) return false;
     this.letters.push(id);
+    return true;
+  }
+
+  collectAward(id) {
+    if (this.awards.includes(id)) return false;
+    this.awards.push(id);
     return true;
   }
 
