@@ -243,7 +243,7 @@ export class Level02 extends Level {
     this._picker?.setIndex(this._carIndex);
     const selected = CARS[this._carIndex];
     this._modelSwap = this._modelSwap.then(async () => {
-      const model = await this.car.attachModel(this.assets, selected.path, { length: selected.length });
+      const model = await this.car.attachModel(this.assets, selected.path, { length: selected.length, yaw: selected.yaw || 0 });
       this.car.applyStats(selected.stats);
       if (!model) return;
       this._carModel = model;
@@ -268,8 +268,10 @@ export class Level02 extends Level {
 
   _repaint() {
     if (!this._carModel) return;
-    const info = this._paintInfo.get(CARS[this._carIndex].path);
-    applyPaint(this._carModel, PAINTS[this._paintIndex].color, info);
+    const car = CARS[this._carIndex];
+    const info = this._paintInfo.get(car.path);
+    const color = car.paintable === false ? null : PAINTS[this._paintIndex].color;
+    applyPaint(this._carModel, color, info);
   }
 
   _openCarPicker() {

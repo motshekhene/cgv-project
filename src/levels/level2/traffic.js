@@ -20,19 +20,21 @@ export const LANES = [-9, -3, 3, 9];     // road is 24 wide, rails at ±12
 
 // weight = how often it appears; speed = m/s range; mass = how hard it hits
 // (damage multiplier) and how hard it is to shove; paint = random colours
-// cars: Quaternius Cars Bundle (CC0). Van: jeremy (CC BY 3.0). Bus: Poly by
+// cars, taxi, pickup: Quaternius (CC0). Van: jeremy (CC BY 3.0). Bus: Poly by
 // Google (CC BY 3.0). See public/assets/level2/CREDITS.md
 // yaw turns a model that wasn't authored facing +Z; paintMaterials names the
 // body material(s) when automatic detection would guess wrong.
 const TYPES = [
-  { name: 'taxi',  path: 'level2/traffic/taxi.glb', length: 4.6,  weight: 1,   speed: [14, 22], mass: 1.0, paint: false },
-  { name: 'sedan', path: 'level2/cars/sedan.glb',   length: 4.5,  weight: 2,   speed: [15, 23], mass: 1.0, paint: true },
-  { name: 'hatch', path: 'level2/cars/hatch.glb',   length: 3.9,  weight: 1.5, speed: [14, 22], mass: 0.9, paint: true },
-  { name: 'suv',   path: 'level2/cars/suv.glb',     length: 4.8,  weight: 1.5, speed: [13, 21], mass: 1.3, paint: true },
-  { name: 'van',   path: 'level2/traffic/van.glb',  length: 5.3,  weight: 2,   speed: [11, 18], mass: 1.6, paint: true,
+  { name: 'taxi',   path: 'level2/traffic/taxi.glb',   length: 4.6,  weight: 2,   speed: [14, 22], mass: 1.0, paint: false },
+  { name: 'sedan',  path: 'level2/cars/sedan.glb',     length: 4.5,  weight: 1.5, speed: [15, 23], mass: 1.0, paint: true },
+  { name: 'hatch',  path: 'level2/cars/hatch.glb',     length: 3.9,  weight: 1,   speed: [14, 22], mass: 0.9, paint: true },
+  { name: 'coupe',  path: 'level2/cars/coupe.glb',     length: 4.5,  weight: 1,   speed: [16, 24], mass: 1.0, paint: true },
+  { name: 'suv',    path: 'level2/cars/suv.glb',       length: 4.8,  weight: 1.5, speed: [13, 21], mass: 1.3, paint: true },
+  { name: 'pickup', path: 'level2/traffic/pickup.glb', length: 5.3,  weight: 1.5, speed: [12, 20], mass: 1.5, paint: false },
+  { name: 'van',    path: 'level2/traffic/van.glb',    length: 5.3,  weight: 1.5, speed: [11, 18], mass: 1.6, paint: true,
     yaw: -Math.PI / 2, paintMaterials: ['FFFFFF'] },
   // buses: long, slow, heavy, always white
-  { name: 'bus',   path: 'level2/traffic/bus.glb',  length: 11.5, weight: 1,   speed: [9, 14],  mass: 3.0, paint: false },
+  { name: 'bus',    path: 'level2/traffic/bus.glb',    length: 11.5, weight: 1,   speed: [9, 14],  mass: 3.0, paint: false },
 ];
 
 /** A fixed, shuffled list of types for the pool, following the weights. */
@@ -49,7 +51,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 export class Traffic {
   constructor(parent, assets, {
-    count = 16, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
+    count = 18, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
     minSpeed = 9, maxSpeed = 22,
   } = {}) {
     this.parent = parent;

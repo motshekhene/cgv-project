@@ -56,7 +56,14 @@ export function rigWheels(model) {
     const worldScale = new THREE.Vector3();
     parent.getWorldScale(worldScale);
     const radius = Math.max(0.05, (Math.max(size.y, size.z) / 2) * worldScale.y);
-    wheels.push({ pivot, front: FRONT.test(node.name), radius });
+    wheels.push({ pivot, front: FRONT.test(node.name), radius, z: centre.z, named: /front|back|rear|_f[lr]\b|_r[lr]\b/i.test(node.name) });
+  }
+  // names like Wheel1..Wheel4 don't say which end they're on: the front pair
+  // is the one further forward (+Z is the car's nose)
+  if (wheels.length >= 4 && !wheels.some((w) => w.named)) {
+    const zs = wheels.map((w) => w.z).sort((a, b) => a - b);
+    const mid = (zs[0] + zs[zs.length - 1]) / 2;
+    for (const w of wheels) w.front = w.z > mid;
   }
   model.userData.wheels = wheels;
   return wheels;

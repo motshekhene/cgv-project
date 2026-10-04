@@ -13,16 +13,20 @@ import { PAINTS } from './paint.js';
 // skid marks, collisions) is fitted to it. See public/assets/level2/CREDITS.md
 export const CARS = [
   {
-    id: 'sedan', name: 'Sedan', path: 'level2/cars/sedan.glb', length: 4.5,
-    blurb: 'All-rounder', stats: { speed: 42, accel: 22, handling: 1.0, strength: 1.0 },
+    // "Convertible" by Poly by Google, CC BY 3.0
+    id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9,
+    blurb: 'All-rounder — quick, comfortable, nothing to prove', stats: { speed: 43, accel: 22, handling: 1.0, strength: 1.0 },
   },
   {
-    id: 'hatch', name: 'Hatch', path: 'level2/cars/hatch.glb', length: 3.9,
-    blurb: 'Nimble and quick off the line, but light', stats: { speed: 39, accel: 27, handling: 1.25, strength: 0.8 },
+    // "Toyota AE86" by IvOfficial, CC BY 3.0
+    // white body painted into its texture: no separate paint colour to target, factory only
+    id: 'drifter', name: 'Drifter', path: 'level2/cars/drifter.glb', length: 4.2, paintable: false,
+    blurb: 'Light, nimble, born to slide — Space to drift', stats: { speed: 40, accel: 26, handling: 1.3, strength: 0.8 },
   },
   {
-    id: 'coupe', name: 'GT Coupe', path: 'level2/cars/coupe.glb', length: 4.5,
-    blurb: 'Fast, planted at speed', stats: { speed: 46, accel: 22, handling: 0.95, strength: 0.9 },
+    // "Car" by theking1322, CC BY 3.0 (modelled side-on: turned to face +Z)
+    id: 'muscle', name: 'Muscle', path: 'level2/cars/muscle.glb', length: 4.8, yaw: Math.PI / 2,
+    blurb: 'Big engine, heavy body — wins the shoving matches', stats: { speed: 45, accel: 23, handling: 0.85, strength: 1.2 },
   },
   {
     id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4,
@@ -184,6 +188,14 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
     buttons.forEach((b, i) => b.classList.toggle('sel', i === index));
     const car = CARS[index];
     root.querySelector('.blurb').textContent = car.blurb;
+    const paintable = car.paintable !== false;
+    swatches.forEach((s, i) => {
+      const off = !paintable && i > 0;
+      s.disabled = off;
+      s.style.opacity = off ? '0.25' : '1';
+      s.style.cursor = off ? 'not-allowed' : 'pointer';
+      s.title = off ? 'This car only comes in its factory colour' : PAINTS[i].name;
+    });
     for (const key of Object.keys(bars)) {
       const [lo, hi] = RANGES[key];
       bars[key].style.width = `${Math.round(Math.max(0.05, Math.min(1, (car.stats[key] - lo) / (hi - lo))) * 100)}%`;
