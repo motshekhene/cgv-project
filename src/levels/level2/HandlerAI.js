@@ -149,6 +149,7 @@ export class HandlerAI {
 
   /** Only start a move when it can be read and answered. */
   _fairToAttack() {
+    if (this.passive) return false;                // the finale: he backs off near the falls
     if (this.elapsed < this.nextAttackAt) return false;
     if (this.weapons && this.weapons.threatActive) return false;   // one threat at a time
     return true;
@@ -162,6 +163,7 @@ export class HandlerAI {
   /** Text for the HUD: names the incoming move during the wind-up. */
   get label() {
     if (this.state === 'TELEGRAPH' && this.nextMove) return MOVE_LABEL[this.nextMove] + ' !';
+    if (this.passive && this.state === 'APPROACH') return 'FALLING BACK';
     return MOVE_LABEL[this.state] || this.state;
   }
 
@@ -250,6 +252,7 @@ export class HandlerAI {
       case 'APPROACH': {
         tx = laneBehind();
         tz = p.z - LEN - 2.5;
+        if (this.passive) { tz = p.z - LEN - 32; break; }   // he knows what's ahead, and lets you go
         if (behind && Math.abs(tz - m.z) < 3 && Math.abs(m.x - p.x) < GAP) {
           this.harassFor = THREE.MathUtils.lerp(4, 2.2, a) + Math.random() * 1.2;
           this.jabTimer = 0.6 + Math.random() * 0.6;
@@ -270,7 +273,7 @@ export class HandlerAI {
         maxLat = 6;
         accel = jabbing ? 24 : 18;
         keepClear = false;
-        if (dz > 25 || !behind) this._enter('APPROACH');
+        if (dz > 25 || !behind || this.passive) this._enter('APPROACH');
         else if (t > this.harassFor && this._fairToAttack()) {
           this.nextMove = this._chooseMove();
           this.locked = false;

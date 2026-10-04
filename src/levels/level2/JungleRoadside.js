@@ -81,11 +81,11 @@ export function populateJungleChunk(chunk, kit, { length = 200, roadWidth = 24, 
   for (const sd of [-1, 1]) {
     // the near tree wall: close enough to feel like a corridor through the jungle
     for (let z = -L / 2; z < L / 2; z += 6 + r() * 5) {
-      put(pick(trees), sd * (half + 6 + r() * 9), z, 0.026 + r() * 0.01);
+      put(pick(trees), sd * (half + 6 + r() * 9), z, 0.020 + r() * 0.012);      // Level 1's tree sizes
     }
     // the deep jungle behind it, bigger and sparser, out into the fog
     for (let z = -L / 2; z < L / 2; z += 9 + r() * 8) {
-      put(pick(trees), sd * (half + 16 + r() * 40), z, 0.03 + r() * 0.012);
+      put(pick(trees), sd * (half + 16 + r() * 40), z, 0.024 + r() * 0.010);
     }
     // small trees / clusters filling gaps in the canopy
     for (let z = -L / 2; z < L / 2; z += 18 + r() * 14) {
@@ -103,6 +103,13 @@ export function populateJungleChunk(chunk, kit, { length = 200, roadWidth = 24, 
     for (let z = -L / 2; z < L / 2; z += 25 + r() * 30) {
       put(pick(rocks), sd * (half + 4 + r() * 12), z, 0.008 + r() * 0.008, { y: -0.1 });
     }
+  }
+
+  // Level 1's shrine ruins: a column on one side and a column or broken wall
+  // on the other, every 60 m, just off the trail (same kit, same scales)
+  for (let z = -L / 2 + 20; z < L / 2; z += 60) {
+    put(z % 120 < 60 ? kit.column : kit.columnShort, -(half + 4.6), z + (r() - 0.5) * 10, z % 120 < 60 ? 0.016 : 0.019, { tilt: 0.12 });
+    put(r() < 0.4 ? kit.wall : kit.columnShort, half + 5, z + (r() - 0.5) * 10, 0.017, { tilt: 0.06 });
   }
 
   // one or two landmarks per chunk: the shrine is near, the jungle remembers it

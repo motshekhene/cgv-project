@@ -13,9 +13,14 @@ import * as THREE from 'three';
  *     decorate() once the shared jungle kit has loaded (JungleRoadside.js).
  *     (The old city blocks in CityEnvironment.js are no longer used.)
  *
- * Chunks recycle behind the car and reappear ahead, so the road never runs
- * out no matter how far the chase goes.  All geometry lives under one
+ * Chunks recycle behind the car and reappear ahead.  With `endZ` set the
+ * road is a journey, not a loop (2A): chunks past the end are hidden, and the
+ * last chunk drops its forest floor and jungle so the finale (course.js) can
+ * put a river and the waterfall there instead.  All geometry lives under one
  * THREE.Group so Level.teardown() can clean it up in a single call.
+ *
+ * useTrail() turns the asphalt highway into Level 1's mud trail: the same
+ * mud and forest-floor materials, no lane paint, wooden rails.
  *
  * The car starts at z = 0 and drives toward +z (heading 0).  The conveyor-
  * belt update keeps every chunk in the right slot regardless of frame rate.
@@ -197,7 +202,8 @@ export class RoadSystem {
   /**
    * @param {THREE.Object3D} parent  — usually the level's this.root
    */
-  constructor(parent) {
+  constructor(parent, { endZ = Infinity } = {}) {
+    this.endZ = endZ;
     this.parent = parent;
     this.group = new THREE.Group();
     this.group.name = 'roadSystem';
@@ -220,7 +226,25 @@ export class RoadSystem {
   decorate(populate, { verge = null, ground = null } = {}) {
     if (verge) this._replaceMaterial(this.shoulderMat, verge);
     if (ground) this._replaceMaterial(this.groundMat, ground);
-    this.chunks.forEach((chunk, i) => populate(chunk, 1000 + i * 7919));
+    this.chunks.forEach((chunk, i) => {
+      populate(chunk, 1000 + i * 7919);
+      chunk.userData.final = undefined;
+      this._applyEnd(chunk);
+    });
+  }
+
+  /**
+   * Level 1's look: the mud trail across the whole carriageway, forest floor
+   * on the shoulders, no lane markings, and wooden rails instead of steel.
+   */
+  useTrail({ surface, shoulder = null }) {
+    this._replaceMaterial(this.roadMat, surface);
+    if (shoulder) this._replaceMaterial(this.shoulderMat, shoulder);
+    for (const chunk of this.chunks) {
+      chunk.traverse((o) => { if (o.name === 'lane-line') o.visible = false; });
+    }
+    this.railMat.color.set(0x6b4a2e); this.railMat.metalness = 0; this.railMat.roughness = 0.92;
+    this.postMat.color.set(0x4b321f); this.postMat.metalness = 0; this.postMat.roughness = 0.95;
   }
 
   _replaceMaterial(oldMat, newMat) {
@@ -305,6 +329,7 @@ export class RoadSystem {
       const chunk = this._createChunk();
       chunk.position.z = i * this.chunkLength;
       this.group.add(chunk);
+      this._applyEnd(chunk);
       this.chunks.push(chunk);
     }
   }
@@ -317,6 +342,7 @@ export class RoadSystem {
 
     // road surface
     const road = new THREE.Mesh(this._geo.roadSurface, this.roadMat);
+    road.name = 'road-surface';
     road.rotation.x = -Math.PI / 2;
     road.receiveShadow = true;
     g.add(road);
@@ -333,6 +359,7 @@ export class RoadSystem {
     // ground beyond the shoulders
     for (const side of [-1, 1]) {
       const ground = new THREE.Mesh(this._geo.ground, this.groundMat);
+      ground.name = 'ground';
       ground.rotation.x = -Math.PI / 2;
       ground.position.set(side * (halfW + 204), -0.05, 0);
       g.add(ground);
@@ -341,6 +368,7 @@ export class RoadSystem {
     // yellow edge lines
     for (const x of [-halfW + 0.5, halfW - 0.5]) {
       const line = new THREE.Mesh(this._geo.edgeLine, this.yellowLineMat);
+      line.name = 'lane-line';
       line.rotation.x = -Math.PI / 2;
       line.position.set(x, 0.012, 0);
       g.add(line);
@@ -350,6 +378,7 @@ export class RoadSystem {
     for (const x of [-W / 6, W / 6]) {
       for (let z = -L / 2; z < L / 2; z += 10) {
         const dash = new THREE.Mesh(this._geo.dashLine, this.whiteLineMat);
+        dash.name = 'lane-line';
         dash.rotation.x = -Math.PI / 2;
         dash.position.set(x, 0.012, z + 2);
         g.add(dash);
@@ -412,7 +441,24 @@ export class RoadSystem {
       if (chunk.position.z < threshold) {
         const farthest = Math.max(...this.chunks.map(c => c.position.z));
         chunk.position.z = farthest + L;
+        this._applyEnd(chunk);
       }
+    }
+  }
+
+  /**
+   * Finite road: a chunk wholly past endZ is hidden; the chunk that ends at
+   * endZ keeps its road and rails but loses the forest floor and jungle.
+   */
+  _applyEnd(chunk) {
+    const L = this.chunkLength;
+    const start = chunk.position.z - L / 2;
+    chunk.visible = start < this.endZ - 0.01;
+    const final = start < this.endZ && chunk.position.z + L / 2 >= this.endZ - 0.01;
+    if (chunk.userData.final === final) return;
+    chunk.userData.final = final;
+    for (const o of chunk.children) {
+      if (o.name === 'ground' || o.name === 'jungle-roadside') o.visible = !final;
     }
   }
 

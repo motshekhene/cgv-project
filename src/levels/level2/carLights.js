@@ -17,7 +17,7 @@ import * as THREE from 'three';
  * (three r155+ physical units), so they look large.
  */
 export const HEADLIGHT = {
-  color: 0xfff0d0, intensity: 600, distance: 90, angle: 0.5, penumbra: 0.6,
+  color: 0xfff0d0, intensity: 90, distance: 60,     // daytime now (Level 1 light): a soft glow, not a floodlight angle: 0.5, penumbra: 0.6,
   decay: 2, shadowMapSize: 512, shadowFar: 60,
 };
 export const POLICE = { intensity: 90, telegraphIntensity: 180, distance: 26, slowHz: 4, fastHz: 12 };
@@ -64,7 +64,7 @@ export class CarLights {
         HEADLIGHT.color, HEADLIGHT.intensity, HEADLIGHT.distance,
         HEADLIGHT.angle, HEADLIGHT.penumbra, HEADLIGHT.decay
       );
-      s.castShadow = true;
+      s.castShadow = false;           // the sun casts the shadows in daylight
       s.shadow.mapSize.set(HEADLIGHT.shadowMapSize, HEADLIGHT.shadowMapSize);
       s.shadow.camera.near = 0.5;
       s.shadow.camera.far = HEADLIGHT.shadowFar;

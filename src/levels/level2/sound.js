@@ -68,6 +68,7 @@ export class Level2Sound {
     this.screech = this._noiseLoop('bandpass', 2600, 6);
     this.scrape = this._noiseLoop('highpass', 3200, 0.8);
     this.wind = this._noiseLoop('lowpass', 420, 0.5);
+    this.falls = this._noiseLoop('lowpass', 700, 0.3);      // the waterfall's roar, louder as you near the end
     this.drones = [this._buildDrone(), this._buildDrone()];
     this._buildJungle();
     this._buildMusic();
@@ -267,7 +268,8 @@ export class Level2Sound {
     // ---- tyres, rails, wind ----
     smooth(this.screech.gain.gain, s.skid ? 0.14 : 0, s.skid ? 0.03 : 0.12);
     smooth(this.scrape.gain.gain, Math.min(0.3, s.scrape * 0.4), s.scrape ? 0.02 : 0.15);
-    smooth(this.wind.gain.gain, 0.01 + v * 0.07, 0.3);
+    smooth(this.wind.gain.gain, 0.01 + v * 0.07 + (s.falling ? 0.12 : 0), 0.3);
+    smooth(this.falls.gain.gain, Math.min(0.35, s.falls || 0), 0.4);
 
     // ---- siren: slow wail while chasing, fast yelp while attacking ----
     const h = s.handler;
@@ -383,6 +385,22 @@ export class Level2Sound {
   }
 
   /** Rising chime: dodged it. */
+  /** Reward chime: a bright two- or three-note arpeggio, different per pickup. */
+  pickup(kind = 'REPAIR') {
+    const notes = {
+      REPAIR: [523, 659, 784], HEART: [587, 740, 880, 1175], NITRO: [392, 523, 784], SHIELD: [659, 988, 1319],
+    }[kind] || [523, 784];
+    notes.forEach((f, i) => this._tone({ type: 'triangle', freq: f, peak: 0.09, decay: 0.35, delay: i * 0.06 }));
+    if (kind === 'NITRO') this._burst({ type: 'bandpass', freq: 900, q: 1.2, peak: 0.12, decay: 0.5, sweepTo: 3200 });
+  }
+
+  /** The car hitting the pool at the bottom of the falls. */
+  splash() {
+    this._burst({ type: 'lowpass', freq: 2400, peak: 0.7, attack: 0.005, decay: 1.6, sweepTo: 300 });
+    this._burst({ type: 'highpass', freq: 3000, peak: 0.25, attack: 0.02, decay: 1.2 });
+    this._tone({ freq: 70, to: 30, peak: 0.45, decay: 0.8 });
+  }
+
   dodge() {
     this._tone({ freq: 660, peak: 0.08, decay: 0.12 });
     this._tone({ freq: 990, peak: 0.08, decay: 0.2, delay: 0.09 });

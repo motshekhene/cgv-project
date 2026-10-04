@@ -20,3 +20,7 @@ In-game names are generic (Sedan, GT Coupe, …); no brand names are shown.
 
 Level 2 also uses the shared jungle kit in `assets/jungle/` (trees, bushes, grass, rocks, ruins, logs/crates, mud and forest-floor textures — Quaternius / ambientCG / Poly by Google, all CC0; see `assets/jungle/README.md`).
 All Level 2 sound is synthesised in code (`src/levels/level2/sound.js`) — no third-party audio.
+
+Team code reused in Level 2 (no third-party assets):
+- `src/ui/theme.js` (Jungle Shrine UI look) and `src/shaders/waterfall.js`, `water.js`, `noise.js` (waterfall curtain and water surface) — from the Level 3 branch (`mahlatse/level3`), copied unchanged. Level 2's HUD, on-screen controls and end cards use the theme; the falls at the end of the River Road use the shaders.
+- Signs, light shafts, pollen, wildlife, sky and trail materials — Level 1's `src/levels/level1/jungleWorld.js`.

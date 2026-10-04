@@ -66,6 +66,11 @@ export class VehicleController {
 
     // --- health (written here, read by UI/3B later) ---
     this.health = 100;
+    this.maxHealth = 100;        // shrine hearts (pickups.js) raise it
+
+    // --- rewards (pickups.js) ---
+    this.shield = 0;             // seconds left: no damage at all while > 0
+    this.freeBoost = 0;          // seconds left of nitro: boosts on its own, builds no heat
 
     // --- per-car qualities (see carSelect.js CARS[].stats) ---
     this.strength = 1;           // damage taken is divided by this
@@ -82,7 +87,12 @@ export class VehicleController {
   }
 
   takeDamage(amount) {
+    if (this.shield > 0) return;
     this.health = Math.max(0, this.health - amount / this.strength);
+  }
+
+  heal(amount) {
+    this.health = Math.min(this.maxHealth, this.health + amount);
   }
 
   /**
@@ -124,8 +134,14 @@ export class VehicleController {
     // until the engine has cooled to 35%.
     if (this.heat >= this.maxHeat) this.overheated = true;
     else if (this.heat <= 35) this.overheated = false;
-    this.boosting = input.boost && !this.overheated;
-    if (this.boosting) {
+    this.shield = Math.max(0, this.shield - dt);
+    this.freeBoost = Math.max(0, this.freeBoost - dt);
+    const nitro = this.freeBoost > 0;
+    this.boosting = nitro || (input.boost && !this.overheated);
+    if (nitro) {
+      this.speed += this.accelRate * 1.8 * dt;          // free: no heat, and the engine keeps cooling
+      this.heat = Math.max(0, this.heat - 40 * dt);
+    } else if (this.boosting) {
       this.speed += this.accelRate * 1.8 * dt;
       this.heat = Math.min(this.maxHeat, this.heat + 55 * dt);
       this._coolDelay = 0.5;

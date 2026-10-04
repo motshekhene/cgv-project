@@ -10,8 +10,15 @@ import { Skids, Smoke } from './level2/skids.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
-import { createGameOverScreen } from './level2/gameOver.js';
-import { loadJungleKit, createJungleMaterials, createJungleSky, createPollen } from './level1/jungleWorld.js';
+import { createGameOverScreen, createFinishScreen } from './level2/gameOver.js';
+import {
+  loadJungleKit, createJungleMaterials, createJungleSky, createPollen, createLightShaft,
+  createJungleWildlife, updateJungleWildlife, jungleCourseHeight,
+} from './level1/jungleWorld.js';
+import { Pickups } from './level2/pickups.js';
+import { Course, COURSE_END, DROP } from './level2/course.js';
+import { DriveControls } from './level2/controls.js';
+import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
 
@@ -19,8 +26,13 @@ import { Level2Sound } from './level2/sound.js';
  * Level 02 — Redline.
  *
  * Integrates 2A's vehicle gameplay (car models, traffic, lights, skids,
- * smoke, HUD, car picker, game over) with 2B's infinite textured road
- * and secondary cameras (rearview mirror + minimap).
+ * smoke, HUD, car picker, game over) with 2B's road and secondary cameras
+ * (rearview mirror + minimap).
+ *
+ * The River Road is a journey: Level 1's jungle and mud trail, ~4 km long,
+ * rewards along the way (pickups.js), and at the end the road goes over a
+ * waterfall (course.js). The car goes with it — a short fall cinematic, the
+ * splash in the pool, then Level 3, which opens with Kai in that pool.
  *
  * What each member contributed:
  *   2A — VehicleController, HandlerAI, attachModel, carLights, traffic,
@@ -37,26 +49,21 @@ export class Level02 extends Level {
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
-    // ---- jungle at dusk (team guide, Level 2 "The River Road": sunset, low
-    // sun ahead-left, warm fog) — same jungle as Levels 1 and 3 ----
-    const FOG = 0xc99a6e;
+    // ---- Level 1's jungle, exactly: same fog, sky, light rig, pollen and
+    // light shafts (Level 1 runs toward -z, this road toward +z, so the sun
+    // and the shafts are mirrored to stay in front of you) ----
+    const FOG = 0xcfd6a8;
     scene.background = new THREE.Color(FOG);
-    scene.fog = new THREE.FogExp2(FOG, 0.0085);
+    scene.fog = new THREE.FogExp2(FOG, 0.014);
 
     this._sky = createJungleSky();
-    const u = this._sky.material.uniforms;
-    u.uTop.value.set(0x2e3d6e);          // deep blue overhead
-    u.uHorizon.value.set(0xf0a060);      // burnt-orange horizon
-    u.uBottom.value.set(0x3a3a22);
-    u.uSun.value.set(0xffb070);
-    u.uSunDir.value.set(-0.45, 0.1, 0.9).normalize();   // low, ahead of you
+    this._sky.material.uniforms.uSunDir.value.set(-0.35, 0.55, 0.75).normalize();
     this.root.add(this._sky);
 
-    this.root.add(new THREE.HemisphereLight(0xffd2a0, 0x2f3a1c, 0.85));
-    const sun = new THREE.DirectionalLight(0xffc28a, 1.6);
-    sun.position.set(-45, 12, 90);       // matches the sky's sun
+    this.root.add(new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6));
+    const sun = new THREE.DirectionalLight(0xffd29a, 4.5);
     // a tight shadow box that follows the car: every car gets a contact
-    // shadow on the tarmac for the cost of one small shadow map
+    // shadow on the trail for the cost of one small shadow map
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 160 });
@@ -64,24 +71,30 @@ export class Level02 extends Level {
     sun.shadow.normalBias = 0.03;
     this.root.add(sun, sun.target);
     this._sun = sun;
-    this._sunOffset = new THREE.Vector3(-45, 28, 90).normalize().multiplyScalar(80);
+    this._sunOffset = new THREE.Vector3(-35, 55, 75);     // Level 1: (x - 35, 55, z - 75)
 
-    this._pollen = createPollen(260);
-    this._pollen.material.color.set(0xffd08a);
-    // soft round glow instead of hard square points
-    const dot = document.createElement('canvas');
-    dot.width = dot.height = 32;
-    const g = dot.getContext('2d').createRadialGradient(16, 16, 0, 16, 16, 16);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(255,255,255,.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    const ctx2 = dot.getContext('2d'); ctx2.fillStyle = g; ctx2.fillRect(0, 0, 32, 32);
-    this._pollen.material.map = new THREE.CanvasTexture(dot);
-    this._pollen.material.size = 0.09;
-    this._pollen.material.opacity = 0.55;
-    this._pollen.material.needsUpdate = true;
+    this._pollen = createPollen(500);
+    this._pollen.scale.x = 2.2;                            // the road is wider than Kai's trail
     this.root.add(this._pollen);
 
-    // ---- infinite textured road — @2B — now through the jungle ----
-    this.road = new RoadSystem(this.root);
+    this._shafts = new THREE.Group();
+    for (const [x, z, width] of [[-4, 15, 2.6], [7, 52, 3.4], [-7.5, 92, 2.9]]) {
+      const shaft = createLightShaft(width);
+      shaft.position.set(x, 28, z);
+      this._shafts.add(shaft);
+    }
+    this.root.add(this._shafts);
+
+    // birds and butterflies from Level 1, mirrored to fly toward you down +z
+    this._wildlife = createJungleWildlife(this.root);
+    this._wildlife.group.scale.z = -1;
+    for (const m of this._wildlife.monkeys) m.visible = false;   // placed for Level 1's course
+
+    // ---- the road — @2B — now Level 1's mud trail, and it ends at the falls ----
+    this.road = new RoadSystem(this.root, { endZ: COURSE_END });
+    this.course = new Course(this.root, { endZ: COURSE_END, roadWidth: this.road.roadWidth });
+    this.pickups = new Pickups(this.root, { start: 150, end: COURSE_END - 300 });
+    this._rewards = 0;
     this._jungleReady = this._buildJungle(assets);
 
     // ---- 2A's vehicle + handler ----
@@ -101,7 +114,7 @@ export class Level02 extends Level {
       this.sound.crash(hit.impact, hit.side * -0.5);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.5 + hit.impact * 0.8);
-      this._flash(`${hit.label}  -${hit.damage}`, '#ff5555');
+      this._flash(`${hit.label}  -${hit.damage}`, '#f2934f');
     };
     this.handler.onContact = (hit) => {
       this._impact(hit.impact * 0.45, between());
@@ -109,7 +122,7 @@ export class Level02 extends Level {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, hit.impact);
     };
-    this.handler.onDodge = (move, label) => { this._flash(label, '#7dffb0'); this.sound.dodge(); };
+    this.handler.onDodge = (move, label) => { this._flash(label, '#bcd96a'); this.sound.dodge(); };
 
     // tyre shots, spike-strip drones, kamikaze drones
     this.weapons = new HandlerWeapons(this.root, assets);
@@ -120,10 +133,10 @@ export class Level02 extends Level {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
       const extra = hit.kind === 'drone' ? '' : '  · TYRE DAMAGED';
-      this._flash(`${hit.label}  -${hit.damage}${extra}`, '#ff5555');
+      this._flash(`${hit.label}  -${hit.damage}${extra}`, '#f2934f');
     };
-    this.weapons.onWarn = (text) => { this._flash(text, '#ffb020'); this.sound.warn(); };
-    this.weapons.onMiss = (text) => { this._flash(text, '#7dffb0'); this.sound.dodge(); };
+    this.weapons.onWarn = (text) => { this._flash(text, '#e3bb62'); this.sound.warn(); };
+    this.weapons.onMiss = (text) => { this._flash(text, '#bcd96a'); this.sound.dodge(); };
 
     // ---- sound: everything synthesised, no audio files (level2/sound.js) ----
     this.sound = new Level2Sound();
@@ -139,7 +152,7 @@ export class Level02 extends Level {
     this.policeLights = new PoliceLights(this.handler.mesh);
     this.skids = new Skids(this.root);
     this.smoke = new Smoke(this.root);
-    this.traffic = new Traffic(this.root, assets);
+    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END });
     this.handler.traffic = this.traffic;          // so he steers round it
 
     // ---- chase camera helpers ----
@@ -190,12 +203,38 @@ export class Level02 extends Level {
     await this._jungleReady;
     await this.weapons.init();
     this._hud = createLevel2Hud();
+    this._controls = new DriveControls({
+      onCar: () => { if (!this._finale && !this._gameOver) this._openCarPicker(); },
+      onMusic: () => this.sound.setMusic(!this.sound.musicOn),
+      onMute: () => this.sound.setMuted(!this.sound.muted),
+    });
+    this._buildShield();
     this._openCarPicker();
+  }
+
+  /** The SHIELD reward's bubble round the car. */
+  _buildShield() {
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uColor: { value: new THREE.Color(0x6fe3ff) }, uAlpha: { value: 0 }, uTime: { value: 0 } },
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main(){ vec4 w = modelMatrix * vec4(position,1.0); vN = normalize(mat3(modelMatrix)*normal);
+          vV = normalize(cameraPosition - w.xyz); vP = position; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: `uniform vec3 uColor; uniform float uAlpha; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main(){ float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.2);
+          float bands = 0.5 + 0.5 * sin(vP.y * 9.0 - uTime * 4.0);
+          gl_FragColor = vec4(uColor * (0.6 + f * 1.6), (f * 0.85 + bands * 0.08) * uAlpha); }`,
+    });
+    this._shield = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), mat);
+    this._shield.userData.keep = true;      // survives car swaps (attachModel)
+    this._shield.visible = false;
+    this.car.mesh.add(this._shield);
   }
 
   /** Loads the shared jungle kit and plants it along every road chunk. */
   async _buildJungle(assets) {
     const [kit, mats] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200)]);
+    this._kit = kit;
     const tile = (mat, rx, ry) => {
       const m = mat.clone();
       for (const k of ['map', 'normalMap', 'roughnessMap']) {
@@ -207,11 +246,15 @@ export class Level02 extends Level {
       }
       return m;
     };
-    const L = this.road.chunkLength;
+    const L = this.road.chunkLength, W = this.road.roadWidth;
+    // Level 1's mud trail at Level 1's texel size (a 3.25 m tile across, ~3 m
+    // along), now spanning the whole carriageway; forest floor right up to it
+    this.road.useTrail({ surface: tile(mats.trail, W / 3.25, L / 3), shoulder: tile(mats.forest, 0.8, L / 5) });
     this.road.decorate(
-      (chunk, seed) => populateJungleChunk(chunk, kit, { length: L, roadWidth: this.road.roadWidth, seed }),
-      { verge: tile(mats.trail, 1.3, L / 3), ground: tile(mats.forest, 80, L / 5) },
+      (chunk, seed) => populateJungleChunk(chunk, kit, { length: L, roadWidth: W, seed }),
+      { ground: tile(mats.forest, 80, L / 5) },
     );
+    this.course.build(kit, mats);
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -219,8 +262,9 @@ export class Level02 extends Level {
     if (!this._flashEl) {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;left:50%;top:28%;transform:translate(-50%,-50%);'
-        + 'font:800 42px system-ui,sans-serif;letter-spacing:4px;pointer-events:none;'
-        + 'text-shadow:0 0 18px currentColor;transition:opacity .5s,transform .5s;opacity:0;z-index:20';
+        + "font:700 clamp(24px,3.6vw,40px) 'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;letter-spacing:.2em;"
+        + 'pointer-events:none;white-space:nowrap;-webkit-text-stroke:1px rgba(0,0,0,.45);'
+        + 'text-shadow:0 3px 0 rgba(0,0,0,.65),0 0 18px currentColor;transition:opacity .5s,transform .5s;opacity:0;z-index:20';
       document.body.appendChild(el);
       this._flashEl = el;
     }
@@ -283,6 +327,7 @@ export class Level02 extends Level {
     this.car.speed = 0;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
     this._hud?.setVisible(false);
+    this._controls?.setVisible(false);
     // slide the view so the car sits to the right of the panel
     const w = window.innerWidth, h = window.innerHeight;
     this.game.camera.setViewOffset(w, h, -Math.min(200, w * 0.14), 0, w, h);
@@ -308,6 +353,8 @@ export class Level02 extends Level {
     this._confirmingCar = false;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
     this._hud?.setVisible(true);
+    this._hud?.setCar(CARS[this._carIndex].name);
+    this._controls?.setVisible(true);
   }
 
   /* ======================== per frame ======================== */
@@ -322,16 +369,23 @@ export class Level02 extends Level {
     // game over — freeze gameplay
     if (this._gameOver) return;
 
-    // shared Input → the object VehicleController already expects
+    // over the edge: the fall, the splash, the hand-over to Level 3
+    if (this._finale) { this._updateFinale(dt); return; }
+
+    // shared Input (keyboard) + the on-screen buttons (mouse / touch) → the
+    // object VehicleController already expects
     const i = this._input;
-    i.forward  = this.input.isDown('forward');
-    i.backward = this.input.isDown('back');
-    i.left     = this.input.isDown('left');
-    i.right    = this.input.isDown('right');
-    i.boost    = this.input.isDown('boost');
+    const c = this._controls ? this._controls.state : {};
+    i.forward  = this.input.isDown('forward') || !!c.forward;
+    i.backward = this.input.isDown('back') || !!c.backward;
+    i.left     = this.input.isDown('left') || !!c.left;
+    i.right    = this.input.isDown('right') || !!c.right;
+    i.boost    = this.input.isDown('boost') || !!c.boost;
     // its own binding: the shared 'jump' action also includes W and ↑
     this.input.bindings.handbrake ??= [' '];
-    i.handbrake = this.input.isDown('handbrake');
+    i.handbrake = this.input.isDown('handbrake') || !!c.handbrake;
+    this._controls?.reflect(i);
+    this._controls?.setFlags({ music: this.sound.musicOn, muted: this.sound.muted });
 
     // open car picker
     if (this.input.pressed('changeCar')) {
@@ -341,6 +395,8 @@ export class Level02 extends Level {
 
     const previousHeading = this.car.heading;
     this.car.update(dt, i);
+    // the last stretch: the Handler knows what's ahead and lets you go
+    this.handler.passive = this.car.mesh.position.z > COURSE_END - 450;
     const { dist, state: handlerState } = this.handler.update(dt);
     this.weapons.update(dt, this.car, this.handler.mesh);
     this._updateTelegraphArrow(handlerState);
@@ -384,28 +440,36 @@ export class Level02 extends Level {
 
     this.road.update(this.car.mesh.position);
 
-    // sky dome and pollen travel with you
-    this._sky.position.copy(this.game.camera.position);
-    this._pollen.position.set(this.car.mesh.position.x, 0, this.car.mesh.position.z + 30);
+    // rewards along the road
+    for (const got of this.pickups.update(dt, this.car)) this._reward(got);
+    this._updateShield(dt);
+
+    this._updateWorld(dt);
 
 
     this._updateSecondaryCams();
 
     this._updateCamera(dt);
 
-    // sun + shadow box follow the car
-    this._sun.position.copy(this.car.mesh.position).add(this._sunOffset);
-    this._sun.target.position.copy(this.car.mesh.position);
 
     // HUD
     this._time += dt;
     this._topSpeed = Math.max(this._topSpeed, Math.abs(this.car.speed));
+    const route = this.course.progress(this.car.mesh.position.z);
     this._hud?.update({
       speed: this.car.speed,
       dist,
       heat: this.car.heat,
       health: this.car.health,
+      maxHealth: this.car.maxHealth,
+      overheated: this.car.overheated,
       handlerState: this.handler.label,
+      toEnd: route.left,
+      progress: route.t,
+      buffs: [
+        { label: 'SHIELD', t: this.car.shield, color: '#6fe3ff' },
+        { label: 'NITRO', t: this.car.freeBoost, color: '#ff8a2a' },
+      ].filter((b) => b.t > 0),
     });
 
     // ---- sound ----
@@ -419,6 +483,7 @@ export class Level02 extends Level {
       boosting: this.car.boosting,
       skid: skidding,
       scrape: this.car.wallHit,
+      falls: this.course.roar(p.z) * 0.35,
       handler: {
         dist,
         dx: this.handler.mesh.position.x - p.x,
@@ -437,13 +502,176 @@ export class Level02 extends Level {
     state.distance = dist;
     state.handlerState = handlerState;
 
+    // drove off the end of the road: over the falls
+    if (this.car.mesh.position.z > COURSE_END + 0.3 && !this._finale) this._startFall();
+
     // game over
-    if (this.car.health <= 0 && !this._gameOver) {
+    if (this.car.health <= 0 && !this._gameOver && !this._finale) {
       this._gameOver = true;
       this.sound.crash(1);
       this.sound.silenceEngine();
       this._showGameOver();
     }
+  }
+
+  /** Sky, sun, pollen, shafts, wildlife, water — the world that travels with you. */
+  _updateWorld(dt) {
+    const p = this.car.mesh.position;
+    this._sky.position.copy(this.game.camera.position);
+    this._pollen.position.set(p.x, 0, p.z + 30);
+    this._shafts.position.set(p.x * 0.3, 0, p.z + 18);
+    for (const sh of this._shafts.children) {
+      sh.material.uniforms.uOpacity.value = 0.11 + Math.sin(this._time * 0.7 + sh.position.z) * 0.03;
+    }
+    // Level 1's wildlife update, in its mirrored frame (it runs toward -z);
+    // then pushed out past our wider road and down to our flat ground
+    const w = this._wildlife;
+    updateJungleWildlife(w, dt, -p.z, p.x);
+    for (const b of w.birds) b.position.y -= jungleCourseHeight(b.position.z);
+    for (const b of w.butterflies) {
+      b.position.x = p.x + (b.position.x - p.x) * 1.9;
+      b.position.y -= jungleCourseHeight(b.position.z);
+    }
+    // the gorge opens up ahead: thinner haze, so you can see the drop
+    const roar = this.course.roar(p.z);
+    this.scene.fog.density = 0.014 - 0.0095 * roar;
+    this.course.update(dt);
+    this._sun.position.copy(p).add(this._sunOffset);
+    this._sun.target.position.copy(p);
+  }
+
+  /** A pickup was driven through. */
+  _reward(got) {
+    const car = this.car;
+    this._rewards++;
+    if (got.kind === 'REPAIR') car.heal(25);
+    else if (got.kind === 'HEART') { car.maxHealth = Math.min(150, car.maxHealth + 10); car.heal(10); }
+    else if (got.kind === 'NITRO') { car.heat = 0; car.overheated = false; car.freeBoost = 4; }
+    else if (got.kind === 'SHIELD') car.shield = 6;
+    this.sound.pickup(got.kind);
+    this._flash(got.label, '#' + got.color.toString(16).padStart(6, '0'));
+    this._punch = Math.max(this._punch || 0, 0.25);
+  }
+
+  _updateShield(dt) {
+    const sh = this._shield;
+    const t = this.car.shield;
+    sh.visible = t > 0;
+    if (!sh.visible) return;
+    const b = this.car.bounds || { halfW: 0.9, halfL: 2 };
+    sh.scale.set(b.halfW / 0.45 * 0.62, 1.25, b.halfL / 0.46 * 0.62);
+    sh.position.y = 0.7;
+    sh.material.uniforms.uTime.value += dt;
+    // fades in, and flickers in its last second and a half
+    const flicker = t < 1.5 ? (Math.sin(t * 30) > 0 ? 1 : 0.25) : 1;
+    sh.material.uniforms.uAlpha.value = Math.min(1, (6 - t) * 4) * flicker;
+  }
+
+  /* ======================== the falls ======================== */
+
+  _startFall() {
+    const car = this.car;
+    const v = Math.max(car.speed, 14);
+    const p = car.mesh.position;
+    const side = p.x > 0 ? -1 : 1;
+    this._finale = {
+      phase: 'fall', t: 0, pitch: 0,
+      vx: Math.sin(car.heading) * v, vz: Math.cos(car.heading) * v, vy: 1.2,
+      // the shot: the camera flies out into the gorge, off to one side, and
+      // watches the car go down past the falls
+      cam: new THREE.Vector3(p.x + side * 34, -14, COURSE_END + 36),
+      look: p.clone(),
+    };
+    car.mesh.rotation.order = 'YXZ';
+    this._hud?.setVisible(false);
+    this._controls?.setVisible(false);
+    if (this._arrow) this._arrow.style.opacity = '0';
+    this.game.removeSecondaryCamera('rearview');
+    this.game.removeSecondaryCamera('minimap');
+    this._flash('OVER THE FALLS', '#e3bb62');
+  }
+
+  _updateFinale(dt) {
+    const f = this._finale;
+    const car = this.car;
+    const p = car.mesh.position;
+    f.t += dt;
+    this._time += dt;
+
+    if (f.phase === 'fall') {
+      f.vy -= 18 * dt;
+      const drag = Math.exp(-0.45 * dt);
+      f.vx *= drag; f.vz *= drag;
+      p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
+      f.pitch = Math.min(1.15, f.pitch + dt * 0.6);          // nose drops as it goes over
+      car.mesh.rotation.set(f.pitch, car.heading, Math.sin(f.t * 1.8) * 0.08);
+      spinWheels(car.model, car.speed, 0, dt);
+      if (p.y <= -DROP + 0.3) {
+        f.phase = 'splash'; f.t = 0;
+        p.y = -DROP + 0.3;
+        this.course.splash(p);
+        this.sound.splash();
+        this.sound.silenceEngine();
+        this.shake = 1.2;
+        this._impact(0.5, null);
+        this.finished = true;
+      }
+    } else {
+      p.y = Math.max(-DROP - 3, p.y - dt * 1.4);              // it sinks into the pool
+      car.mesh.rotation.x = Math.min(1.4, car.mesh.rotation.x + dt * 0.2);
+      if (f.t > 1.3 && !this._fade) {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;transition:opacity 1.1s ease;z-index:29;pointer-events:none';
+        document.body.appendChild(el);
+        void el.offsetWidth;
+        el.style.opacity = '1';
+        this._fade = el;
+      }
+      if (f.t > 2.5 && !this._finishScreen) {
+        this._finishScreen = createFinishScreen({
+          time: this._time,
+          topSpeedKmh: this._topSpeed * 3.6,
+          rewards: this._rewards,
+          rewardsTotal: this.pickups.items.length,
+          health: car.health,
+          maxHealth: car.maxHealth,
+          onNext: () => this.game.setLevel('level03'),
+        });
+      }
+    }
+
+    // the Handler brakes hard and stops short of the edge
+    const h = this.handler;
+    h.speed *= Math.exp(-1.6 * dt);
+    h.mesh.position.z = Math.min(h.mesh.position.z + h.speed * dt, COURSE_END - 7);
+    this.policeLights.update(dt, 'APPROACH');
+
+    // camera: glide to the lip of the falls and follow the car down
+    const cam = this.game.camera;
+    // out over the edge first, then down (so it never dips into the cliff top)
+    const kxz = 1 - Math.exp(-dt * 2.2), ky = 1 - Math.exp(-dt * (cam.position.z > COURSE_END + 4 ? 2.2 : 0.6));
+    cam.position.x += (f.cam.x - cam.position.x) * kxz;
+    cam.position.z += (f.cam.z - cam.position.z) * kxz;
+    cam.position.y += (f.cam.y - cam.position.y) * ky;
+    f.look.lerp(p, 1 - Math.exp(-dt * 6));
+    const look = f.look.clone();
+    if (this.shake > 0.005) {
+      look.x += Math.sin(f.t * 41) * 0.5 * this.shake;
+      look.y += Math.sin(f.t * 37.7) * 0.4 * this.shake;
+      this.shake *= Math.exp(-4 * dt);
+    }
+    cam.lookAt(look);
+    if (this._baseFov !== undefined) {
+      cam.fov += (this._baseFov + 6 - cam.fov) * (1 - Math.exp(-dt * 2));
+      cam.updateProjectionMatrix();
+    }
+
+    this._updateWorld(dt);
+    this.sound.update(dt, {
+      speed: f.phase === 'fall' ? car.speed : 0, maxSpeed: car.maxSpeed, throttle: false, boosting: false,
+      skid: false, scrape: 0, falls: 0.4, falling: f.phase === 'fall',
+      handler: { dist: 60, dx: 0, attacking: false }, drones: [],
+    });
   }
 
   /**
@@ -531,8 +759,8 @@ export class Level02 extends Level {
   _updateTelegraphArrow(handlerState) {
     if (!this._arrow) {
       const el = document.createElement('div');
-      el.style.cssText = 'position:fixed;top:50%;z-index:16;pointer-events:none;font:800 22px system-ui,sans-serif;'
-        + 'color:#ff4d4d;text-shadow:0 0 14px rgba(255,60,60,.9);letter-spacing:2px;opacity:0;transition:opacity .15s;white-space:nowrap';
+      el.style.cssText = "position:fixed;top:50%;z-index:16;pointer-events:none;font:700 22px 'Palatino Linotype',Palatino,Georgia,serif;"
+        + 'color:#f2934f;text-shadow:0 2px 0 rgba(0,0,0,.6),0 0 14px rgba(201,68,43,.9);letter-spacing:.2em;opacity:0;transition:opacity .15s;white-space:nowrap';
       document.body.appendChild(el);
       this._arrow = el;
     }
@@ -577,7 +805,8 @@ export class Level02 extends Level {
     );
 
     // minimap — directly above the car, looking down
-    this._minimap.position.set(this.car.mesh.position.x, 120, this.car.mesh.position.z);
+    // low enough that Level 1's thicker fog doesn't white it out
+    this._minimap.position.set(this.car.mesh.position.x, 40, this.car.mesh.position.z);
     this._minimap.lookAt(this.car.mesh.position);
   }
 
@@ -585,6 +814,7 @@ export class Level02 extends Level {
 
   _updateCarPicker(dt) {
     this._updateSecondaryCams();
+    this._updateWorld(dt);
     if (this.input.pressed('left')) this._selectCar(this._carIndex - 1);
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
     if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
@@ -625,7 +855,7 @@ export class Level02 extends Level {
         this._gameOverScreen = null;
         // fixed: this used to leave _gameOver set and health at 0 — a softlock
         this._gameOver = false;
-        this.car.health = 100;
+        this.car.health = this.car.maxHealth;
         this.car.heat = 0;
         this.car.overheated = false;
         this.state.alive = true;
@@ -658,6 +888,10 @@ export class Level02 extends Level {
     this._vignette?.remove();
     this.game?.camera?.clearViewOffset();
     this._arrow?.remove();
+    this._controls?.destroy();
+    this._finishScreen?.destroy();
+    this._fade?.remove();
+    this.course?.dispose();
     clearTimeout(this._hitStop);
     if (this.state) this.state.timeScale = 1;
     if (this._baseFov !== undefined && this.game?.camera) {

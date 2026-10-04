@@ -52,9 +52,10 @@ const rand = (a, b) => a + Math.random() * (b - a);
 export class Traffic {
   constructor(parent, assets, {
     count = 18, spawnMin = 130, spawnMax = 300, despawnBehind = 35, despawnAhead = 380,
-    minSpeed = 9, maxSpeed = 22,
+    minSpeed = 9, maxSpeed = 22, endZ = Infinity,
   } = {}) {
     this.parent = parent;
+    this.endZ = endZ;
     this.assets = assets;
     this.cfg = { count, spawnMin, spawnMax, despawnBehind, despawnAhead, minSpeed, maxSpeed };
     this.pool = [];
@@ -122,6 +123,11 @@ export class Traffic {
       z = playerZ + rand(spawnMin, spawnMax + i * 20);
       ok = this._isFree(v, lane, z);
     }
+    // the road ends at the falls: nothing spawns on the last stretch — a car
+    // that would is parked out of sight instead
+    v.parked = z > this.endZ - 320;
+    v.holder.visible = !v.parked;
+    if (v.parked) { v.z = -1e6; v.speed = 0; v.holder.position.z = v.z; return; }
     v.x = LANES[lane]; v.z = z; v.yaw = 0; v.vx = 0; v.spin = 0; v.hitT = 0;
     const [lo, hi] = v.type ? v.type.speed : [minSpeed, maxSpeed];
     v.baseSpeed = v.speed = rand(lo, hi);
@@ -143,6 +149,15 @@ export class Traffic {
     const { despawnBehind, despawnAhead } = this.cfg;
 
     for (const v of this.pool) {
+      if (v.parked) {
+        // wakes up again if you somehow turn round and drive back up the road
+        if (pz < this.endZ - 600) this._spawn(v, pz);
+        continue;
+      }
+      // the last stretch before the falls: anything far ahead of you quietly
+      // leaves (it's deep in the fog); anything near slows and stops short of the edge
+      if (v.z > this.endZ - 320 && v.z - pz > 95) { v.parked = true; v.holder.visible = false; v.z = -1e6; continue; }
+      if (v.z > this.endZ - 140) v.baseSpeed = Math.max(0, Math.min(v.baseSpeed, (this.endZ - 30 - v.z) * 0.5));
       // follow the vehicle in front instead of driving through it
       let leader = null, gap = Infinity;
       for (const w of this.pool) {
