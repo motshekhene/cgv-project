@@ -4,7 +4,8 @@
  * Every Level 2 sound is synthesised live with the Web Audio API — there are
  * no audio files, so nothing to download, license or 404.
  *
- *   continuous   engine (RPM through 5 gears + turbo whine on boost),
+ *   music        soft piano loop (Am–F–C–G arpeggios + sparse melody, reverb)
+ *   continuous   smooth engine hum (RPM through 5 gears, soft turbo on boost),
  *                Handler siren (wail when chasing, fast yelp while attacking,
  *                panned and faded by distance), tyre screech, rail scrape,
  *                wind, drone rotor buzz (pitch climbs on a dive),
@@ -13,7 +14,8 @@
  *                charge, spike-strip clatter, warning beeps, dodge chime
  *
  * Browsers only allow audio after a click or key press, so the AudioContext
- * is created on the first one (the car picker needs one anyway). M mutes.
+ * is created on the first one (the car picker needs one anyway). M mutes
+ * everything, N toggles the soft piano music.
  *
  *   this.sound = new Level2Sound();
  *   this.sound.update(dt, { speed, maxSpeed, throttle, boosting, skid, scrape,
@@ -22,13 +24,15 @@
  *   this.sound.dispose();   // in teardown
  */
 export class Level2Sound {
-  constructor({ volume = 0.55 } = {}) {
+  constructor({ volume = 0.75 } = {}) {
     this.volume = volume;
     this.muted = false;
+    this.musicOn = true;
     this.ctx = null;
     this._onGesture = () => this._start();
     this._onKey = (e) => {
       if (e.key === 'm' || e.key === 'M') this.setMuted(!this.muted);
+      if (e.key === 'n' || e.key === 'N') this.setMusic(!this.musicOn);
       this._start();
     };
     window.addEventListener('pointerdown', this._onGesture);
@@ -66,6 +70,7 @@ export class Level2Sound {
     this.wind = this._noiseLoop('lowpass', 420, 0.5);
     this.drones = [this._buildDrone(), this._buildDrone()];
     this._buildJungle();
+    this._buildMusic();
     this.ready = true;
   }
 
@@ -82,25 +87,34 @@ export class Level2Sound {
   }
 
   _buildEngine() {
+    // a smooth, deep hum instead of the old buzzy saw/square + distortion:
+    // a sine fundamental, a soft triangle an octave up, and a little filtered
+    // rumble, all through a gentle low-pass. A slow "firing" wobble keeps it
+    // from sounding like a test tone.
     const ctx = this.ctx;
     const out = ctx.createGain(); out.gain.value = 0;
-    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 800; filter.Q.value = 2;
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(x * 2.5); }
-    shaper.curve = curve;
-    const oscs = [['sawtooth', 0], ['square', 7], ['sine', -1200]].map(([type, detune]) => {
-      const o = ctx.createOscillator(); o.type = type; o.detune.value = detune; o.frequency.value = 50;
-      const g = ctx.createGain(); g.gain.value = type === 'sine' ? 0.8 : 0.35;
-      o.connect(g).connect(shaper); o.start();
+    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 500; filter.Q.value = 0.5;
+    const mk = (type, gain) => {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = 50;
+      const g = ctx.createGain(); g.gain.value = gain;
+      o.connect(g).connect(filter); o.start();
       return o;
-    });
-    shaper.connect(filter).connect(out).connect(this.master);
-    // turbo whine for boost
-    const turbo = ctx.createOscillator(); turbo.type = 'sine'; turbo.frequency.value = 1800;
+    };
+    const oscs = [mk('sine', 0.9), mk('triangle', 0.22)];
+    oscs[1].detune.value = 1200 + 4;            // an octave up, a hair sharp: warmth
+    // firing wobble: tremolo on the engine at a rate tied to rpm
+    const wobble = ctx.createOscillator(); wobble.frequency.value = 18;
+    const wobbleDepth = ctx.createGain(); wobbleDepth.gain.value = 0.18;
+    const body = ctx.createGain(); body.gain.value = 0.82;
+    wobble.connect(wobbleDepth).connect(body.gain); wobble.start();
+    filter.connect(body).connect(out).connect(this.master);
+    // rumble: brown-ish noise, very low
+    const rumble = this._noiseLoop('lowpass', 140, 0.7);
+    // soft turbo whistle for boost
+    const turbo = ctx.createOscillator(); turbo.type = 'sine'; turbo.frequency.value = 1400;
     const turboGain = ctx.createGain(); turboGain.gain.value = 0;
     turbo.connect(turboGain).connect(this.master); turbo.start();
-    this.engine = { oscs, filter, out, turbo, turboGain };
+    this.engine = { oscs, filter, out, turbo, turboGain, wobble, rumble };
   }
 
   _buildSiren() {
@@ -138,6 +152,95 @@ export class Level2Sound {
     this._nextBird = 1.5;
   }
 
+  /* ======================== soft piano music ======================== */
+
+  /**
+   * A slow, soft piano loop, synthesised: every note is a few sine partials
+   * with a quick attack and a long fading tail, through a gentle low-pass and
+   * a generated reverb. Am – F – C – G, arpeggiated at 66 bpm, with a sparse
+   * melody on top. N toggles the music on its own.
+   */
+  _buildMusic() {
+    const ctx = this.ctx;
+    this.music = ctx.createGain();
+    this.music.gain.value = 0;
+    this.music.gain.setTargetAtTime(this.musicOn ? 0.5 : 0, ctx.currentTime + 0.5, 1.5);   // fade in
+    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.frequency.value = 2600;
+    // reverb from a decaying noise impulse
+    const verb = ctx.createConvolver();
+    const len = Math.floor(ctx.sampleRate * 2.8);
+    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    }
+    verb.buffer = ir;
+    const wet = ctx.createGain(); wet.gain.value = 0.35;
+    const dry = ctx.createGain(); dry.gain.value = 0.75;
+    this.musicIn = tone;
+    tone.connect(dry).connect(this.music);
+    tone.connect(verb).connect(wet).connect(this.music);
+    this.music.connect(this.master);
+
+    const n = (name) => {   // 'A3' -> Hz
+      const k = { C: -9, D: -7, E: -5, F: -4, G: -2, A: 0, B: 2 }[name[0]];
+      return 440 * Math.pow(2, (k + (Number(name.slice(-1)) - 4) * 12) / 12);
+    };
+    // four bars, one chord each; arpeggio pattern of 8 eighth-notes per bar
+    this._chords = [
+      ['A2', 'E3', 'A3', 'C4', 'E4'],   // Am
+      ['F2', 'C3', 'F3', 'A3', 'C4'],   // F
+      ['C3', 'G3', 'C4', 'E4', 'G4'],   // C
+      ['G2', 'D3', 'G3', 'B3', 'D4'],   // G
+    ].map((c) => c.map(n));
+    this._melody = [   // [bar, eighth, note] — sparse, so it stays in the background
+      [0, 0, 'E5'], [0, 4, 'C5'], [1, 0, 'A4'], [1, 5, 'C5'], [2, 0, 'G4'], [2, 3, 'E5'], [3, 2, 'D5'], [3, 6, 'B4'],
+    ].map(([b, e, nm]) => [b, e, n(nm)]);
+    this._pattern = [0, 2, 3, 4, 1, 3, 2, 3];
+    this._beat = 60 / 66 / 2;            // an eighth note
+    this._step = 0;
+    this._nextNoteTime = ctx.currentTime + 1;
+    // its own timer, so the music also plays in the car picker and game-over screen
+    this._musicTimer = setInterval(() => this._scheduleMusic(), 100);
+  }
+
+  _piano(freq, at, vel = 0.3, len = 2.6) {
+    const ctx = this.ctx;
+    const partials = [[1, 1], [2, 0.42], [3, 0.16], [4, 0.08]];
+    for (const [mult, amp] of partials) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = freq * mult * (mult > 1 ? 1.0015 : 1);   // a touch of inharmonicity
+      const g = ctx.createGain();
+      const decay = len / (1 + (mult - 1) * 0.8);                  // high partials fade first
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(vel * amp, at + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      o.connect(g).connect(this.musicIn);
+      o.start(at); o.stop(at + decay + 0.05);
+    }
+  }
+
+  _scheduleMusic() {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'closed') return;
+    while (this._nextNoteTime < ctx.currentTime + (this.lookahead || 0.25)) {
+      const bar = Math.floor(this._step / 8) % 4, eighth = this._step % 8;
+      const chord = this._chords[bar];
+      const at = this._nextNoteTime;
+      if (eighth === 0) this._piano(chord[0], at, 0.22, 3.4);              // bass note on the bar
+      this._piano(chord[this._pattern[eighth]], at, 0.12 + (eighth === 0 ? 0.04 : 0), 2.4);
+      for (const [b, e, f] of this._melody) if (b === bar && e === eighth) this._piano(f, at + 0.01, 0.13, 3);
+      this._step++;
+      this._nextNoteTime += this._beat * (eighth % 2 ? 0.96 : 1.04);      // a little swing, less robotic
+    }
+  }
+
+  setMusic(on) {
+    this.musicOn = on;
+    if (this.music) this.music.gain.setTargetAtTime(on ? 0.5 : 0, this.ctx.currentTime, 0.4);
+  }
+
   /* ======================== per frame ======================== */
 
   update(dt, s) {
@@ -152,12 +255,14 @@ export class Level2Sound {
     while (g < gears.length - 2 && v > gears[g + 1]) g++;
     const inGear = Math.min(1, (v - gears[g]) / (gears[g + 1] - gears[g]));
     const rpm = 0.25 + inGear * 0.75;
-    const base = 38 + rpm * 70 + g * 6 + (s.boosting ? 14 : 0);
-    for (const o of this.engine.oscs) smooth(o.frequency, base, 0.04);
-    smooth(this.engine.filter.frequency, 500 + rpm * 1600 + (s.throttle ? 600 : 0), 0.05);
-    smooth(this.engine.out.gain, 0.05 + (s.throttle ? 0.1 : 0.04) + v * 0.05);
-    smooth(this.engine.turbo.frequency, 1700 + v * 1400, 0.1);
-    smooth(this.engine.turboGain.gain, s.boosting ? 0.03 : 0, 0.08);
+    const base = 42 + rpm * 55 + g * 5 + (s.boosting ? 10 : 0);
+    for (const o of this.engine.oscs) smooth(o.frequency, base, 0.08);
+    smooth(this.engine.wobble.frequency, base / 3, 0.1);
+    smooth(this.engine.filter.frequency, 260 + rpm * 520 + (s.throttle ? 180 : 0), 0.1);
+    smooth(this.engine.out.gain, 0.05 + (s.throttle ? 0.06 : 0.025) + v * 0.03, 0.12);
+    smooth(this.engine.rumble.gain.gain, 0.02 + v * 0.03, 0.2);
+    smooth(this.engine.turbo.frequency, 1300 + v * 700, 0.15);
+    smooth(this.engine.turboGain.gain, s.boosting ? 0.012 : 0, 0.12);
 
     // ---- tyres, rails, wind ----
     smooth(this.screech.gain.gain, s.skid ? 0.14 : 0, s.skid ? 0.03 : 0.12);
@@ -303,10 +408,12 @@ export class Level2Sound {
     const t = this.ctx.currentTime;
     this.engine.out.gain.setTargetAtTime(0, t, 0.3);
     this.engine.turboGain.gain.setTargetAtTime(0, t, 0.1);
+    this.engine.rumble.gain.gain.setTargetAtTime(0, t, 0.3);
     this.screech.gain.gain.setTargetAtTime(0, t, 0.1);
   }
 
   dispose() {
+    clearInterval(this._musicTimer);
     window.removeEventListener('pointerdown', this._onGesture);
     window.removeEventListener('keydown', this._onKey);
     if (this.ctx) this.ctx.close();

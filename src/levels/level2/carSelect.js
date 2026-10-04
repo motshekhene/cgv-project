@@ -167,7 +167,7 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
     s.title = paint.name;
     s.setAttribute('aria-label', paint.name);
     s.style.background = paint.color === null
-      ? `conic-gradient(${J.leaf} 0 25%, ${J.gold} 0 50%, #c8102e 0 75%, #1c2e6b 0)`
+      ? `conic-gradient(${J.leaf} 0 25%, ${J.gold} 0 50%, #c8102e 0 75%, #3d8be0 0)`
       : '#' + paint.color.toString(16).padStart(6, '0');
     s.addEventListener('click', () => onPaint?.(index));
     root.querySelector('.paints').appendChild(s);

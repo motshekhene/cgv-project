@@ -184,7 +184,7 @@ export class Level02 extends Level {
     this._paintInfo = new Map();                  // detected factory colour per model file
     await this._selectCar(this._carIndex);
     const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL);
-    if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds);
+    if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds, handlerModel);
 
     await this.traffic.init(this.car.mesh.position.z);
     await this._jungleReady;
@@ -250,7 +250,7 @@ export class Level02 extends Level {
       if (!this._paintInfo.has(selected.path)) this._paintInfo.set(selected.path, detectPaint(model));
       this._repaint();
       const bounds = model.userData.bounds;
-      this.carLights.fit(bounds);
+      this.carLights.fit(bounds, model);
       this.skids.setDims(bounds);
       this.car.bounds = {
         halfW: (bounds.max.x - bounds.min.x) * 0.45,

@@ -28,8 +28,8 @@ import * as THREE from 'three';
 export const PAINTS = [
   { id: 'factory', name: 'Factory', color: null },
   { id: 'crimson', name: 'Crimson', color: 0xc8102e },
-  { id: 'midnight', name: 'Midnight', color: 0x1c2e6b },
-  { id: 'black', name: 'Matte Black', color: 0x161616 },
+  { id: 'sky', name: 'Sky Blue', color: 0x3d8be0 },
+  { id: 'grey', name: 'Gunmetal Grey', color: 0x8a9098 },
 ];
 
 /** Everyday colours for traffic, weighted towards the greys you actually see on a motorway. */
