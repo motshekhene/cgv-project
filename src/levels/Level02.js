@@ -10,7 +10,7 @@ import { Skids, Smoke } from './level2/skids.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
-import { createGameOverScreen, createFinishScreen } from './level2/gameOver.js';
+import { createGameOverScreen } from './level2/gameOver.js';
 import {
   loadJungleKit, createJungleMaterials, createJungleSky, createPollen, createLightShaft,
   createJungleWildlife, updateJungleWildlife, jungleCourseHeight,
@@ -31,8 +31,8 @@ import { Level2Sound } from './level2/sound.js';
  *
  * The River Road is a journey: Level 1's jungle and mud trail, ~4 km long,
  * rewards along the way (pickups.js), and at the end the road goes over a
- * waterfall (course.js). The car goes with it — a short fall cinematic, the
- * splash in the pool, then Level 3, which opens with Kai in that pool.
+ * waterfall (course.js). The car goes with it — a short fall cinematic and
+ * the splash in the pool, where Level 2 ends (Level 3 opens in that pool).
  *
  * What each member contributed:
  *   2A — VehicleController, HandlerAI, attachModel, carLights, traffic,
@@ -369,7 +369,7 @@ export class Level02 extends Level {
     // game over — freeze gameplay
     if (this._gameOver) return;
 
-    // over the edge: the fall, the splash, the hand-over to Level 3
+    // over the edge: the fall and the splash — the end of Level 2
     if (this._finale) { this._updateFinale(dt); return; }
 
     // shared Input (keyboard) + the on-screen buttons (mouse / touch) → the
@@ -610,34 +610,22 @@ export class Level02 extends Level {
         f.phase = 'splash'; f.t = 0;
         p.y = -DROP + 0.3;
         this.course.splash(p);
+        // hold the last shot on the splash and the falls behind it
+        f.splashAt = p.clone();
+        // from the downstream side, looking back: the splash with the falls behind it
+        f.cam.set(p.x + Math.sign(f.cam.x - p.x) * 16, -DROP + 9, p.z + 42);
+        f.splashAt.y = -DROP + 6;
         this.sound.splash();
         this.sound.silenceEngine();
         this.shake = 1.2;
         this._impact(0.5, null);
+        // the level ends in the water: flag it for whoever picks up from here
         this.finished = true;
+        this.state.level2Complete = true;
       }
     } else {
       p.y = Math.max(-DROP - 3, p.y - dt * 1.4);              // it sinks into the pool
       car.mesh.rotation.x = Math.min(1.4, car.mesh.rotation.x + dt * 0.2);
-      if (f.t > 1.3 && !this._fade) {
-        const el = document.createElement('div');
-        el.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;transition:opacity 1.1s ease;z-index:29;pointer-events:none';
-        document.body.appendChild(el);
-        void el.offsetWidth;
-        el.style.opacity = '1';
-        this._fade = el;
-      }
-      if (f.t > 2.5 && !this._finishScreen) {
-        this._finishScreen = createFinishScreen({
-          time: this._time,
-          topSpeedKmh: this._topSpeed * 3.6,
-          rewards: this._rewards,
-          rewardsTotal: this.pickups.items.length,
-          health: car.health,
-          maxHealth: car.maxHealth,
-          onNext: () => this.game.setLevel('level03'),
-        });
-      }
     }
 
     // the Handler brakes hard and stops short of the edge
@@ -653,7 +641,7 @@ export class Level02 extends Level {
     cam.position.x += (f.cam.x - cam.position.x) * kxz;
     cam.position.z += (f.cam.z - cam.position.z) * kxz;
     cam.position.y += (f.cam.y - cam.position.y) * ky;
-    f.look.lerp(p, 1 - Math.exp(-dt * 6));
+    f.look.lerp(f.splashAt || p, 1 - Math.exp(-dt * (f.splashAt ? 2 : 6)));
     const look = f.look.clone();
     if (this.shake > 0.005) {
       look.x += Math.sin(f.t * 41) * 0.5 * this.shake;
@@ -889,8 +877,6 @@ export class Level02 extends Level {
     this.game?.camera?.clearViewOffset();
     this._arrow?.remove();
     this._controls?.destroy();
-    this._finishScreen?.destroy();
-    this._fade?.remove();
     this.course?.dispose();
     clearTimeout(this._hitStop);
     if (this.state) this.state.timeScale = 1;

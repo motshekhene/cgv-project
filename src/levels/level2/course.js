@@ -11,8 +11,8 @@ import { createWaterfallMaterial } from '../../shaders/waterfall.js';
  * distance signs ("FALLS 2 KM"), then the last 200 m become a stone causeway
  * across the river, and at COURSE_END the causeway — and the river with it —
  * goes over the edge. The car goes over too: Level02 plays the fall, the
- * splash in the pool far below, and hands over to Level 3, which opens with
- * Kai waking in that waterfall pool.
+ * splash in the pool far below — where Level 2 ends. (Level 3 opens with
+ * Kai waking in that waterfall pool.)
  *
  * Built from the team's own pieces: Level 1's signs, light shafts and jungle
  * kit, and Level 3's waterfall + water shaders (src/shaders, from mahlatse/level3).

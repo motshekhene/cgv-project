@@ -3,11 +3,10 @@ import { THEME_CSS, END_CSS, showEndScreen } from '../../ui/theme.js';
 /**
  * End cards — Member 2A
  *
- * Both use the team's end-screen look from Level 3 (src/ui/theme.js): the
+ * Uses the team's end-screen look from Level 3 (src/ui/theme.js): the
  * carved letters dropping in one by one, the gold ornament, the stone buttons.
  *
  *   createGameOverScreen   ember "WRECKED" card: RETRY (R) · CONTINUE (C) · QUIT (Q)
- *   createFinishScreen     gold "THE FALLS" card after the plunge: ENTER → Level 3
  *
  * Gameplay is frozen behind them (Level02 gates update()), and they only let
  * go once a button is picked. Purely DOM; destroy() removes everything.
@@ -67,25 +66,6 @@ export function createGameOverScreen({ topSpeedKmh, distance, time, onRestart, o
     if (k === 'c') onContinue?.();
     else if (k === 'q') onQuit?.();
   };
-  window.addEventListener('keydown', onKey);
-  return { el: host, destroy: () => { window.removeEventListener('keydown', onKey); host.remove(); style.remove(); } };
-}
-
-export function createFinishScreen({ time, topSpeedKmh, rewards, rewardsTotal, health, maxHealth, onNext }) {
-  const { style, host, end } = mount();
-  showEndScreen(end, {
-    kind: 'win',
-    title: 'THE FALLS',
-    sub: 'The road ends where the river does. Kai goes over with it, and the shrine waits below.',
-    lines: [
-      { text: `${fmtTime(time)}  ·  TOP SPEED ${Math.round(topSpeedKmh)} KM/H  ·  REWARDS ${rewards} / ${rewardsTotal}  ·  HEALTH ${Math.ceil(health)} / ${maxHealth}` },
-      { cls: 'end-credits', text: 'LEVEL 2 COMPLETE — THE RIVER ROAD' },
-    ],
-    action: { label: 'ENTER THE SHRINE', key: 'ENTER', onClick: () => go() },
-  });
-  let done = false;
-  const go = () => { if (done) return; done = true; onNext?.(); };
-  const onKey = (e) => { if (e.key === 'Enter') go(); };
   window.addEventListener('keydown', onKey);
   return { el: host, destroy: () => { window.removeEventListener('keydown', onKey); host.remove(); style.remove(); } };
 }
