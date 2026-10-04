@@ -42,7 +42,7 @@ export function createLevel2Hud() {
       HANDLER: <span data-k="state">APPROACH</span>
     </div>
     <div class="controls" style="${box}bottom:16px;left:16px;color:#8fa3b0;padding:8px 12px;font-size:12px">
-      W/S accelerate/brake · A/D steer · SHIFT boost · V change car
+      W/S throttle/brake · A/D steer · SPACE handbrake · SHIFT boost · V change car · M mute
     </div>`;
   parent.appendChild(root);
 

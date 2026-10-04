@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { attachModel as attachVehicleModel } from './attachModel.js';
+import { spinWheels } from './wheels.js';
 
 /** States in which he is actively attacking (lights strobe, HUD goes red). */
 export const ATTACK_STATES = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'SHOOT', 'DRONE'];
@@ -170,6 +171,7 @@ export class HandlerAI {
         this.halfW = (b.max.x - b.min.x) / 2;
         this.halfL = (b.max.z - b.min.z) / 2;
       }
+      if (model) this.model = model;
       return model;
     });
   }
@@ -428,6 +430,7 @@ export class HandlerAI {
     const h = THREE.MathUtils.clamp(Math.atan2(this.latVel, Math.max(4, this.speed)), -0.45, 0.45);
     this.heading += (h - this.heading) * Math.min(1, 10 * dt);
     this.mesh.rotation.y = this.heading;
+    spinWheels(this.model, this.speed, THREE.MathUtils.clamp(this.latVel / 6, -1, 1), dt);
 
     // ---------- solid contact ----------
     this.touching = false;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { attachModel as attachVehicleModel } from './attachModel.js';
+import { spinWheels } from './wheels.js';
 
 /**
  * VehicleController — Member 2A
@@ -105,7 +106,10 @@ export class VehicleController {
   }
 
   attachModel(assets, path, options = {}) {
-    return attachVehicleModel(assets, this.mesh, path, { length: 3.6, ...options });
+    return attachVehicleModel(assets, this.mesh, path, { length: 3.6, ...options }).then((model) => {
+      if (model) this.model = model;
+      return model;
+    });
   }
 
   update(dt, input) {
@@ -153,24 +157,31 @@ export class VehicleController {
     const v = Math.abs(this.speed) / this.maxSpeed;
     const authority = THREE.MathUtils.clamp(v * 3, 0, 1) * (1 - 0.35 * Math.max(0, v - 0.5) * 2);
     const dir = this.speed >= 0 ? 1 : -1;            // reversing flips the wheel
-    this.heading += this.steer * this.steerRate * authority * dir * dt;
+    // handbrake (Space): the rear lets go — sharper turn-in, no self-centring,
+    // the car can swing further off the road line, and it scrubs speed
+    const hb = input.handbrake && v > 0.2;
+    this.handbraking = hb;
+    const hbTurn = hb ? 1.7 : 1;
+    this.heading += this.steer * this.steerRate * authority * dir * hbTurn * dt;
+    if (hb) this.speed = Math.max(0, this.speed - 9 * dt);
 
     // self-aligning: with the wheel centred the car straightens back onto the
     // road line, so a lane change ends pointing forward instead of into a rail
-    const align = this.selfAlign * (1 - Math.abs(this.steer)) * Math.min(1, v * 4);
+    const align = this.selfAlign * (hb ? 0.15 : 1) * (1 - Math.abs(this.steer)) * Math.min(1, v * 4);
     this.heading -= this.heading * Math.min(1, align * dt);
 
     // spin from being hit: the tail steps out, then the car catches itself.
     // A hard hit can swing it a bit past the normal steering limit.
     this.heading += this.yawVel * dt;
     this.yawVel *= Math.exp(-3.5 * dt);
-    const maxH = this.maxHeading + Math.min(0.35, Math.abs(this.yawVel) * 0.25);
+    const maxH = this.maxHeading * (hb ? 1.5 : 1) + Math.min(0.35, Math.abs(this.yawVel) * 0.25);
     this.heading = THREE.MathUtils.clamp(this.heading, -maxH, maxH);
 
     // a hard swerve at speed counts as a drift (skids + smoke)
     this.drifting = (v > 0.45 && Math.abs(this.steer) > 0.75 && Math.abs(this.heading) > 0.18)
       || Math.abs(this.yawVel) > 0.5
-      || flatK > 0.2;                  // a flat grinds and smokes
+      || flatK > 0.2                   // a flat grinds and smokes
+      || (hb && Math.abs(this.heading) > 0.12);
 
     // ---- integrate ----
     this.lateralVel *= Math.exp(-4 * dt);
@@ -197,5 +208,6 @@ export class VehicleController {
     const targetRoll = this.steer * 0.07 * Math.min(1, v * 1.5) + this.lateralVel * 0.01;
     this.roll += (targetRoll - this.roll) * Math.min(1, 8 * dt);
     this.mesh.rotation.set(0, this.heading, this.roll);
+    spinWheels(this.model, this.speed, this.steer, dt);
   }
 }

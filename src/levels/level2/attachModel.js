@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { rigWheels } from './wheels.js';
 
 /**
  * attachModel — Member 2A
@@ -92,6 +93,7 @@ export async function attachModel(assets, holder, path, opts = {}) {
   if (previous) holder.remove(previous);
 
   model.name = 'vehicle-model';
+  rigWheels(model);                 // wheels roll and steer (see wheels.js)
   holder.add(model);
   return model;
 }

@@ -31,7 +31,7 @@ export class Level02 extends Level {
   constructor() {
     super('level02');
     // the shape VehicleController already expects — filled from shared Input each frame
-    this._input = { forward: false, backward: false, left: false, right: false, boost: false };
+    this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
   }
 
   async init(scene, assets, input, state) {
@@ -55,10 +55,29 @@ export class Level02 extends Level {
     this.root.add(new THREE.HemisphereLight(0xffd2a0, 0x2f3a1c, 0.85));
     const sun = new THREE.DirectionalLight(0xffc28a, 1.6);
     sun.position.set(-45, 12, 90);       // matches the sky's sun
-    this.root.add(sun);
+    // a tight shadow box that follows the car: every car gets a contact
+    // shadow on the tarmac for the cost of one small shadow map
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 160 });
+    sun.shadow.bias = -0.0008;
+    sun.shadow.normalBias = 0.03;
+    this.root.add(sun, sun.target);
+    this._sun = sun;
+    this._sunOffset = new THREE.Vector3(-45, 28, 90).normalize().multiplyScalar(80);
 
-    this._pollen = createPollen(500);
+    this._pollen = createPollen(260);
     this._pollen.material.color.set(0xffd08a);
+    // soft round glow instead of hard square points
+    const dot = document.createElement('canvas');
+    dot.width = dot.height = 32;
+    const g = dot.getContext('2d').createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(255,255,255,.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    const ctx2 = dot.getContext('2d'); ctx2.fillStyle = g; ctx2.fillRect(0, 0, 32, 32);
+    this._pollen.material.map = new THREE.CanvasTexture(dot);
+    this._pollen.material.size = 0.09;
+    this._pollen.material.opacity = 0.55;
+    this._pollen.material.needsUpdate = true;
     this.root.add(this._pollen);
 
     // ---- infinite textured road — @2B — now through the jungle ----
@@ -75,13 +94,17 @@ export class Level02 extends Level {
 
     // the Handler's hits: a ram that connects hurts and shakes, a scrape
     // alongside nicks you, a dodged ram is called out on the HUD
+    const between = () => this._mid.copy(this.car.mesh.position).add(this.handler.mesh.position).multiplyScalar(0.5).setY(0.6);
+    this._mid = new THREE.Vector3();
     this.handler.onAttackResolved = (hit) => {
+      this._impact(0.55 + hit.impact * 0.45, between());
       this.sound.crash(hit.impact, hit.side * -0.5);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.5 + hit.impact * 0.8);
       this._flash(`${hit.label}  -${hit.damage}`, '#ff5555');
     };
     this.handler.onContact = (hit) => {
+      this._impact(hit.impact * 0.45, between());
       this.sound.thump(hit.impact, hit.side * -0.5);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, hit.impact);
@@ -92,6 +115,7 @@ export class Level02 extends Level {
     this.weapons = new HandlerWeapons(this.root, assets);
     this.handler.weapons = this.weapons;
     this.weapons.onHit = (hit) => {
+      this._impact(hit.kind === 'drone' ? 0.9 : 0.5, null);
       if (hit.kind === 'drone') this.sound.crash(0.9); else this.sound.tyrePop();
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
@@ -255,6 +279,9 @@ export class Level02 extends Level {
     this.car.speed = 0;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
     this._hud?.setVisible(false);
+    // slide the view so the car sits to the right of the panel
+    const w = window.innerWidth, h = window.innerHeight;
+    this.game.camera.setViewOffset(w, h, -Math.min(200, w * 0.14), 0, w, h);
     this._picker = createCarPicker({
       startIndex: this._carIndex,
       startPaint: this._paintIndex,
@@ -272,6 +299,7 @@ export class Level02 extends Level {
     savePaint(this._paintIndex);
     this._picker?.destroy();
     this._picker = null;
+    this.game.camera.clearViewOffset();
     this._selectingCar = false;
     this._confirmingCar = false;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
@@ -297,6 +325,9 @@ export class Level02 extends Level {
     i.left     = this.input.isDown('left');
     i.right    = this.input.isDown('right');
     i.boost    = this.input.isDown('boost');
+    // its own binding: the shared 'jump' action also includes W and ↑
+    this.input.bindings.handbrake ??= [' '];
+    i.handbrake = this.input.isDown('handbrake');
 
     // open car picker
     if (this.input.pressed('changeCar')) {
@@ -308,6 +339,7 @@ export class Level02 extends Level {
     this.car.update(dt, i);
     const { dist, state: handlerState } = this.handler.update(dt);
     this.weapons.update(dt, this.car, this.handler.mesh);
+    this._updateTelegraphArrow(handlerState);
 
     // skid detection
     const headingRate = dt > 0 ? (this.car.heading - previousHeading) / dt : 0;
@@ -316,7 +348,13 @@ export class Level02 extends Level {
       || (i.backward && this.car.speed > 14)
       || this.car.wallHit > 0;
 
-    // scraping a guardrail: shake, and a real hit if you went in square
+    // scraping a guardrail: shake, sparks off the rail, and a real hit if you went in square
+    this._sparkT = (this._sparkT || 0) - dt;
+    if (this.car.wallHit > 0 && this._sparkT <= 0) {
+      this._sparkT = 0.05;
+      const p = this.car.mesh.position;
+      this.weapons._burst(this._mid.set(Math.sign(p.x) * (this.car.railX - 0.1), 0.5, p.z), 3);
+    }
     if (this.car.wallHit > 0) {
       this.shake = Math.max(this.shake, 0.15 + this.car.wallHit * 0.6);
       if (this.car.wallHit > 0.35 && this._wallCooldown <= 0) {
@@ -334,6 +372,7 @@ export class Level02 extends Level {
 
     this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
     for (const hit of this.traffic.update(dt, this.car)) {
+      this._impact(hit.impact, this._mid.copy(this.car.mesh.position).setY(0.6));
       this.sound.crash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
@@ -348,21 +387,11 @@ export class Level02 extends Level {
 
     this._updateSecondaryCams();
 
-    // chase camera with shake
-    const cam = this.game.camera;
-    this._camOffset.set(
-      Math.sin(this.car.heading) * -8, 4.2, Math.cos(this.car.heading) * -8
-    );
-    const desired = this.car.mesh.position.clone().add(this._camOffset);
-    cam.position.lerp(desired, 0.12);
-    this._lookAt.copy(this.car.mesh.position);
-    this._lookAt.y += 1;
-    if (this.shake > 0.01) {
-      this._lookAt.x += (Math.random() - 0.5) * this.shake;
-      this._lookAt.y += (Math.random() - 0.5) * this.shake;
-      this.shake *= Math.exp(-6 * dt);
-    }
-    cam.lookAt(this._lookAt);
+    this._updateCamera(dt);
+
+    // sun + shadow box follow the car
+    this._sun.position.copy(this.car.mesh.position).add(this._sunOffset);
+    this._sun.target.position.copy(this.car.mesh.position);
 
     // HUD
     this._time += dt;
@@ -413,6 +442,115 @@ export class Level02 extends Level {
     }
   }
 
+  /**
+   * Chase camera. Everything is exponential smoothing on dt, so it feels the
+   * same at 30 fps and 144 fps (the old per-frame lerp did not):
+   *   - pulls back and widens the FOV with speed, more on boost
+   *   - looks ahead of the car, and into the turn
+   *   - a touch of roll with the steering
+   *   - smooth (not random-per-frame) shake, plus an FOV "punch" on big hits
+   */
+  _updateCamera(dt) {
+    const cam = this.game.camera;
+    const car = this.car;
+    const v = Math.min(1.3, Math.abs(car.speed) / car.maxSpeed);
+    const k = 1 - Math.exp(-dt * 6);            // position follow rate
+    const kl = 1 - Math.exp(-dt * 9);           // aim follow rate
+    const back = 7.4 + v * 1.8, up = 3.3 + v * 0.4;
+    const sh = Math.sin(car.heading), ch = Math.cos(car.heading);
+    this._camOffset.set(-sh * back, up, -ch * back);
+    this._camDesired = (this._camDesired || new THREE.Vector3()).copy(car.mesh.position).add(this._camOffset);
+    cam.position.lerp(this._camDesired, k);
+
+    const ahead = 5 + v * 7;
+    const into = car.steer * 2.2 * v;           // look into the corner
+    const target = (this._camTarget || (this._camTarget = new THREE.Vector3()))
+      .set(car.mesh.position.x + sh * ahead + ch * into, car.mesh.position.y + 1.1, car.mesh.position.z + ch * ahead - sh * into);
+    if (!this._lookInit) { this._lookAt.copy(target); this._lookInit = true; }
+    this._lookAt.lerp(target, kl);
+
+    // shake: smooth noise from a few sines, decaying
+    this._time2 = (this._time2 || 0) + dt;
+    const t = this._time2;
+    const s = this.shake;
+    const look = (this._lookShaken || (this._lookShaken = new THREE.Vector3())).copy(this._lookAt);
+    if (s > 0.005) {
+      look.x += (Math.sin(t * 41) + Math.sin(t * 23.3)) * 0.5 * s;
+      look.y += (Math.sin(t * 37.7) + Math.sin(t * 19.1)) * 0.4 * s;
+      this.shake *= Math.exp(-6 * dt);
+    }
+    cam.lookAt(look);
+    cam.rotateZ(-car.steer * 0.025 * v);
+
+    // FOV: speed, boost, impact punch
+    if (this._baseFov === undefined) this._baseFov = cam.fov;
+    this._punch = (this._punch || 0) * Math.exp(-dt * 7);
+    const fov = this._baseFov + v * 9 + (car.boosting ? 6 : 0) + this._punch * 7;
+    cam.fov += (fov - cam.fov) * (1 - Math.exp(-dt * 4));
+    cam.updateProjectionMatrix();
+  }
+
+  /**
+   * Hit feedback: sparks where it happened, a red vignette, an FOV punch
+   * and — for the big ones — a 70 ms hit-stop so the impact lands.
+   */
+  _impact(strength, at = null) {
+    if (at) this.weapons._burst(at, Math.round(6 + strength * 12));
+    this._punch = Math.max(this._punch || 0, strength);
+    if (!this._vignette) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:15;opacity:0;'
+        + 'background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(200,20,20,.55) 100%);transition:opacity .45s ease-out';
+      document.body.appendChild(el);
+      this._vignette = el;
+    }
+    const el = this._vignette;
+    el.style.transition = 'none';
+    el.style.opacity = String(Math.min(1, 0.35 + strength * 0.65));
+    void el.offsetWidth;
+    el.style.transition = 'opacity .5s ease-out';
+    el.style.opacity = '0';
+    if (strength > 0.65 && this.state) {
+      this.state.timeScale = 0.15;
+      clearTimeout(this._hitStop);
+      this._hitStop = setTimeout(() => { if (this.state) this.state.timeScale = 1; }, 70);
+    }
+  }
+
+  /** Arrow on the side the next move is coming from, during the wind-up. */
+  _updateTelegraphArrow(handlerState) {
+    if (!this._arrow) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;top:50%;z-index:16;pointer-events:none;font:800 22px system-ui,sans-serif;'
+        + 'color:#ff4d4d;text-shadow:0 0 14px rgba(255,60,60,.9);letter-spacing:2px;opacity:0;transition:opacity .15s;white-space:nowrap';
+      document.body.appendChild(el);
+      this._arrow = el;
+    }
+    const el = this._arrow;
+    const h = this.handler;
+    const show = handlerState === 'TELEGRAPH' && h.nextMove;
+    if (!show) { el.style.opacity = '0'; return; }
+    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
+    const behind = h.nextMove === 'SHUNT' || h.nextMove === 'DRONE';
+    // camera looks down +z, so world +x is the LEFT of the screen
+    const onLeft = h.mesh.position.x > this.car.mesh.position.x;
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 120));
+    el.style.opacity = String(pulse);
+    if (behind) {
+      el.style.left = '50%'; el.style.right = ''; el.style.top = '78%';
+      el.style.transform = 'translate(-50%,-50%)';
+      el.textContent = `▼ ${move} ▼`;
+    } else if (onLeft) {
+      el.style.left = '24px'; el.style.right = ''; el.style.top = '50%';
+      el.style.transform = 'translateY(-50%)';
+      el.textContent = `◀ ${move}`;
+    } else {
+      el.style.left = ''; el.style.right = '24px'; el.style.top = '50%';
+      el.style.transform = 'translateY(-50%)';
+      el.textContent = `${move} ▶`;
+    }
+  }
+
   /** Rear-view mirror + minimap (2B) follow the car — also during the car picker. */
   _updateSecondaryCams() {
     // rearview mirror — behind the car, looking forward
@@ -441,7 +579,8 @@ export class Level02 extends Level {
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
     if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
     if (this.input.pressed('interact')) this._setPaint(this._paintIndex + 1);   // E
-    if (this.input.pressed('jump') || this.input.pressed('forward')) this._confirmCar();
+    this.input.bindings.confirm ??= ['enter'];
+    if (this.input.pressed('jump') || this.input.pressed('forward') || this.input.pressed('confirm')) this._confirmCar();
 
     this._orbit += dt * 0.7;
     const radius = 6.5;
@@ -474,6 +613,19 @@ export class Level02 extends Level {
       onContinue: () => {
         this._gameOverScreen?.destroy();
         this._gameOverScreen = null;
+        // fixed: this used to leave _gameOver set and health at 0 — a softlock
+        this._gameOver = false;
+        this.car.health = 100;
+        this.car.heat = 0;
+        this.car.overheated = false;
+        this.state.alive = true;
+        this.state.failCause = null;
+        // give you a head start: he drops back and waits before attacking
+        this.handler.mesh.position.z = this.car.mesh.position.z - 35;
+        this.handler.mesh.position.x = this.car.mesh.position.x;
+        this.handler.speed = 0;
+        this.handler.state = 'APPROACH';
+        this.handler.nextAttackAt = this.handler.elapsed + 8;
         this._openCarPicker();
       },
       onQuit: () => {
@@ -493,6 +645,15 @@ export class Level02 extends Level {
     this._picker?.destroy();
     this._gameOverScreen?.destroy();
     this._flashEl?.remove();
+    this._vignette?.remove();
+    this.game?.camera?.clearViewOffset();
+    this._arrow?.remove();
+    clearTimeout(this._hitStop);
+    if (this.state) this.state.timeScale = 1;
+    if (this._baseFov !== undefined && this.game?.camera) {
+      this.game.camera.fov = this._baseFov;        // the camera is shared with the other levels
+      this.game.camera.updateProjectionMatrix();
+    }
     this.sound?.dispose();
     this._flashEl = null;
     if (this.road) this.road.dispose();

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { attachModel } from './attachModel.js';
 import { applyPaint, detectPaint, TRAFFIC_PAINTS } from './paint.js';
+import { spinWheels } from './wheels.js';
 
 /**
  * Traffic — Member 2A
@@ -152,6 +153,7 @@ export class Traffic {
                         : THREE.MathUtils.lerp(v.speed, v.baseSpeed, Math.min(1, dt));
 
       v.z += v.speed * dt;
+      spinWheels(v.model, v.speed, 0, dt);
       if (v.vx || v.spin) {                         // shoved by a crash
         v.x = THREE.MathUtils.clamp(v.x + v.vx * dt, -11, 11);
         v.yaw += v.spin * dt;
