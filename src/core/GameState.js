@@ -31,6 +31,10 @@ export class GameState {
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
     this.deaths = 0;
 
+    // Set in the prologue when the key is copied. Story progression, so it
+    // persists across levels and is NOT cleared by resetForLevel.
+    this.hasKey = false;
+
     // The pursuer. Level 01's only currency is distance, so handlerGap IS the
     // health bar for that level — the run ends when it reaches 0.
     // handlerState:

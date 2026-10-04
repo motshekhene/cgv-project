@@ -29,6 +29,7 @@ export const DEFAULT_BINDINGS = {
   ability: ["q"],
   pause: ["escape"],
   restart: ["r"],
+  skip: ['k'],
 };
 
 export class Input {
