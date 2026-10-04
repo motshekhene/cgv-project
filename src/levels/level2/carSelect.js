@@ -96,9 +96,10 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
   const root = document.createElement('div');
   root.id = 'car-picker';
   root.style.cssText = `
-    position:fixed;left:28px;top:50%;transform:translateY(-50%);z-index:20;
-    width:min(340px, calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto;box-sizing:border-box;
-    padding:20px 20px 16px;border:1px solid ${J.goldDim};border-radius:6px;
+    position:fixed;left:28px;top:39%;transform:translateY(-50%);z-index:20;
+    width:min(400px, 70vh, calc(100vw - 32px));aspect-ratio:1 / 1;overflow:hidden;box-sizing:border-box;
+    display:flex;flex-direction:column;
+    padding:16px 18px 12px;border:1px solid ${J.goldDim};border-radius:6px;
     background:${J.panel};color:${J.text};font-family:${J.sans};
     box-shadow:0 0 0 4px rgba(10,14,8,.55), 0 0 0 5px ${J.goldDim}, 0 18px 40px rgba(0,0,0,.55);
     animation:jp-in .35s ease-out;`;
@@ -106,33 +107,36 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
     <style>
       @keyframes jp-in { from { opacity:0; transform:translate(-14px,-50%); } to { opacity:1; transform:translate(0,-50%); } }
       #car-picker button { font-family:${J.sans}; }
+      #car-picker .cars { display:grid;grid-template-columns:1fr 1fr;gap:5px; }
       #car-picker .car { cursor:pointer;display:flex;justify-content:space-between;align-items:center;width:100%;
-        padding:8px 12px;margin:0 0 5px;border:1px solid rgba(217,180,90,.22);border-radius:3px;
+        padding:7px 10px;margin:0;border:1px solid rgba(217,180,90,.22);border-radius:3px;
         background:rgba(0,0,0,.18);color:${J.text};font-size:13px;letter-spacing:.5px;text-align:left;
         transition:background .15s, border-color .15s, transform .15s; }
       #car-picker .car:hover { background:${J.leafDim};transform:translateX(3px); }
       #car-picker .car.sel { background:linear-gradient(90deg, rgba(143,194,90,.28), rgba(143,194,90,.06));
         border-color:${J.leaf};color:#fff; }
       #car-picker .car.sel::after { content:'◆';color:${J.gold};font-size:10px; }
-      #car-picker .go { cursor:pointer;width:100%;margin-top:14px;padding:11px 0;border:1px solid ${J.gold};border-radius:3px;
+      #car-picker .go { cursor:pointer;flex:1;margin:0;padding:9px 0;border:1px solid ${J.gold};border-radius:3px;
         background:linear-gradient(180deg,#e6c46c,#b38a32);color:#1d1708;font-family:${J.serif};font-weight:700;
         font-size:15px;letter-spacing:4px;box-shadow:0 0 18px rgba(217,180,90,.25);transition:filter .15s, transform .15s; }
       #car-picker .go:hover { filter:brightness(1.1);transform:translateY(-1px); }
       #car-picker .sw { cursor:pointer;width:26px;height:26px;border-radius:50%;padding:0;border:2px solid rgba(0,0,0,.4);
         box-shadow:0 0 0 1px ${J.goldDim};transition:transform .15s, box-shadow .15s; }
       #car-picker .sw.sel { transform:scale(1.15);box-shadow:0 0 0 2px ${J.gold}, 0 0 10px rgba(217,180,90,.5); }
-      #car-picker .lbl { color:${J.gold};font-family:${J.serif};font-size:11px;letter-spacing:3px;margin:14px 0 8px; }
+      #car-picker .lbl { color:${J.gold};font-family:${J.serif};font-size:10px;letter-spacing:3px;margin:0 0 6px; }
     </style>
     <div style="text-align:center;font-family:${J.serif};color:${J.gold};font-size:12px;letter-spacing:5px">❦ THE RIVER ROAD ❦</div>
-    <div style="text-align:center;font-family:${J.serif};font-size:21px;letter-spacing:3px;margin:4px 0 2px;color:${J.text}">CHOOSE YOUR CAR</div>
-    <div style="height:1px;margin:10px 0 14px;background:linear-gradient(90deg,transparent,${J.gold},transparent)"></div>
+    <div style="text-align:center;font-family:${J.serif};font-size:19px;letter-spacing:3px;margin:3px 0 0;color:${J.text}">CHOOSE YOUR CAR</div>
+    <div style="height:1px;margin:8px 0 10px;background:linear-gradient(90deg,transparent,${J.gold},transparent)"></div>
     <div class="cars"></div>
-    <div class="blurb" style="margin:10px 2px 4px;color:${J.muted};font-size:12px;font-style:italic;min-height:30px"></div>
-    <div class="stats" style="display:grid;grid-template-columns:76px 1fr;gap:6px 10px;align-items:center;font-size:10px;letter-spacing:1.5px;color:${J.muted}"></div>
-    <div class="lbl">PAINT</div>
-    <div class="paints" style="display:flex;gap:10px"></div>
-    <button class="go">DRIVE</button>
-    <div style="margin-top:10px;color:${J.muted};font-size:10.5px;line-height:1.5;text-align:center">
+    <div class="blurb" style="margin:8px 2px 6px;color:${J.muted};font-size:11.5px;font-style:italic;min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+    <div class="stats" style="display:grid;grid-template-columns:70px 1fr;gap:5px 10px;align-items:center;font-size:9.5px;letter-spacing:1.5px;color:${J.muted}"></div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:flex-end;gap:14px;margin-top:10px">
+      <div><div class="lbl">PAINT</div><div class="paints" style="display:flex;gap:8px"></div></div>
+      <button class="go">DRIVE</button>
+    </div>
+    <div style="margin-top:8px;color:${J.muted};font-size:10px;text-align:center">
       A / D car · Q / E paint · Enter drive · V change car</div>`;
 
   const buttons = CARS.map((car, index) => {
