@@ -1,62 +1,44 @@
 import * as THREE from "three";
 import { Level } from "../core/Level.js";
-import { createSpeedWarpMaterial, updateSpeedWarp } from "../shaders/speedWarpShader.js";
+import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { createSubwayMaterials } from "./level1/subwayTextures.js";
+import {
+  loadJungleKit,
+  createJungleMaterials,
+  buildTrailBase,
+  buildElevatedTrail,
+  buildJungleBackdrop,
+  createJungleWildlife,
+  updateJungleWildlife,
+  jungleCourseHeight,
+  BRIDGE_GAPS,
+  updateTrailChunks,
+  createJungleSky,
+  createSign,
+  createLightShaft,
+  createPollen,
+  cloneProp,
+  makeJungleObstacle,
+} from "./level1/jungleWorld.js";
 
 /**
- * Level 01 — Downline.
+ * Level 01 — The Trail (Jungle Shrine theme).
  *
- * @1A: your player rig, lane logic, jump physics and camera pivot are
- * untouched below — I only replaced the placeholder tunnel and lighting
- * with the real subway art, and added obstacles / the security gate /
- * the service-vehicle handoff to Level 2, plus Shader 1 (speed-warp)
- * and the audio layer that were on my list.
+ * Member 1B owns the environment layer here: world art, lighting/fog,
+ * textured materials, Shader 1, atmosphere/audio, obstacle visuals, the
+ * collapsing ruin gate and the Level 2 logging-camp handoff.
  *
- * What changed vs. the shell:
- *   floorMat / wallMat        → real materials + the speed-warp ShaderMaterial on walls
- *   colour-only materials     → procedural albedo/normal/roughness maps (level1/subwayTextures.js)
- *   constant speed            → baseSpeed ramps with distance + boost/stamina, so Shader 1 sweeps
- *   static security gate      → Interlude I slam: telegraph strobe, fall, impact, sting, camera shake
- *   the slam was off-screen   → the camera takes itself and swings round to watch it land
- *   fixed chase camera        → input.lookBack (mouse2 / C) orbits the camera to face the way he came
- *   the Handler vanished at the seal → he runs up to the bars, hits them, and stays there lit
- *   the seal only held if he was 3 m back → the bars now come down between them at ANY gap
- *   one long linear speed creep → four gears: slow / medium / fast / super fast
- *   reaching the vehicle froze the game → it hands off to level 02 (Redline) and the chase continues
- *   (nothing)                 → the southbound: an oncoming train filling two of three lanes. Instant loss.
- *   obstacles were scenery    → clipping one stumbles Kai and hands the Handler three metres
- *   4 hand-placed barriers    → ~80 seeded placements of the three kinds the pitch names
- *   no pursuer                → the Handler: 15 m head start, constant-speed follower, fail state at 0
- *   600 m of tunnel (32 s)    → 3.4 km and a ~3 min clean run, with strips/lights/obstacles pooled
- *   ran off the end of the world → reaching the service vehicle ends the level
- *   single directional light  → hemi + key + a few point lights (emergency strips) + fog tuned cyan
- *   (nothing)                 → pipes, platform ledge, ticket-barrier obstacles, security gate, service bay
- *   (nothing)                 → AudioSystem: ambience, footsteps tied to stride, gate/train stings
+ * Member 1A's controller contract is intentionally preserved: three lanes,
+ * jump, slide, boost/stamina, chase camera, look-back camera, distance-based
+ * Handler gap and the three-metre penalty for clipping an obstacle. The old
+ * internal obstacle keys (barrier/trolley/duct) remain only so that collision
+ * code does not need to change; visually they are a fallen log, a boulder /
+ * broken column and a low ruined arch.
  *
- * Level 01's economy comes straight off the pitch: "the only currency is
- * distance", "every clipped barrier hands him three metres", and the health
- * bar does not appear until level 02. So nothing here calls state.damage() —
- * mistakes are paid for in metres of gap.
- *
- * The southbound is the one exception, and the pitch is explicit about why:
- * "HE CATCHES YOU, OR THE SOUTHBOUND DOES". A train is not a mistake you pay
- * three metres for, so it ends the run outright. state.failCause says which of
- * the two got you.
- *
- * @1A the slide is implemented here. input.slide was already bound in
- * Input.js but nothing read it, and the ceiling ducts below are impossible
- * without it while Player.js is still empty. It is deliberately one flag and
- * one timer in update(), so lift it straight out when you build the real
- * controller — nothing else depends on where it lives.
- *
- * this.finished is set on both outcomes, and NOTHING IN Game._frame() READS IT.
- * That no longer matters for the win — reaching the vehicle now calls
- * game.setLevel('level02') itself, so the run continues into Redline instead of
- * freezing on a box. It still matters for the LOSS: being caught stops Kai and
- * sets state.alive = false, but nothing draws a fail screen, so R (Game's own
- * restart binding) is currently the only way out. That hook is shared-systems
- * work, not Level 01's.
+ * The selected Jungle Shrine asset bundle lives under assets/jungle and is
+ * loaded through AssetRegistry. FBX props are converted to matte PBR materials
+ * in level1/jungleWorld.js, while the trail and forest floor use the supplied
+ * normal/roughness texture sets.
  */
 const LANE_X = [-2.4, 0, 2.4];
 
@@ -243,39 +225,108 @@ const CLIP_PAD_X = PLAYER_RADIUS; // added to each kind's own half-extent
 const CLIP_PAD_Z = PLAYER_RADIUS;
 
 /**
- * The three kinds the pitch names for level 01, and what each one asks of you.
- * Each carries its own collision band so _clipObstacles() stays generic.
- *
- *   barrier  ticket barrier — jump it, or change lane
- *   trolley  luggage trolley — lane only. A jump apex of 9.2^2 / (2*24) =
- *            1.76 m lifts Kai's feet to 2.07, so 2.2 m tall is deliberately
- *            just out of reach: it must not be jumpable.
- *   duct     ceiling duct — spans the full tunnel width, so no lane helps and
- *            the only answer is to slide. This is the one that teaches CTRL.
+ * Jungle Shrine obstacle collision bands. Internal keys are kept for
+ * compatibility with 1A's existing collision code:
+ *   barrier -> fallen log: jump or change lane
+ *   trolley -> boulder / broken column: change lane
+ *   duct    -> low ruined arch: slide
  */
 const OBSTACLE_KINDS = {
-  barrier: { halfX: 0.5, halfZ: 0.2, loY: 0, hiY: 1.0, size: [1, 1, 0.4], meshY: 0.5 },
-  trolley: { halfX: 0.6, halfZ: 0.45, loY: 0, hiY: 2.2, size: [1.2, 2.2, 0.9], meshY: 1.1 },
-  duct: { halfX: 6, halfZ: 0.35, loY: 1.5, hiY: 6.75, size: [11.8, 5.25, 0.7], meshY: 4.125 },
+  // The original three keys remain for compatibility with 1A. Extra Jungle
+  // variants use the same generic collision path, so no controller rewrite is
+  // needed just to make the route feel richer.
+  barrier: { halfX: 0.72, halfZ: 0.45, loY: 0, hiY: 0.95, meshY: 0 },
+  trolley: { halfX: 0.72, halfZ: 0.62, loY: 0, hiY: 2.25, meshY: 0 },
+  duct: { halfX: 3.8, halfZ: 0.5, loY: 1.05, hiY: 5.2, meshY: 0 },
+  crate: { halfX: 0.78, halfZ: 0.72, loY: 0, hiY: 2.0, meshY: 0 },
+  barrel: { halfX: 0.62, halfZ: 0.62, loY: 0, hiY: 1.7, meshY: 0 },
+  trap: { halfX: 0.72, halfZ: 0.48, loY: 0, hiY: 0.48, meshY: 0 },
+  wall: { halfX: 0.82, halfZ: 0.5, loY: 0, hiY: 2.5, meshY: 0 },
 };
 
 // --- obstacle placement ---
 const OBSTACLE_FIRST_Z = -140; // a calm runway to find the controls in
 const OBSTACLE_LAST_Z = GATE_Z + 90; // stop short of the seal so Interlude I is clean
-const OBSTACLE_GAP_START = 58; // metres between sites at the top of the level...
+const OBSTACLE_GAP_START = 48; // metres between sites at the top of the level...
 // ...and by the end. This is the difficulty ramp, and it is spacing in METRES
 // while difficulty is really spacing in SECONDS. 26 m was 1.18 s of reaction
 // time at the old 22 m/s ceiling; at the new 30 m/s top gear the same 26 m is
 // 0.87 s, and 0.65 s boosting, which is under human reaction time for a lane
 // read. 34 m restores ~1.13 s at top gear, so the last gear is faster without
 // also being unreadable — the speed is the difficulty, not the ambush.
-const OBSTACLE_GAP_END = 34;
+const OBSTACLE_GAP_END = 31;
 const OBSTACLE_SEED = 20260911;
 // Meshes kept alive per kind. The busiest 240 m window of the generated course
 // wants 9 barriers, so 8 was one short and the ninth silently went undrawn.
-const OBSTACLE_POOL = 12;
+const OBSTACLE_POOL = 16;
 const OBSTACLE_BEHIND = 30; // metres behind Kai a mesh stays drawn
 const OBSTACLE_AHEAD = 210; // ...and ahead, past the fog wall
+
+// --- falling-tree set pieces ---
+// These are telegraphed well ahead of Kai and land as jumpable obstacles. They
+// are deliberately placed on flatter stretches so the trunk visibly falls
+// from the forest floor across the trail instead of spawning in mid-air.
+const FALLING_TREE_EVENTS = [
+  { z: -260, side: -1 },
+  { z: -620, side: 1 },
+  // This one waits until Kai has JUST passed, then crashes down behind him.
+  // It is spectacle/pressure, not an unfair obstacle.
+  { z: -1785, side: -1, behind: true },
+  { z: -2910, side: 1 },
+];
+const FALL_TREE_TRIGGER_AHEAD = 62;
+const FALL_TREE_TIME = 0.95;
+const FALL_TREE_COLLIDE_FROM = 0.62;
+const FALL_TREE_HALF_Z = 0.7;
+const FALL_TREE_HI_Y = 0.95;
+
+// --- authored adventure beats ------------------------------------------------
+// The random obstacle field intentionally goes quiet through these sections.
+// Each one has its own readable rule, so difficulty comes from decisions rather
+// than foliage + random props hiding a reaction test.
+const ROUTE_SPLIT_START_Z = -720;
+const ROUTE_CHOICE_Z = -700;
+const ROUTE_SPLIT_FULL_Z = -790;
+const ROUTE_MERGE_START_Z = -930;
+const ROUTE_SPLIT_END_Z = -1000;
+const ROUTE_OFFSET = 5.6;
+
+const DARK_SHRINE_START_Z = -1010;
+const DARK_SHRINE_END_Z = -1185;
+const DARK_SHRINE_FADE = 28;
+
+const BRIDGE_START_Z = -1318;
+const BRIDGE_END_Z = -1450;
+// Panels start dropping almost immediately after Kai's feet clear them, so the
+// bridge visibly peels away behind him instead of waiting several metres.
+const BRIDGE_DROP_BEHIND = 2.2;
+
+const BOULDER_Z = -1215;
+const SWING_LOG_Z = -2165;
+const FALLING_BLOCK_Z = -2285;
+const CLOSING_DOOR_Z = -2365;
+const ROTATING_BEAM_Z = -2480;
+
+function scriptedSetPieceZone(z) {
+  return (
+    (z <= -660 && z >= -1245) ||
+    (z <= -1270 && z >= -1635) ||
+    (z <= -2110 && z >= -2535)
+  );
+}
+
+// --- cursed shrine guardian ---
+// A one-off head-on set piece on the high temple section. It wakes in Kai's
+// current lane, charges straight at him and cannot be jumped or tanked: the
+// only answer is to move lanes. Contact is an immediate level loss.
+const GUARDIAN_TRIGGER_Z = -1465;
+const GUARDIAN_SPAWN_Z = -1595;
+const GUARDIAN_SPEED = 31;
+const GUARDIAN_HALF_X = 0.82;
+const GUARDIAN_HALF_Z = 1.35;
+const GUARDIAN_CLEAR_NEAR_Z = -1270;
+const GUARDIAN_CLEAR_FAR_Z = -1635;
+const GUARDIAN_DESPAWN_BEHIND = 24;
 
 // --- the Handler ---
 // "He does not run faster than you. He just never slows down." So he is a
@@ -300,6 +351,15 @@ const STUMBLE_TAU = 0.45; // seconds; recovery time constant
 // describes. Raise it if playtests say a clean run has no tension — nothing
 // else reads this.
 const HANDLER_CREEP = 0;
+
+// Moving shrine hazards make noise when they hit Kai. That noise now matters:
+// the Handler gets an immediate burst of ground and then sprints for a short
+// window. It is deliberately survivable from a healthy gap, but a second
+// mistake while he is already close can turn into a catch.
+const HANDLER_IMPACT_GAP_LOSS = 2.75;
+const HANDLER_RAGE_TIME = 2.4;
+const HANDLER_RAGE_SPEED = 3.25;
+const IMPACT_LEAN_TIME = 0.34;
 
 export class Level01 extends Level {
   constructor() {
@@ -347,6 +407,49 @@ export class Level01 extends Level {
     this._bodySquash = 1;
 
     this.obstacles = [];
+    this._fallingTrees = [];
+
+    // Authored Level 1B set pieces. The fork is now an actual risk choice:
+    // left is the readable relic path; right is the faster-feeling shrine trial
+    // with denser combinations and much less recovery space.
+    this._routeSide = 0; // -1 left, +1 right, 0 not chosen yet
+    this._lastRouteIntent = 0;
+    this._worldX = 0;
+    this._routeCueShown = false;
+    this._darkFactor = 0;
+    this._bridgeCueShown = false;
+    this._bridgeGapHits = new Set();
+    this._specialHazards = [];
+    this._guardianTeases = [];
+    this._wildlife = null;
+    this._backdrop = null;
+    this._worldTime = 0;
+    this._storyLetters = [];
+    this._handlerPressureEvents = [];
+    this._transientBanner = null;
+    this._storyCard = null;
+
+    // A hit from a moving/flying shrine hazard provokes the Handler instead of
+    // behaving like a silent scenery clip. _specialImpactType is set by the
+    // exact moving object that touched Kai; _handlerRageT drives the short
+    // chase burst, and the lean gives the hit visible body feedback.
+    this._specialImpactType = null;
+    this._specialImpactX = 0;
+    this._handlerRageT = 0;
+    this._impactLeanT = 0;
+    this._impactLeanDir = 0;
+
+    // Cursed shrine guardian set piece. It is dormant until Kai reaches the
+    // temple-top approach, then it charges from ahead in the lane he is using.
+    this.guardian = null;
+    this._guardianActive = false;
+    this._guardianResolved = false;
+    this._guardianLaneX = 0;
+    this._guardianZ = GUARDIAN_SPAWN_Z;
+    this._guardianPhase = 0;
+
+    this._caughtOverlay = null;
+    this._floorY = 0;
     this.securityGate = null;
     this.serviceVehicle = null;
 
@@ -373,46 +476,57 @@ export class Level01 extends Level {
 
     this._audio = null;
     this._audioReady = false;
+    this._musicTrack = null;
     this._strideDistance = 0;
     // one stride ≈ 1.6 m of ground covered, so the footstep rate rises with
     // the speed ramp on its own instead of needing its own curve
     this._strideInterval = 1.6;
   }
 
-  init(scene, assets, input, state) {
+  async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
 
-    scene.background = new THREE.Color(0x05070d);
-    // cold cyan emergency-light haze, closes down visibility a bit faster
-    // than the shell's fog so the tunnel reads as claustrophobic
-    scene.fog = new THREE.Fog(0x061013, 35, 165);
+    scene.background = new THREE.Color(0xcfd6a8);
+    scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014);
+    this.root.add(createJungleSky());
 
-    const hemi = new THREE.HemisphereLight(0x4e8fa6, 0x121a26, 1.15);
+    const hemi = new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6);
+    this.hemi = hemi;
     this.root.add(hemi);
 
-    this.key = new THREE.DirectionalLight(0xbfe6ff, 1.35);
+    this.key = new THREE.DirectionalLight(0xffd29a, 4.5);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(1024, 1024);
-    this.key.shadow.camera.left = -14;
-    this.key.shadow.camera.right = 14;
-    this.key.shadow.camera.top = 14;
-    this.key.shadow.camera.bottom = -14;
+    this.key.shadow.camera.left = -16;
+    this.key.shadow.camera.right = 16;
+    this.key.shadow.camera.top = 16;
+    this.key.shadow.camera.bottom = -16;
+    this.key.shadow.camera.near = 1;
+    this.key.shadow.camera.far = 130;
     this.root.add(this.key, this.key.target);
 
-    // one set of procedurally generated materials shared by the builders below,
-    // tiled for this level's runway rather than the shell's original 600 m
-    const mats = createSubwayMaterials({ tunnelLength: TUNNEL_LENGTH });
+    this._jungleKit = await loadJungleKit(assets);
+    const mats = await createJungleMaterials(assets, TUNNEL_LENGTH);
+    this._jungleMats = mats;
     this._buildTunnel(mats);
-    // trains before obstacles: _buildTrain plans where the southbounds are
-    // dispatched, and the course generator deletes placements inside those
-    // windows so a train is never stacked on a barrier
-    this._buildTrain(mats);
+    this._backdrop = buildJungleBackdrop(this.root, this._jungleKit, mats);
+    this._wildlife = createJungleWildlife(this.root);
+    this._buildRouteSplit(mats);
+    this._buildDarkShrine(mats);
+    this._buildAdventureHazards(mats);
+    this._buildGuardianTeases();
+    this._buildStoryLetters();
+    this._buildHandlerPressureProps();
+    this._trainEvents = [];
+    this._trainActive = false;
     this._buildObstacles(mats);
+    this._buildFallingTrees();
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
     this._buildHandler();
+    this._buildShrineGuardian();
 
-    // the player rig — camera hangs off a pivot on the rig, never on the mesh
+    // Player/camera hierarchy remains 1A-owned and is deliberately unchanged.
     this.player = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.34, 0.8, 4, 10),
@@ -420,8 +534,15 @@ export class Level01 extends Level {
     );
     body.position.y = 1.05;
     body.castShadow = true;
-    this.body = body; // the slide squashes this, so keep the handle
+    this.body = body;
     this.player.add(body);
+
+    // In the dark shrine the route is readable from Kai's own small torch and
+    // the emissive runes. Outside that section it fades almost completely out.
+    this.kaiTorch = new THREE.SpotLight(0xc9fff0, 0, 24, 0.48, 0.6, 1.4);
+    this.kaiTorch.position.set(0, 1.55, -0.25);
+    this.kaiTorch.target.position.set(0, 0.9, -9);
+    this.player.add(this.kaiTorch, this.kaiTorch.target);
 
     this.camPivot = new THREE.Object3D();
     this.camPivot.position.set(0, CAM_HEIGHT, CAM_RADIUS);
@@ -429,231 +550,359 @@ export class Level01 extends Level {
     this.root.add(this.player);
 
     this._tmp = new THREE.Vector3();
-    // look target scratch: the forward aim point, and the one behind him it
-    // blends toward during a look-back
     this._tmpAim = new THREE.Vector3();
     this._tmpBack = new THREE.Vector3();
-
-    // the boost FOV kick writes to the shared camera, so remember the value
-    // Game set and hand it back in teardown()
     this._baseFov = this.game && this.game.camera ? this.game.camera.fov : 62;
-
-    // Audio listener needs the active camera, which Game.js owns. If
-    // this.game.camera isn't set yet at this point, update() will pick
-    // it up on the first frame instead — see _ensureAudio().
     this._ensureAudio();
   }
 
-  /** Builds the real subway art: walls (speed-warp shader), floor, ceiling, platform edge, pipes, strip lights. */
   _buildTunnel(mats) {
-    // Shader 1 still owns the walls — now sampling a procedural glazed-tile
-    // map instead of flat colour. mapRepeat does the tiling, because a raw
-    // ShaderMaterial ignores texture.repeat; one repeat is 4 m of tunnel
-    // length × 2.8 m of wall height.
-    this.wallMaterial = createSpeedWarpMaterial({
-      map: mats.wallMap,
-      mapRepeat: [MAP_REPEAT_Z, 2.5],
-      baseColor: 0xffffff, // white tint — the tile texture carries the colour
-      streakColor: 0x6be2ff,
+    const world = buildTrailBase(this.root, this._jungleKit, mats, {
+      length: TUNNEL_LENGTH,
+      centerZ: SHELL_CENTER_Z,
     });
+    this.floor = world.trail;
+    this._trailChunks = world.chunks;
+    this._elevatedCourse = buildElevatedTrail(this.root, this._jungleKit, mats);
+    this._bridgePanels = this._elevatedCourse.userData.bridgePanels || [];
 
-    // The shell itself is four long boxes — about 40 vertices for the whole
-    // 3.4 km — so there is nothing to gain from chunking it. Only the repeated
-    // detail below is worth pooling.
-    const floorGeo = new THREE.BoxGeometry(12, 0.4, TUNNEL_LENGTH);
-    this.floor = new THREE.Mesh(floorGeo, mats.floorMat);
-    this.floor.position.set(0, -0.2, SHELL_CENTER_Z);
-    this.floor.receiveShadow = true;
-    this.root.add(this.floor);
-
-    const wallGeo = new THREE.BoxGeometry(1, 7, TUNNEL_LENGTH);
-    for (const side of [-1, 1]) {
-      const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
-      wall.position.set(side * 6.2, 3.3, SHELL_CENTER_Z);
-      wall.receiveShadow = true;
-      this.root.add(wall);
+    // Keep signage outside the three running lanes. The earlier positions sat
+    // close enough to the trail to compete with obstacle silhouettes, which
+    // was especially distracting on a climb with the Handler close behind.
+    const signs = [
+      [-5.4, -72, "SITE 7 →"],
+      [5.4, -1120, "SITE 7 →"],
+      [-5.4, -2240, "SITE 7 →"],
+    ];
+    for (const [x, z, text] of signs) {
+      const sign = createSign(text);
+      sign.position.set(x, jungleCourseHeight(z), z);
+      sign.rotation.y = x < 0 ? 0.12 : -0.12;
+      this.root.add(sign);
     }
 
-    const ceiling = new THREE.Mesh(
-      new THREE.BoxGeometry(12.4, 0.3, TUNNEL_LENGTH),
-      mats.ceilingMat,
-    );
-    ceiling.position.set(0, 6.9, SHELL_CENTER_Z);
-    this.root.add(ceiling);
-
-    // raised platform ledge, one side, outside the playable lanes —
-    // its texture carries the worn yellow safety line along the track edge
-    const platform = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 0.5, TUNNEL_LENGTH),
-      mats.platformMat,
-    );
-    platform.position.set(-5.3, 0.05, SHELL_CENTER_Z);
-    platform.receiveShadow = true;
-    platform.castShadow = true;
-    this.root.add(platform);
-
-    // overhead pipes, other side — rust-streaked, with weld seams every 4 m
-    const pipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.15, TUNNEL_LENGTH, 8),
-      mats.pipeMat,
-    );
-    pipe.rotation.x = Math.PI / 2;
-    pipe.position.set(5.5, 5.9, SHELL_CENTER_Z);
-    pipe.castShadow = true;
-    this.root.add(pipe);
-
-    // Emergency strips: unlit emissive-look meshes + real point lights every
-    // third one, so the tunnel is actually lit by them instead of just showing
-    // bright rectangles. A fixed pool leapfrogs ahead of Kai in
-    // _updateTunnelDetail(), so the light and draw-call count is the same at
-    // 3 km as it was at 200 m. One shared geometry, one shared material.
-    const stripMat = new THREE.MeshBasicMaterial({ color: 0xcfefff });
-    const stripGeo = new THREE.BoxGeometry(2.6, 0.1, 0.6);
-    this._strips = [];
-    this.stripLights = [];
-    for (let i = 0; i < STRIP_POOL; i++) {
-      const strip = new THREE.Mesh(stripGeo, stripMat);
-      strip.position.set(0, 6.3, 0);
-      this.root.add(strip);
-      this._strips.push(strip);
+    this.speedWarpMaterial = createJungleSpeedWarpMaterial();
+    this._speedWarpGroup = new THREE.Group();
+    const ribbonGeo = new THREE.PlaneGeometry(1.6, 220);
+    for (const x of [-3.15, 3.15]) {
+      const ribbon = new THREE.Mesh(ribbonGeo, this.speedWarpMaterial);
+      ribbon.rotation.x = -Math.PI / 2;
+      ribbon.position.set(x, 0.035, -90);
+      this._speedWarpGroup.add(ribbon);
     }
-    for (let i = 0; i < STRIP_LIGHT_POOL; i++) {
-      const point = new THREE.PointLight(0x6be2ff, 1.1, 14, 2);
-      point.position.set(0, 6.0, 0);
-      this.root.add(point);
-      this.stripLights.push(point);
+    this.root.add(this._speedWarpGroup);
+
+    this._shaftGroup = new THREE.Group();
+    for (const [x, z, width] of [[-1.3, -15, 1.6], [2.4, -52, 2.1], [-2.5, -92, 1.8]]) {
+      const shaft = createLightShaft(width);
+      shaft.position.set(x, 28, z);
+      this._shaftGroup.add(shaft);
+    }
+    this.root.add(this._shaftGroup);
+
+    this._pollen = createPollen(500);
+    this.root.add(this._pollen);
+  }
+
+  _updateTunnelDetail(pulse) {
+    updateTrailChunks(this._trailChunks, this.z, 30);
+    const routeX = this._routeOffsetAt(this.z);
+    if (this._speedWarpGroup) {
+      this._speedWarpGroup.position.z = this.z;
+      this._speedWarpGroup.position.y = this._floorY;
+      this._speedWarpGroup.position.x = routeX;
+    }
+    if (this._shaftGroup) {
+      this._shaftGroup.position.z = this.z - 18;
+      this._shaftGroup.position.y = this._floorY;
+      this._shaftGroup.position.x = routeX;
+      for (const shaft of this._shaftGroup.children) {
+        if (shaft.material?.uniforms?.uOpacity) {
+          shaft.material.uniforms.uOpacity.value = 0.11 + (pulse - 0.85) * 0.05;
+        }
+      }
+    }
+    if (this._pollen) {
+      this._pollen.position.z = this.z - 48;
+      this._pollen.position.y = this._floorY;
+      this._pollen.position.x = routeX;
+      this._pollen.rotation.y += 0.0008;
     }
   }
 
-  /**
-   * Slides the strip pool along so it always straddles Kai. Each pooled mesh
-   * takes the strip "slot" (a fixed 20 m grid in world space) at its index,
-   * and the lights go to whichever visible slots are multiples of three — keyed
-   * off the slot rather than the pool index, so the lit pattern stays put in
-   * the world instead of strobing as the pool rotates.
-   */
-  _updateTunnelDetail(pulse) {
-    const startSlot = Math.floor((-this.z - STRIP_BEHIND) / STRIP_SPACING);
-    let lit = 0;
+  _routeOffsetMagnitude(z) {
+    const d = -z;
+    const start = -ROUTE_SPLIT_START_Z;
+    const full = -ROUTE_SPLIT_FULL_Z;
+    const merge = -ROUTE_MERGE_START_Z;
+    const end = -ROUTE_SPLIT_END_Z;
+    if (d <= start || d >= end) return 0;
+    if (d < full) {
+      const t = THREE.MathUtils.smoothstep(d, start, full);
+      return ROUTE_OFFSET * t;
+    }
+    if (d <= merge) return ROUTE_OFFSET;
+    const t = THREE.MathUtils.smoothstep(d, merge, end);
+    return ROUTE_OFFSET * (1 - t);
+  }
 
-    for (let k = 0; k < this._strips.length; k++) {
-      const slot = startSlot + k;
-      const z = -slot * STRIP_SPACING;
-      const strip = this._strips[k];
-      const inside = z <= TUNNEL_START_Z && z >= TUNNEL_END_Z;
-      strip.visible = inside;
-      if (!inside) continue;
-      strip.position.z = z;
+  _routeOffsetAt(z, side = this._routeSide) {
+    return side * this._routeOffsetMagnitude(z);
+  }
 
-      if (slot % 3 === 0 && lit < this.stripLights.length) {
-        const light = this.stripLights[lit++];
-        light.position.z = z;
-        light.visible = true;
-        light.intensity = 1.1 * pulse;
+  _buildRouteSplit(mats) {
+    const group = new THREE.Group();
+    group.name = "risk-choice-route-split";
+    const step = 8;
+
+    for (const side of [-1, 1]) {
+      for (let z0 = ROUTE_SPLIT_START_Z; z0 > ROUTE_SPLIT_END_Z; z0 -= step) {
+        const z1 = Math.max(ROUTE_SPLIT_END_Z, z0 - step);
+        const x0 = side * this._routeOffsetMagnitude(z0);
+        const x1 = side * this._routeOffsetMagnitude(z1);
+        const y0 = jungleCourseHeight(z0);
+        const y1 = jungleCourseHeight(z1);
+        const dx = x1 - x0;
+        const dz = z1 - z0;
+        const dy = y1 - y0;
+        const length = Math.hypot(dx, dz, dy);
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.16, length + 0.06), mats.trail);
+        deck.position.set((x0 + x1) * 0.5, (y0 + y1) * 0.5 - 0.08, (z0 + z1) * 0.5);
+        deck.rotation.x = Math.atan2(dy, Math.hypot(dx, dz));
+        deck.rotation.y = Math.atan2(dx, -dz);
+        deck.receiveShadow = true;
+        group.add(deck);
       }
     }
 
-    // park anything the window didn't need; three.js skips invisible lights
-    for (let i = lit; i < this.stripLights.length; i++) this.stripLights[i].visible = false;
+    // A ruined island splits the trail visually. It is deliberately narrow
+    // enough that a player can commit left or right without foliage hiding the
+    // first mirrored obstacle.
+    const island = new THREE.Group();
+    island.position.set(0, jungleCourseHeight(-758), -758);
+    const marker = cloneProp(this._jungleKit.stag);
+    marker.scale.setScalar(0.0105);
+    marker.position.y = 0.05;
+    island.add(marker);
+    for (const x of [-0.72, 0.72]) {
+      const col = cloneProp(this._jungleKit.columnShort);
+      col.scale.setScalar(0.011);
+      col.position.set(x, 0, 0.6);
+      island.add(col);
+    }
+    group.add(island);
+
+    const left = createSign("LEFT: RELIC", { width: 2.5, height: 0.72 });
+    left.position.set(-5.3, jungleCourseHeight(-686), -686);
+    left.rotation.y = 0.12;
+    group.add(left);
+    const right = createSign("RIGHT: TRIAL", { width: 2.6, height: 0.72 });
+    right.position.set(5.3, jungleCourseHeight(-686), -686);
+    right.rotation.y = -0.12;
+    group.add(right);
+
+    this._routeSplitGroup = group;
+    this.root.add(group);
   }
 
-  /**
-   * Lays out the course. Two separate things live here:
-   *
-   *   this.obstacles      plain data, and the sole authority for collision.
-   *                       Sorted by descending z, i.e. in the order Kai meets
-   *                       them, which is what lets _clipObstacles() scan a
-   *                       couple of entries instead of the whole course.
-   *   this._obstacleMeshes a small pool of meshes per kind, repositioned every
-   *                       frame onto whichever placements are in view.
-   *
-   * Splitting them is what makes ~80 obstacles cost the same as 24. It also
-   * means collision no longer depends on anything being drawn.
-   */
+  _updateRouteChoice(localX) {
+    if (!this._routeCueShown && this.z <= -620) {
+      this._routeCueShown = true;
+      this._showTransientBanner("FORK AHEAD — LEFT IS SAFER • RIGHT IS THE SHRINE TRIAL", 2.8);
+    }
+    if (this._routeSide !== 0 || this.z > ROUTE_CHOICE_Z) return;
+
+    if (this.lane === 0 || localX < -0.6) this._routeSide = -1;
+    else if (this.lane === 2 || localX > 0.6) this._routeSide = 1;
+    else if (this._lastRouteIntent) this._routeSide = this._lastRouteIntent;
+    else if (this.z <= ROUTE_SPLIT_START_Z - 15) this._routeSide = -1; // last-resort fallback
+    else return;
+
+    this._showTransientBanner(
+      this._routeSide < 0 ? "RELIC PATH — KEEP MOVING" : "SHRINE TRIAL — NO EASY LINE",
+      1.4,
+    );
+  }
+
+  _buildDarkShrine(mats) {
+    const group = new THREE.Group();
+    group.name = "dark-shrine-corridor";
+    this._darkRuneLights = [];
+
+    const wallMat = mats.stone;
+    for (let z = DARK_SHRINE_START_Z; z >= DARK_SHRINE_END_Z; z -= 18) {
+      const floor = jungleCourseHeight(z);
+      const arch = cloneProp(this._jungleKit.arch);
+      arch.position.set(0, floor, z);
+      arch.scale.setScalar(0.025);
+      group.add(arch);
+
+      for (const side of [-1, 1]) {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(0.45, 4.6, 14.0), wallMat);
+        wall.position.set(side * 4.15, floor + 2.25, z - 5.5);
+        wall.receiveShadow = true;
+        group.add(wall);
+      }
+
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.38, 14.0), wallMat);
+      roof.position.set(0, floor + 4.45, z - 5.5);
+      group.add(roof);
+    }
+
+    const runeMat = new THREE.MeshStandardMaterial({
+      color: 0x263e35,
+      emissive: new THREE.Color(0x61ffd0),
+      emissiveIntensity: 3.0,
+      roughness: 0.7,
+    });
+    for (let z = DARK_SHRINE_START_Z - 18; z > DARK_SHRINE_END_Z + 6; z -= 32) {
+      const floor = jungleCourseHeight(z);
+      for (const side of [-1, 1]) {
+        const rune = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.85, 1.15), runeMat);
+        rune.position.set(side * 3.86, floor + 1.55, z);
+        group.add(rune);
+      }
+      const light = new THREE.PointLight(0x5dffd2, 1.8, 17, 2);
+      light.position.set(0, floor + 1.9, z);
+      group.add(light);
+      this._darkRuneLights.push(light);
+    }
+
+    this._darkShrine = group;
+    this.root.add(group);
+  }
+
+  _updateDarkShrine(dt) {
+    const d = -this.z;
+    const start = -DARK_SHRINE_START_Z;
+    const end = -DARK_SHRINE_END_Z;
+    const enter = THREE.MathUtils.smoothstep(d, start, start + DARK_SHRINE_FADE);
+    const exit = 1 - THREE.MathUtils.smoothstep(d, end - DARK_SHRINE_FADE, end);
+    const target = THREE.MathUtils.clamp(enter * exit, 0, 1);
+    this._darkFactor += (target - this._darkFactor) * (1 - Math.exp(-7 * dt));
+
+    if (this.key) this.key.intensity = THREE.MathUtils.lerp(4.5, 0.38, this._darkFactor);
+    if (this.hemi) this.hemi.intensity = THREE.MathUtils.lerp(0.6, 0.10, this._darkFactor);
+    if (this.kaiTorch) this.kaiTorch.intensity = 5.2 * this._darkFactor;
+    if (this.handlerLight) {
+      this.handlerLight.color.setRGB(
+        THREE.MathUtils.lerp(1.0, 1.0, this._darkFactor),
+        THREE.MathUtils.lerp(0.61, 0.20, this._darkFactor),
+        THREE.MathUtils.lerp(0.32, 0.10, this._darkFactor),
+      );
+    }
+    if (this.scene?.fog?.isFogExp2) {
+      this.scene.fog.density = THREE.MathUtils.lerp(0.014, 0.031, this._darkFactor);
+      const base = new THREE.Color(0xcfd6a8);
+      const dark = new THREE.Color(0x111a18);
+      this.scene.fog.color.copy(base).lerp(dark, this._darkFactor);
+    }
+    for (let i = 0; i < (this._darkRuneLights?.length || 0); i++) {
+      this._darkRuneLights[i].intensity = (1.4 + Math.sin(performance.now() * 0.004 + i) * 0.35) * (0.35 + this._darkFactor);
+    }
+  }
+
   _buildObstacles(mats) {
     const rng = makeRng(OBSTACLE_SEED);
     const span = OBSTACLE_LAST_Z - OBSTACLE_FIRST_Z;
-
-    // safe if a level instance is ever re-init'd rather than reconstructed
     this.obstacles.length = 0;
     this._obsCursor = 0;
 
+    const laneKinds = ["barrier", "trolley", "crate", "barrel", "trap", "wall"];
+
     let z = OBSTACLE_FIRST_Z;
     while (z > OBSTACLE_LAST_Z) {
-      // 0 at the first obstacle, 1 at the seal — the difficulty curve
       const t = THREE.MathUtils.clamp((z - OBSTACLE_FIRST_Z) / span, 0, 1);
 
-      // Kinds unlock in the order the player can learn them: barriers alone
-      // for the first stretch, then trolleys once jumping is not enough, then
-      // ducts once there is a reason to find CTRL.
+      // Authored set pieces get clean sight-lines. Random props would make the
+      // fork, dark shrine, bridge gaps and moving traps unreadable at speed.
+      if (scriptedSetPieceZone(z) || (z <= GUARDIAN_CLEAR_NEAR_Z && z >= GUARDIAN_CLEAR_FAR_Z)) {
+        const clearStep = OBSTACLE_GAP_START +
+          (OBSTACLE_GAP_END - OBSTACLE_GAP_START) * t;
+        z -= clearStep;
+        continue;
+      }
+
       const roll = rng();
-      let kind = "barrier";
-      if (t > 0.28 && roll < 0.22) kind = "duct";
-      else if (t > 0.12 && roll < 0.55) kind = "trolley";
+
+      // Sliding arches stay rarer because they occupy all three lanes; the
+      // rest rotate through logs, rocks, crates, barrels, traps and broken
+      // shrine walls so the route stops reading as the same three props.
+      let kind = laneKinds[Math.floor(rng() * laneKinds.length)];
+      if (t > 0.2 && roll < 0.16) kind = "duct";
 
       if (kind === "duct") {
-        // full width, so the lane is irrelevant; centre it and be honest
         this._addObstacle("duct", 1, z);
       } else {
         const lane = Math.floor(rng() * 3);
         this._addObstacle(kind, lane, z);
 
-        // Later on, a second obstacle abreast forces one specific lane rather
-        // than leaving two outs. Offsetting by 1 or 2 mod 3 guarantees the
-        // third lane stays clear, so a site is never unsurvivable.
-        if (t > 0.45 && rng() < 0.3) {
+        // Increasingly common two-lane combinations force a deliberate read
+        // without making every obstacle a twitch reaction.
+        if (t > 0.2 && rng() < (0.26 + t * 0.28)) {
           const other = (lane + 1 + Math.floor(rng() * 2)) % 3;
-          this._addObstacle(rng() < 0.5 ? "barrier" : kind, other, z);
+          const secondKind = laneKinds[Math.floor(rng() * laneKinds.length)];
+          this._addObstacle(secondKind, other, z);
         }
       }
 
       let step = OBSTACLE_GAP_START + (OBSTACLE_GAP_END - OBSTACLE_GAP_START) * t;
-      if (kind === "duct") step += 14; // room to stand up again before the next one
-      z -= step * (0.85 + rng() * 0.3); // jitter, so the course isn't a metronome
+      if (kind === "duct") step += 10;
+      z -= step * (0.84 + rng() * 0.32);
     }
 
-    // Carve the southbound windows back out. Anything left in there could sit
-    // in the one surviving lane, and a duct is worse still — sliding gets you
-    // under the duct but not under the train, so the site would have no answer.
-    this.obstacles = this.obstacles.filter((o) => !this._inTrainZone(o.z));
+    // The fork is now a meaningful risk choice. LEFT is still active play —
+    // four clean reads, including a jump and slide — but gives the player more
+    // recovery space. RIGHT is the Shrine Trial: tighter spacing and several
+    // two-lane combinations, while always preserving one fair answer.
+    const leftPath = [
+      { z: -808, kind: "barrier", lane: 1 },
+      { z: -850, kind: "trolley", lane: 0 },
+      { z: -892, kind: "duct", lane: 1 },
+      { z: -925, kind: "crate", lane: 2 },
+    ];
+    for (const spec of leftPath) {
+      const offset = -this._routeOffsetMagnitude(spec.z);
+      this._addObstacle(spec.kind, spec.lane, spec.z, offset);
+    }
 
-    // --- the visual pool ---
-    // The duct gets a tinted clone of the vehicle maps plus a faint amber
-    // emissive, which is the palette rule doing work: amber only ever appears
-    // where something is about to hurt you, and this is the one obstacle whose
-    // answer is not obvious.
-    const ductMat = mats.vehicleMat.clone();
-    ductMat.emissive = new THREE.Color(0xff8a3d);
-    ductMat.emissiveIntensity = 0.22;
+    const rightPath = [
+      { z: -800, items: [["trolley", 0], ["crate", 2]] },
+      { z: -826, items: [["barrier", 1]] },
+      { z: -852, items: [["trap", 1], ["wall", 2]] },
+      { z: -878, items: [["duct", 1]] },
+      { z: -904, items: [["barrel", 0], ["trolley", 1]] },
+      { z: -928, items: [["crate", 0], ["barrier", 2]] },
+    ];
+    for (const site of rightPath) {
+      const offset = this._routeOffsetMagnitude(site.z);
+      for (const [kind, lane] of site.items) this._addObstacle(kind, lane, site.z, offset);
+    }
 
-    const kindMats = { barrier: mats.barrierMat, trolley: mats.vehicleMat, duct: ductMat };
+    this.obstacles.sort((a, b) => b.z - a.z);
 
     this._obstacleMeshes = {};
-    for (const [kind, spec] of Object.entries(OBSTACLE_KINDS)) {
-      const geo = new THREE.BoxGeometry(...spec.size); // one geometry per kind
+    for (const kind of Object.keys(OBSTACLE_KINDS)) {
       const pool = [];
       for (let i = 0; i < OBSTACLE_POOL; i++) {
-        const mesh = new THREE.Mesh(geo, kindMats[kind]);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.visible = false;
-        mesh.userData.isObstacle = true;
-        mesh.userData.kind = kind;
-        this.root.add(mesh);
-        pool.push(mesh);
+        const visual = makeJungleObstacle(kind, this._jungleKit, mats.stone);
+        visual.visible = false;
+        visual.userData.isObstacle = true;
+        visual.userData.kind = kind;
+        this.root.add(visual);
+        pool.push(visual);
       }
       this._obstacleMeshes[kind] = pool;
     }
   }
 
-  /** Pushes one placement onto the collision list, baking its kind's bounds in. */
-  _addObstacle(kind, lane, z) {
+  _addObstacle(kind, lane, z, offsetX = 0) {
     const spec = OBSTACLE_KINDS[kind];
     this.obstacles.push({
       kind,
       lane,
       z,
-      x: LANE_X[lane],
+      x: LANE_X[lane] + offsetX,
       halfX: spec.halfX,
       halfZ: spec.halfZ,
       loY: spec.loY,
@@ -679,7 +928,7 @@ export class Level01 extends Level {
       this._obsCursor++;
     }
 
-    const used = { barrier: 0, trolley: 0, duct: 0 };
+    const used = Object.fromEntries(Object.keys(this._obstacleMeshes).map((kind) => [kind, 0]));
     const horizon = this.z - OBSTACLE_AHEAD;
 
     for (let i = this._obsCursor; i < this.obstacles.length; i++) {
@@ -688,7 +937,7 @@ export class Level01 extends Level {
       const pool = this._obstacleMeshes[o.kind];
       if (used[o.kind] >= pool.length) continue;
       const mesh = pool[used[o.kind]++];
-      mesh.position.set(o.x, o.meshY, o.z);
+      mesh.position.set(o.x, jungleCourseHeight(o.z) + o.meshY, o.z);
       mesh.visible = true;
     }
 
@@ -696,6 +945,679 @@ export class Level01 extends Level {
       const pool = this._obstacleMeshes[kind];
       for (let i = used[kind]; i < pool.length; i++) pool[i].visible = false;
     }
+  }
+
+  _buildAdventureHazards(mats) {
+    this._specialHazards.length = 0;
+
+    // 1) Boulder sweeps across the trail just after the dark shrine. The long
+    // telegraph makes it a near-miss read, not an off-screen punishment.
+    const boulder = cloneProp(this._jungleKit.rock2);
+    boulder.scale.setScalar(0.026);
+    boulder.position.set(-7.6, jungleCourseHeight(BOULDER_Z) + 0.75, BOULDER_Z);
+    this.root.add(boulder);
+    this._specialHazards.push({
+      type: "boulder", object: boulder, z: BOULDER_Z, triggerZ: BOULDER_Z + 52,
+      active: false, t: 0, hit: false,
+    });
+
+    // 2) Ancient pendulum. The beam is intentionally bright stone against the
+    // greenery and has a full 55 m warning window.
+    const swing = new THREE.Group();
+    swing.position.set(0, jungleCourseHeight(SWING_LOG_Z) + 3.6, SWING_LOG_Z);
+    const swingBeam = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.55, 0.62), mats.stone);
+    swingBeam.position.y = -2.15;
+    swingBeam.castShadow = true;
+    swing.add(swingBeam);
+    const swingCap = cloneProp(this._jungleKit.columnShort);
+    swingCap.scale.setScalar(0.011);
+    swingCap.position.y = -0.3;
+    swing.add(swingCap);
+    this.root.add(swing);
+    this._specialHazards.push({
+      type: "swing", object: swing, z: SWING_LOG_Z, triggerZ: SWING_LOG_Z + 58,
+      active: false, t: 0, hit: false,
+    });
+
+    // 3) One telegraphed falling block. Dust/rumble begins before the stone
+    // drops into lane 2, so the answer is simply "move".
+    const block = new THREE.Mesh(new THREE.BoxGeometry(1.75, 1.75, 1.75), mats.stone);
+    block.castShadow = true;
+    block.position.set(LANE_X[2], jungleCourseHeight(FALLING_BLOCK_Z) + 8.2, FALLING_BLOCK_Z);
+    this.root.add(block);
+    this._specialHazards.push({
+      type: "fallingBlock", object: block, z: FALLING_BLOCK_Z,
+      triggerZ: FALLING_BLOCK_Z + 48, active: false, t: 0, hit: false,
+    });
+
+    // 4) Closing shrine doors squeeze the side lanes and leave the centre open.
+    const doors = new THREE.Group();
+    doors.position.set(0, jungleCourseHeight(CLOSING_DOOR_Z), CLOSING_DOOR_Z);
+    const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(3.0, 4.4, 0.75), mats.stone);
+    const rightDoor = leftDoor.clone();
+    leftDoor.position.set(-5.2, 2.2, 0);
+    rightDoor.position.set(5.2, 2.2, 0);
+    leftDoor.castShadow = rightDoor.castShadow = true;
+    doors.add(leftDoor, rightDoor);
+    this.root.add(doors);
+    this._specialHazards.push({
+      type: "doors", object: doors, leftDoor, rightDoor, z: CLOSING_DOOR_Z,
+      triggerZ: CLOSING_DOOR_Z + 55, active: false, t: 0, hit: false,
+    });
+
+    // 5) Rotating sweep arm: readable from far away because it never hides in
+    // foliage. Jumping cleanly over it or timing the gap both work.
+    const rotor = new THREE.Group();
+    rotor.position.set(0, jungleCourseHeight(ROTATING_BEAM_Z) + 1.15, ROTATING_BEAM_Z);
+    const post = cloneProp(this._jungleKit.columnShort);
+    post.scale.setScalar(0.012);
+    post.position.y = -1.1;
+    rotor.add(post);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.34, 0.34), mats.stone);
+    beam.castShadow = true;
+    rotor.add(beam);
+    this.root.add(rotor);
+    this._specialHazards.push({
+      type: "rotor", object: rotor, z: ROTATING_BEAM_Z,
+      triggerZ: ROTATING_BEAM_Z + 65, active: false, t: 0, hit: false,
+    });
+  }
+
+  _updateAdventureHazards(dt, x, prevZ) {
+    let clipped = false;
+    this._specialImpactType = null;
+    this._specialImpactX = x;
+    const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+    const head = this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
+
+    const registerHit = (h, hitX = x) => {
+      h.hit = true;
+      clipped = true;
+      this._specialImpactType = h.type;
+      this._specialImpactX = hitX;
+    };
+
+    for (const h of this._specialHazards) {
+      // The pendulum is part of the world, not a one-shot animation. It keeps
+      // swinging even before Kai reaches its warning range, so the player can
+      // read the rhythm and choose a lane / jump instead of watching it move
+      // once and freeze.
+      if (h.type === "swing") {
+        h.swingT = (h.swingT || 0) + dt;
+        h.swingAngle = Math.sin(h.swingT * 2.55) * 1.08;
+        h.object.rotation.z = h.swingAngle;
+      }
+
+      if (!h.active && this.z <= h.triggerZ) {
+        h.active = true;
+        h.t = 0;
+        if (this._audio) this._audio.playOneShot("stoneGrind", { volume: h.type === "boulder" ? 0.52 : 0.38 });
+        if (h.type === "swing") this._showTransientBanner("SWINGING STONE — TIME THE GAP", 1.7);
+      }
+      if (!h.active) continue;
+      h.t += dt;
+
+      if (h.type === "boulder") {
+        const u = THREE.MathUtils.clamp(h.t / 1.55, 0, 1);
+        const e = THREE.MathUtils.smoothstep(u, 0, 1);
+        h.object.position.x = THREE.MathUtils.lerp(-7.6, 7.6, e);
+        h.object.rotation.z -= dt * 5.6;
+        h.object.rotation.x += dt * 2.4;
+        if (!h.hit && Math.abs(this.z - h.z) < 1.35 && Math.abs(x - h.object.position.x) < 1.2) {
+          registerHit(h, h.object.position.x);
+        }
+      } else if (h.type === "swing") {
+        const angle = h.swingAngle || 0;
+        const crossed = prevZ >= h.z - 0.82 && this.z <= h.z + 0.82;
+        if (!h.hit && crossed) {
+          // Exact 2D beam segment in X/Y. Because the pendulum swings through
+          // more than sixty degrees, one side of the trail can be high while
+          // the other is low: lane choice, jump and slide all become legitimate
+          // dodges instead of a binary "beam happened to be low" test.
+          const floor = jungleCourseHeight(h.z);
+          const pivotY = floor + 3.6;
+          const half = 3.8;
+          const localY = -2.15;
+          const c = Math.cos(angle);
+          const sn = Math.sin(angle);
+          const ax = -half * c - localY * sn;
+          const ay = pivotY + (-half * sn + localY * c);
+          const bx = half * c - localY * sn;
+          const by = pivotY + (half * sn + localY * c);
+          const vx = bx - ax;
+          const vy = by - ay;
+          const len2 = vx * vx + vy * vy;
+          const samples = [
+            floor + feet + 0.12,
+            floor + (feet + head) * 0.5,
+            floor + head - 0.12,
+          ];
+          let minDist = Infinity;
+          for (const py of samples) {
+            const u = THREE.MathUtils.clamp(((x - ax) * vx + (py - ay) * vy) / len2, 0, 1);
+            const qx = ax + vx * u;
+            const qy = ay + vy * u;
+            minDist = Math.min(minDist, Math.hypot(x - qx, py - qy));
+          }
+          if (minDist < 0.50) registerHit(h, x);
+        }
+      } else if (h.type === "fallingBlock") {
+        const u = THREE.MathUtils.clamp(h.t / 0.95, 0, 1);
+        const drop = u * u;
+        const floor = jungleCourseHeight(h.z);
+        h.object.position.y = THREE.MathUtils.lerp(floor + 8.2, floor + 0.88, drop);
+        h.object.rotation.x += dt * 1.4;
+        if (!h.hit && u > 0.58 && Math.abs(this.z - h.z) < 1.1 && Math.abs(x - LANE_X[2]) < 1.0 && head > 0.05) {
+          registerHit(h, LANE_X[2]);
+        }
+      } else if (h.type === "doors") {
+        const u = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp(h.t / 1.2, 0, 1), 0, 1);
+        const lx = THREE.MathUtils.lerp(-5.2, -2.75, u);
+        const rx = -lx;
+        h.leftDoor.position.x = lx;
+        h.rightDoor.position.x = rx;
+        const crossed = prevZ >= h.z - 0.65 && this.z <= h.z + 0.65;
+        const innerEdge = Math.abs(lx) - 1.5;
+        if (!h.hit && crossed && Math.abs(x) + PLAYER_RADIUS > innerEdge) {
+          registerHit(h, Math.sign(x || 1) * innerEdge);
+        }
+      } else if (h.type === "rotor") {
+        h.object.rotation.y += dt * 2.45;
+        const crossed = prevZ >= h.z - 0.65 && this.z <= h.z + 0.65;
+        if (!h.hit && crossed && feet < 1.48) {
+          // Distance from Kai to the rotating 7.4 m line segment in XZ.
+          const a = h.object.rotation.y;
+          const hx = Math.cos(a) * 3.7;
+          const hz = Math.sin(a) * 3.7;
+          const px = x;
+          const pz = this.z - h.z;
+          const len2 = hx * hx + hz * hz;
+          const t = THREE.MathUtils.clamp((px * hx + pz * hz) / len2, -1, 1);
+          const dx = px - hx * t;
+          const dz = pz - hz * t;
+          if (Math.hypot(dx, dz) < 0.58) {
+            registerHit(h, x);
+          }
+        }
+      }
+    }
+
+    return clipped;
+  }
+
+  _triggerHandlerFromMovingImpact(type, hitX, state) {
+    if (this.caught || this.escaped || this._handlerSealed || !this.handler) return;
+
+    // A moving shrine object is a loud mistake: the impact itself costs normal
+    // stumble distance, then the noise gives the Handler a short aggressive
+    // burst. We clamp above zero so this event does not secretly become an
+    // instant-kill mechanic; the Handler still has to physically close the gap.
+    this.gap = Math.max(1.15, this.gap - HANDLER_IMPACT_GAP_LOSS);
+    this._handlerRageT = Math.max(this._handlerRageT, HANDLER_RAGE_TIME);
+
+    // Make the collision read on Kai, not just in a number. The body kicks away
+    // from the side the moving object arrived from and settles back naturally.
+    const relative = this._worldX - hitX;
+    this._impactLeanDir = Math.sign(relative || (this.lane === 0 ? 1 : -1));
+    this._impactLeanT = IMPACT_LEAN_TIME;
+
+    // Give the player a very quick involuntary glance behind: long enough to
+    // see the red light surge, short enough that we do not steal the camera
+    // during the next obstacle read.
+    this._autoLook = Math.max(this._autoLook, 0.42);
+    this._shake = Math.max(this._shake, 0.72);
+    this.handlerLight.intensity = Math.max(this.handlerLight.intensity, this._handlerLightBase * 1.35);
+
+    state.handlerState = "TRIGGERED";
+    state.handlerGap = this.gap;
+    this._showTransientBanner("IMPACT ALERTED THE HANDLER — RUN!", 1.25);
+  }
+
+  _buildHandlerPressureProps() {
+    this._handlerPressureEvents.length = 0;
+    const defs = [
+      { z: -1885, side: 1 },
+      { z: -2705, side: -1 },
+    ];
+    for (const def of defs) {
+      const pivot = new THREE.Group();
+      pivot.position.set(def.side * 4.7, jungleCourseHeight(def.z), def.z);
+      const column = cloneProp(this._jungleKit.column);
+      column.scale.setScalar(0.018);
+      column.position.y = 0;
+      pivot.add(column);
+      this.root.add(pivot);
+      this._handlerPressureEvents.push({ ...def, pivot, active: false, t: 0 });
+    }
+  }
+
+  _updateHandlerPressure(dt) {
+    if (!this.handler) return;
+    for (const ev of this._handlerPressureEvents) {
+      if (!ev.active && this.handler.position.z <= ev.z + 5) {
+        ev.active = true;
+        ev.t = 0;
+        if (this._audio) this._audio.playOneShot("stoneGrind", { volume: 0.48 });
+      }
+      if (!ev.active || ev.t >= 1) continue;
+      ev.t = Math.min(1, ev.t + dt / 0.8);
+      const t = THREE.MathUtils.smoothstep(ev.t, 0, 1);
+      ev.pivot.rotation.z = ev.side * 1.15 * t;
+      if (ev.t > 0.72) this._shake = Math.max(this._shake, 0.12);
+    }
+  }
+
+  _buildFallingTrees() {
+    this._fallingTrees.length = 0;
+
+    for (const def of FALLING_TREE_EVENTS) {
+      const pivot = new THREE.Group();
+      pivot.position.set(def.side * 4.8, jungleCourseHeight(def.z), def.z);
+
+      const tree = cloneProp(this._jungleKit.deadTree || this._jungleKit.tree4);
+      tree.scale.setScalar(0.034);
+      tree.rotation.y = def.side < 0 ? 0.25 : -0.25;
+      pivot.add(tree);
+
+      // A tiny dust/leaf marker at the base makes the source of the motion
+      // readable before the trunk starts sweeping across the path.
+      const base = cloneProp(this._jungleKit.bush1);
+      base.scale.setScalar(0.015);
+      base.position.x = -def.side * 0.25;
+      pivot.add(base);
+
+      this.root.add(pivot);
+      this._fallingTrees.push({
+        ...def,
+        pivot,
+        phase: "waiting",
+        t: 0,
+        clipped: false,
+        landedSound: false,
+      });
+    }
+  }
+
+  /**
+   * Trees begin falling while they are still well ahead of Kai. Once low
+   * enough, the trunk becomes a full-width jump obstacle.
+   */
+  _updateFallingTrees(dt, prevZ) {
+    let collision = null;
+
+    for (const ev of this._fallingTrees) {
+      const treeTrigger = ev.behind ? ev.z - 4 : ev.z + FALL_TREE_TRIGGER_AHEAD;
+      if (ev.phase === "waiting" && this.z <= treeTrigger) {
+        ev.phase = "falling";
+        ev.t = 0;
+        if (this._audio) this._audio.playOneShot("treeCreak", { volume: ev.behind ? 0.72 : 0.55 });
+      }
+
+      if (ev.phase === "falling") {
+        ev.t = Math.min(1, ev.t + dt / FALL_TREE_TIME);
+        const t = THREE.MathUtils.smoothstep(ev.t, 0, 1);
+        ev.pivot.rotation.z = ev.side * (Math.PI / 2) * t;
+
+        if (ev.t >= 1) {
+          ev.phase = "landed";
+          if (!ev.landedSound && this._audio) {
+            ev.landedSound = true;
+            this._audio.playOneShot("treeCrash", { volume: 0.78 });
+            this._shake = Math.max(this._shake, 0.22);
+          }
+        }
+      }
+
+      const active = ev.phase === "landed" || (ev.phase === "falling" && ev.t >= FALL_TREE_COLLIDE_FROM);
+      if (ev.behind || !active || ev.clipped) continue;
+
+      // swept z test, same logic as the static obstacle course
+      if (ev.z + FALL_TREE_HALF_Z + CLIP_PAD_Z < this.z) continue;
+      if (prevZ <= ev.z - FALL_TREE_HALF_Z - CLIP_PAD_Z) continue;
+
+      const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+      if (feet >= FALL_TREE_HI_Y) continue; // jumped it
+
+      ev.clipped = true;
+      collision = ev;
+    }
+
+    return collision;
+  }
+
+  _buildGuardianTeases() {
+    this._guardianTeases.length = 0;
+    const defs = [
+      { z: -540, x: 8.2, side: 1, smash: false },
+      { z: -1095, x: -5.4, side: -1, smash: false },
+      { z: -1270, x: 5.7, side: 1, smash: true },
+    ];
+
+    for (const def of defs) {
+      const group = new THREE.Group();
+      group.position.set(def.x, jungleCourseHeight(def.z), def.z);
+      const beast = cloneProp(this._jungleKit.stag);
+      beast.scale.setScalar(0.0115);
+      beast.rotation.y = def.side > 0 ? -0.7 : 0.7;
+      group.add(beast);
+
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a14, fog: false });
+      for (const ex of [-0.11, 0.11]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 7, 5), eyeMat);
+        eye.position.set(ex, 1.22, 0.36);
+        group.add(eye);
+      }
+      const glow = new THREE.PointLight(0xff2a14, 0, 13, 2);
+      glow.position.set(0, 1.25, 0.4);
+      group.add(glow);
+
+      let wallPieces = null;
+      if (def.smash) {
+        wallPieces = [];
+        for (const y of [0.8, 2.3]) {
+          const piece = cloneProp(this._jungleKit.wall);
+          piece.scale.setScalar(0.009);
+          piece.position.set(-def.side * 0.4, y - 1.0, -0.4);
+          group.add(piece);
+          wallPieces.push(piece);
+        }
+      }
+
+      this.root.add(group);
+      this._guardianTeases.push({ ...def, group, beast, glow, wallPieces, awake: false, t: 0 });
+    }
+  }
+
+  _updateGuardianTeases(dt) {
+    for (const tease of this._guardianTeases) {
+      const dz = Math.abs(this.z - tease.z);
+      if (!tease.awake && dz < 85) {
+        tease.awake = true;
+        tease.t = 0;
+        if (this._audio) this._audio.playOneShot("shrinePulse", { volume: tease.smash ? 0.65 : 0.32 });
+      }
+      if (!tease.awake) continue;
+
+      tease.t += dt;
+      const proximity = 1 - THREE.MathUtils.clamp(dz / 85, 0, 1);
+      tease.glow.intensity = 0.4 + proximity * 4.6 + Math.sin(tease.t * 7) * 0.2;
+
+      // The statue turns toward Kai as he passes. That small motion is enough
+      // to make the first two sightings unsettling before the real charge.
+      const dx = this._worldX - tease.group.position.x;
+      const dzToPlayer = this.z - tease.group.position.z;
+      const targetYaw = Math.atan2(dx, dzToPlayer);
+      tease.beast.rotation.y += (targetYaw - tease.beast.rotation.y) * (1 - Math.exp(-2.8 * dt));
+
+      if (tease.smash && tease.wallPieces) {
+        const smash = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp(tease.t / 0.7, 0, 1), 0, 1);
+        for (let i = 0; i < tease.wallPieces.length; i++) {
+          const p = tease.wallPieces[i];
+          p.position.x = -tease.side * (0.4 + smash * (1.6 + i * 0.4));
+          p.rotation.z = tease.side * smash * (0.55 + i * 0.2);
+          p.rotation.y = smash * (i ? -0.5 : 0.45);
+        }
+        if (smash > 0.6) this._shake = Math.max(this._shake, 0.10);
+      }
+
+      if (this.z < tease.z - 28) {
+        tease.glow.intensity *= 0.92;
+        if (this.z < tease.z - 70) tease.group.visible = false;
+      }
+    }
+  }
+
+  _buildStoryLetters() {
+    const branchLetterOffset = this._routeOffsetMagnitude(-780);
+    const defs = [
+      // Same dead drop on BOTH fork routes: equal difficulty and equal reward.
+      { id: "level01-1", lane: 1, x: -branchLetterOffset, z: -780, text: "They told you that rack was decommissioned. It was signed for on Tuesday." },
+      { id: "level01-1", lane: 1, x: branchLetterOffset, z: -780, text: "They told you that rack was decommissioned. It was signed for on Tuesday." },
+      { id: "level01-2", lane: 0, z: -1115, text: "Twelve names on the manifest. Yours is the only one still breathing." },
+      { id: "level01-3", lane: 2, z: -1260, text: "He isn't chasing the drive. He's chasing you." },
+    ];
+
+    for (const def of defs) {
+      const group = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xd6fff2,
+        emissive: new THREE.Color(0x4fffd0),
+        emissiveIntensity: 2.8,
+        roughness: 0.3,
+        metalness: 0.15,
+      });
+      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), mat);
+      shard.rotation.z = Math.PI * 0.25;
+      group.add(shard);
+      const halo = new THREE.PointLight(0x53ffd2, 2.2, 9, 2);
+      group.add(halo);
+      group.position.set(def.x ?? LANE_X[def.lane], jungleCourseHeight(def.z) + 1.2, def.z);
+      group.visible = !this.state?.letters?.includes(def.id);
+      this.root.add(group);
+      this._storyLetters.push({ ...def, group, collected: !group.visible, spin: Math.random() * Math.PI * 2 });
+    }
+  }
+
+  _updateStoryLetters(dt, state, x, prevZ) {
+    for (const letter of this._storyLetters) {
+      if (letter.collected) continue;
+      letter.spin += dt * 2.4;
+      letter.group.rotation.y = letter.spin;
+      letter.group.position.y = jungleCourseHeight(letter.z) + 1.2 + Math.sin(letter.spin * 1.7) * 0.12;
+
+      const crossed = prevZ >= letter.z - 0.7 && this.z <= letter.z + 0.7;
+      const targetX = letter.x ?? LANE_X[letter.lane];
+      if (crossed && Math.abs(x - targetX) < 0.95) {
+        state.collectLetter(letter.id);
+        for (const same of this._storyLetters) {
+          if (same.id === letter.id) {
+            same.collected = true;
+            same.group.visible = false;
+          }
+        }
+        this._showStoryCard(letter.text);
+        if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.46 });
+      }
+    }
+  }
+
+  _updateCollapsingBridge(dt, x, prevZ, state) {
+    if (!this._bridgeCueShown && this.z <= BRIDGE_START_Z + 34) {
+      this._bridgeCueShown = true;
+      this._showTransientBanner("BRIDGE COLLAPSING — DODGE THE GAPS AND DON'T STOP", 2.3);
+    }
+
+    for (const gap of BRIDGE_GAPS) {
+      const key = `${gap.lane}:${gap.z}`;
+      if (this._bridgeGapHits.has(key)) continue;
+      const overlapZ = prevZ >= gap.z - gap.halfZ && this.z <= gap.z + gap.halfZ;
+      if (!overlapZ) continue;
+      if (Math.abs(x - LANE_X[gap.lane]) <= 0.95) {
+        this._bridgeGapHits.add(key);
+        this._instantLose(state, "bridge", "Kai fell through the collapsing shrine bridge. Restart the level to try again.");
+        return true;
+      }
+    }
+
+    for (const panel of this._bridgePanels || []) {
+      const pz = panel.userData.bridgeZ;
+      if (panel.userData.collapseT < 0 && this.z < pz - BRIDGE_DROP_BEHIND) {
+        panel.userData.collapseT = 0;
+        if (!this._bridgeLastCrackZ || Math.abs(pz - this._bridgeLastCrackZ) > 18) {
+          this._bridgeLastCrackZ = pz;
+          if (this._audio) this._audio.playOneShot("bridgeCrack", { volume: 0.42 });
+          this._shake = Math.max(this._shake, 0.08);
+        }
+      }
+      if (panel.userData.collapseT >= 0 && panel.visible) {
+        panel.userData.collapseT += dt;
+        const t = THREE.MathUtils.clamp(panel.userData.collapseT / 0.82, 0, 1);
+        panel.position.y = panel.userData.baseY - t * t * 24;
+        panel.rotation.x = panel.userData.baseRotX + t * (0.9 + panel.userData.bridgeLane * 0.22);
+        panel.rotation.z = (panel.userData.bridgeLane - 1) * t * 0.62;
+        if (t >= 1) panel.visible = false;
+      }
+    }
+    return false;
+  }
+
+  _instantLose(state, cause, message) {
+    if (this.caught || this.escaped) return;
+    this.caught = true;
+    this.failCause = cause;
+    this.finished = true;
+    state.alive = false;
+    state.failCause = cause;
+    state.handlerState = cause === "guardian" ? "GUARDIAN" : "CAUGHT";
+    this.speed = 0;
+    this.boostSpeed = 0;
+    this._shake = 1;
+    if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
+    this._showCaughtOverlay(message);
+  }
+
+  _showTransientBanner(text, seconds = 1.8) {
+    if (typeof document === "undefined") return;
+    if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
+    if (this._bannerTimer) clearTimeout(this._bannerTimer);
+
+    const el = document.createElement("div");
+    el.textContent = text;
+    Object.assign(el.style, {
+      position: "fixed", left: "50%", top: "12%", transform: "translateX(-50%)",
+      zIndex: "9000", padding: "10px 16px", color: "#efffd8",
+      background: "rgba(7,16,10,.78)", border: "1px solid rgba(158,220,109,.55)",
+      font: "800 13px system-ui, sans-serif", letterSpacing: ".10em", textAlign: "center",
+      pointerEvents: "none", boxShadow: "0 8px 30px rgba(0,0,0,.35)",
+    });
+    document.body.append(el);
+    this._transientBanner = el;
+    this._bannerTimer = setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+      if (this._transientBanner === el) this._transientBanner = null;
+    }, seconds * 1000);
+  }
+
+  _showStoryCard(text) {
+    if (typeof document === "undefined") return;
+    if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
+    if (this._storyTimer) clearTimeout(this._storyTimer);
+    const card = document.createElement("div");
+    card.innerHTML = `<div style="font-size:11px;opacity:.62;letter-spacing:.16em;margin-bottom:7px">DEAD DROP</div><div>${text}</div>`;
+    Object.assign(card.style, {
+      position: "fixed", right: "24px", top: "20%", width: "min(360px, calc(100vw - 48px))",
+      zIndex: "8999", padding: "14px 16px", color: "#eafff8", background: "rgba(5,18,15,.88)",
+      borderLeft: "3px solid #54ffd0", font: "600 14px/1.45 system-ui, sans-serif",
+      boxShadow: "0 12px 40px rgba(0,0,0,.36)", pointerEvents: "none",
+    });
+    document.body.append(card);
+    this._storyCard = card;
+    this._storyTimer = setTimeout(() => {
+      if (card.parentNode) card.parentNode.removeChild(card);
+      if (this._storyCard === card) this._storyCard = null;
+    }, 4200);
+  }
+
+  _showCaughtOverlay(title = "THE HANDLER CAUGHT YOU") {
+    if (this._caughtOverlay || typeof document === "undefined") return;
+
+    const overlay = document.createElement("div");
+    overlay.dataset.level01Caught = "true";
+    Object.assign(overlay.style, {
+      position: "fixed",
+      inset: "0",
+      display: "grid",
+      placeItems: "center",
+      background: "rgba(3, 8, 5, 0.72)",
+      backdropFilter: "blur(5px)",
+      zIndex: "9999",
+      fontFamily: "system-ui, sans-serif",
+      color: "#f5f1df",
+    });
+
+    const panel = document.createElement("div");
+    Object.assign(panel.style, {
+      width: "min(520px, calc(100vw - 36px))",
+      padding: "30px",
+      border: "1px solid rgba(178, 220, 126, 0.7)",
+      background: "rgba(11, 20, 13, 0.94)",
+      boxShadow: "0 22px 80px rgba(0,0,0,.55)",
+      textAlign: "center",
+    });
+
+    const h = document.createElement("h1");
+    h.textContent = "CAUGHT";
+    Object.assign(h.style, {
+      margin: "0 0 10px",
+      fontSize: "clamp(42px, 8vw, 72px)",
+      letterSpacing: "0.08em",
+      color: "#c9e88c",
+    });
+
+    const p = document.createElement("p");
+    p.textContent = title;
+    Object.assign(p.style, {
+      margin: "0 0 24px",
+      opacity: "0.86",
+      fontSize: "16px",
+    });
+
+    const buttons = document.createElement("div");
+    Object.assign(buttons.style, {
+      display: "flex",
+      gap: "12px",
+      justifyContent: "center",
+      flexWrap: "wrap",
+    });
+
+    const makeButton = (label, primary, action) => {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      Object.assign(btn.style, {
+        cursor: "pointer",
+        border: primary ? "0" : "1px solid rgba(245,241,223,.4)",
+        padding: "12px 18px",
+        fontWeight: "800",
+        letterSpacing: "0.06em",
+        background: primary ? "#b9df76" : "transparent",
+        color: primary ? "#0b140d" : "#f5f1df",
+      });
+      btn.addEventListener("click", action);
+      return btn;
+    };
+
+    buttons.append(
+      makeButton("RESTART LEVEL", true, async () => {
+        this._removeCaughtOverlay();
+        if (!this.game) return;
+        this.game.setPaused(false);
+        try {
+          await this.game.restart();
+        } catch (err) {
+          console.error("[level01] restart failed", err);
+        }
+      }),
+      makeButton("RELOAD GAME", false, () => window.location.reload()),
+    );
+
+    const hint = document.createElement("div");
+    hint.textContent = "R also restarts the level";
+    Object.assign(hint.style, {
+      marginTop: "18px",
+      fontSize: "12px",
+      opacity: "0.52",
+      letterSpacing: "0.08em",
+    });
+
+    panel.append(h, p, buttons, hint);
+    overlay.append(panel);
+    document.body.append(overlay);
+    this._caughtOverlay = overlay;
+  }
+
+  _removeCaughtOverlay() {
+    if (this._caughtOverlay?.parentNode) this._caughtOverlay.parentNode.removeChild(this._caughtOverlay);
+    this._caughtOverlay = null;
   }
 
   /**
@@ -706,71 +1628,13 @@ export class Level01 extends Level {
    * Unlike the barriers this is a moving hazard, so it gets its own swept test
    * in _updateTrain() rather than living in this.obstacles.
    */
-  _buildTrain(mats) {
-    // Planned first, because _buildObstacles() deletes placements inside these
-    // windows and it runs after this.
-    const rng = makeRng(OBSTACLE_SEED ^ 0x5bd1);
-    this._trainEvents = TRAIN_TRIGGERS.map((triggerZ) => ({
-      triggerZ,
-      // Only an OUTER lane can be the survivor. If the middle one were clear,
-      // the two blocked lanes would not be adjacent and the train would have to
-      // be two boxes with a Kai-sized hole between them.
-      clearLane: rng() < 0.5 ? 0 : 2,
-    }));
-
-    const group = new THREE.Group();
-
-    // grimier than the maintenance vehicle, so the two don't read as one prop
-    const shell = mats.vehicleMat.clone();
-    shell.color = new THREE.Color(0x39434f);
-
-    const carGeo = new THREE.BoxGeometry(TRAIN_HALF_X * 2, 3.4, TRAIN_CAR_LEN);
-    const glassGeo = new THREE.BoxGeometry(0.06, 0.7, TRAIN_CAR_LEN - 3);
-    const glassMat = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
-
-    // the group's origin is the NOSE, since that is the end that matters; the
-    // cars hang backwards off it down -z
-    for (let i = 0; i < TRAIN_CARS; i++) {
-      const zc = -(TRAIN_CAR_LEN / 2 + i * (TRAIN_CAR_LEN + TRAIN_CAR_GAP));
-      const car = new THREE.Mesh(carGeo, shell);
-      car.position.set(0, 1.8, zc); // spans y 0.1..3.5, under the 3.6 collision top
-      car.castShadow = true;
-      group.add(car);
-
-      // lit windows: these are what actually streak as it goes past, and the
-      // streak is most of what sells the speed of the pass
-      for (const side of [-1, 1]) {
-        const glass = new THREE.Mesh(glassGeo, glassMat);
-        glass.position.set(side * (TRAIN_HALF_X + 0.02), 2.3, zc);
-        group.add(glass);
-      }
-    }
-
-    // Headlamps, deliberately fog: false. The fog wall is at 165 m and the
-    // train is dispatched from 300 m, so fogged lamps would give no warning at
-    // all until it emerged from the haze ~3.6 s out. Unfogged they read as two
-    // hot dots far down the tunnel, which is how you spot a train coming.
-    const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0, fog: false });
-    for (const off of [-1.5, 1.5]) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.12), lampMat);
-      lamp.position.set(off, 1.25, 0.08);
-      group.add(lamp);
-    }
-
-    // The near-field blast. This is the cue that tells you WHICH wall it is
-    // hugging, because the near wall washes far brighter than the far one.
-    const head = new THREE.PointLight(0xfff2d0, 0, 95, 2);
-    head.position.set(0, 1.8, 2.2);
-    group.add(head);
-
-    group.visible = false;
-    group.userData.isTrain = true;
-    this.train = group;
-    this.trainLight = head;
-    this.root.add(group);
+  _buildTrain() {
+    this._trainEvents = [];
+    this._trainIdx = 0;
+    this._trainActive = false;
+    this.train = null;
   }
 
-  /** True if z sits inside any southbound's danger window, where obstacles must not be. */
   _inTrainZone(z) {
     for (const ev of this._trainEvents) {
       if (z <= ev.triggerZ - TRAIN_ZONE_NEAR && z >= ev.triggerZ - TRAIN_ZONE_FAR) return true;
@@ -846,61 +1710,47 @@ export class Level01 extends Level {
     const gateGroup = new THREE.Group();
     gateGroup.position.set(0, 0, GATE_Z);
 
-    // gateMat keeps the orange emissive glow; the maps add scratched,
-    // worn paint on top of it
+    const arch = cloneProp(this._jungleKit.gateArch);
+    arch.scale.setScalar(0.024);
+    arch.position.y = -0.05;
+    gateGroup.add(arch);
 
-    // The bars live in their own sub-group so the slam animates one y offset
-    // rather than eight bar positions, and so userData/collision code can
-    // still treat gateGroup as the gate.
     const slide = new THREE.Group();
     slide.position.y = GATE_OPEN_Y;
-
-    const barCount = 8;
-    for (let i = 0; i < barCount; i++) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 6, 0.15), mats.gateMat);
-      bar.position.set(-6.2 + (i / (barCount - 1)) * 12.4, 3, 0);
-      bar.castShadow = true;
-      slide.add(bar);
-    }
+    const door = cloneProp(this._jungleKit.gateDoor);
+    door.scale.setScalar(0.024);
+    door.position.y = -0.15;
+    slide.add(door);
+    const crossbar = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.55, 0.65), mats.stone);
+    crossbar.position.y = 1.1;
+    crossbar.castShadow = true;
+    slide.add(crossbar);
     gateGroup.add(slide);
 
-    // housing the bars retract into, so the open gate reads as a mechanism
-    // waiting to fire rather than an empty doorway
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.6, 0.5), mats.gateMat);
-    housing.position.set(0, 6.6, 0);
-    housing.castShadow = true;
-    gateGroup.add(housing);
+    const warningMat = new THREE.MeshStandardMaterial({
+      color: 0x7a4f23,
+      emissive: 0xff8a3d,
+      emissiveIntensity: 0.6,
+      roughness: 0.7,
+    });
+    const warning = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 0.18), warningMat);
+    warning.position.set(0, 4.2, 0.25);
+    gateGroup.add(warning);
 
-    // Reach is deliberately long: Kai is already past the gate when it fires,
-    // so the impact flash washing the tunnel around him is the only part of
-    // the slam he can actually see. The strobe telegraph is what he sees
-    // coming, the flash and the sting are what he gets on the way out.
-    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 30, 2);
-    gateLight.position.set(0, 4, 1);
+    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 28, 2);
+    gateLight.position.set(0, 4.0, 1.5);
     gateGroup.add(gateLight);
 
     gateGroup.userData.isSecurityGate = true;
-    gateGroup.userData.open = true; // _updateGate() flips this when it fires
+    gateGroup.userData.open = true;
     this.securityGate = gateGroup;
     this._gateSlide = slide;
     this._gateLight = gateLight;
     this._gateLightBase = 1.4;
-    this._gateMaterial = mats.gateMat;
+    this._gateMaterial = warningMat;
     this.root.add(gateGroup);
   }
 
-  /**
-   * Interlude I: the sector seal slams down once Kai is past it, cutting the
-   * tunnel off behind him. Phases:
-   *
-   *   open     → retracted, nothing to do
-   *   warning  → amber strobe telegraph as he closes on it
-   *   slamming → accelerating fall, then impacts that rebound like steel
-   *   closed   → settled, light bleeds back to a steady glow
-   *
-   * Each impact fires the gate_slam sting and shoves the camera; the first
-   * one hits hardest.
-   */
   _updateGate(dt) {
     if (this._gatePhase === "closed") {
       // ease the flash out and let the bars sit
@@ -971,111 +1821,212 @@ export class Level01 extends Level {
 
   /** The maintenance bay + parked vehicle that Level 2 picks up from, and Level 1's finish line. */
   _buildServiceArea(mats) {
-    const serviceGroup = new THREE.Group();
-    serviceGroup.position.set(0, 0, BAY_Z);
+    const camp = new THREE.Group();
+    camp.position.set(0, 0, BAY_Z);
 
-    // the bay reuses the wet-concrete floor look, retiled for a 14 × 20 m slab
-    const bayFloor = new THREE.Mesh(new THREE.PlaneGeometry(14, 20), mats.bayFloorMat);
-    bayFloor.rotation.x = -Math.PI / 2;
-    bayFloor.receiveShadow = true;
-    serviceGroup.add(bayFloor);
+    const clearingMat = mats.trail.clone();
+    const clearing = new THREE.Mesh(new THREE.CircleGeometry(11, 32), clearingMat);
+    clearing.rotation.x = -Math.PI / 2;
+    clearing.position.y = 0.02;
+    clearing.receiveShadow = true;
+    camp.add(clearing);
 
-    // TODO(art): swap for the real maintenance vehicle .glb
-    const vehicle = new THREE.Mesh(new THREE.BoxGeometry(2, 1.4, 4.2), mats.vehicleMat);
-    vehicle.position.set(0, 0.7, -6);
-    vehicle.castShadow = true;
+    const propData = [
+      [this._jungleKit.logs, -5.2, -4.0, 4.0, 0.4],
+      [this._jungleKit.logs, 5.5, -8.0, 4.0, -0.25],
+      [this._jungleKit.crates, -5.4, -8.5, 14.0, 0.6],
+      [this._jungleKit.barrel, 4.7, -3.2, 14.0, -0.4],
+      [this._jungleKit.cutTrees, 7.0, -11.0, 8.0, 0.2],
+    ];
+    for (const [proto, x, z, scale, ry] of propData) {
+      const o = cloneProp(proto);
+      o.position.set(x, 0, z);
+      o.scale.setScalar(scale);
+      o.rotation.y = ry;
+      camp.add(o);
+    }
+
+    const vehicle = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2a91b8, roughness: 0.55, metalness: 0.15 });
+    const tyreMat = new THREE.MeshStandardMaterial({ color: 0x111315, roughness: 0.95 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.65, 4.1), bodyMat);
+    base.position.y = 0.8;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), bodyMat);
+    cab.position.set(0, 1.4, -0.65);
+    vehicle.add(base, cab);
+    for (const x of [-1.08, 1.08]) for (const z of [-1.25, 1.25]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.24, 14), tyreMat);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(x, 0.5, z);
+      vehicle.add(wheel);
+    }
+    vehicle.position.set(0, 0, -6);
+    vehicle.rotation.y = Math.PI;
     vehicle.userData.isServiceVehicle = true;
     vehicle.userData.startsLevel2 = true;
-    serviceGroup.add(vehicle);
+    camp.add(vehicle);
 
-    const workLight = new THREE.PointLight(0xffe8b0, 2.0, 20, 2);
+    const workLight = new THREE.PointLight(0xffd39b, 2.1, 22, 2);
     workLight.position.set(0, 5, -6);
-    // deliberately NOT a shadow caster: the risk slide budgets one per level
-    // and this.key already spends it. A second shadow map here doubled the
-    // depth passes for a light the player sees for the last four seconds.
-    serviceGroup.add(workLight);
+    camp.add(workLight);
 
     this.serviceVehicle = vehicle;
-    this.root.add(serviceGroup);
+    this.root.add(camp);
   }
 
-  /**
-   * The Handler, greyboxed. "On foot he is a shape at the edge of the tunnel
-   * lights" — so he is a dark figure plus an amber glow, amber because the
-   * palette rule is cyan everywhere and amber only where something is about
-   * to hurt you.
-   *
-   * He sits behind the camera, so the look-back swing in update() is what makes
-   * him visible at all. Two things had to change for that to be worth doing:
-   * his coat was 0x090c11, near enough to black that he was a hole in the
-   * tunnel rather than a figure; and his light sat ON him, which lights the
-   * walls but leaves the figure flat. Set back behind him it rims him instead.
-   *
-   * Deliberately NOT shadow-casting: the risk slide budgets one shadow-casting
-   * light per level and the key light already spends it.
-   */
   _buildHandler() {
     const group = new THREE.Group();
-
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x1b2431,
-      roughness: 0.92,
-      metalness: 0.05,
-    });
-
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0x182018, roughness: 0.95, metalness: 0.02 });
     const coat = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 1.15, 6, 12), coatMat);
     coat.position.y = 1.15;
+    coat.castShadow = true;
     group.add(coat);
-
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), coatMat);
     head.position.y = 1.98;
     group.add(head);
 
-    // His torch, facing the way he is running. fog: false, so it stays a single
-    // hot dot at any range — which means looking back always finds him, even
-    // pinned at the bars a hundred metres back with the fog closed over him.
     const torch = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 8, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffb066, fog: false }),
+      new THREE.SphereGeometry(0.11, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffc477, fog: false }),
     );
-    torch.position.set(0.3, 1.55, -0.42);
+    torch.position.set(0.28, 1.55, -0.4);
     group.add(torch);
 
-    // Set BEHIND him (greater z) rather than on him: from Kai's side of the
-    // tunnel that backlights the figure into a silhouette, which is what the
-    // pitch describes, and it still washes the tunnel the same amount.
-    const glow = new THREE.PointLight(0xff8a3d, 0, 30, 2);
-    glow.position.set(0, 2.4, 1.8);
+    const beam = new THREE.SpotLight(0xffc071, 7.5, 34, 0.33, 0.55, 1.6);
+    beam.position.set(0.25, 1.62, -0.35);
+    beam.target.position.set(0, 0.9, -14);
+    group.add(beam, beam.target);
+
+    const glow = new THREE.PointLight(0xff9b51, 0, 26, 2);
+    glow.position.set(0, 2.2, 1.2);
     group.add(glow);
 
     group.position.set(0, 0, HANDLER_START_GAP);
     group.userData.isHandler = true;
-
     this.handler = group;
     this.handlerLight = glow;
-    this._handlerLightBase = 3.4;
+    this._handlerLightBase = 2.8;
     this.root.add(group);
   }
 
-  /**
-   * Did Kai clip something this frame? Unlike a blocking test this never moves
-   * him — the pitch's economy is that a clip costs ground, not progress, so he
-   * runs on through and pays for it in gap.
-   *
-   * Swept against prevZ rather than tested at the end position: at the 22 m/s
-   * cap on a clamped 0.05 s frame he covers 1.1 m, wider than a barrier's
-   * overlap band, so a position-only test would miss the hit entirely on a
-   * stuttering frame.
-   *
-   * The vertical test is a band overlap, not a floor check, because the three
-   * kinds fail in opposite directions: you clear a barrier by getting your feet
-   * above it and a duct by getting your head under it, and a trolley is sized
-   * so that neither works.
-   *
-   * @param {number} x lane-interpolated x for this frame
-   * @param {number} prevZ this.z before this frame's forward integration
-   * @returns {object|null} the placement he clipped, or null if he got past clean
-   */
+  _buildShrineGuardian() {
+    const group = new THREE.Group();
+    group.name = "cursed-shrine-guardian";
+    group.visible = false;
+
+    // Use the Jungle Shrine's existing stag statue as a supernatural guardian
+    // rather than introducing an external asset. Darkened stone, red glow and
+    // a heavy charge turn it into a readable monster silhouette.
+    const beast = cloneProp(this._jungleKit.stag);
+    beast.scale.setScalar(0.0185);
+    beast.rotation.y = 0;
+    beast.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const converted = mats.map((src) => {
+        const m = src.clone();
+        if (m.color) m.color.multiplyScalar(0.24);
+        if ("emissive" in m) {
+          m.emissive = new THREE.Color(0x240000);
+          m.emissiveIntensity = 0.55;
+        }
+        m.roughness = Math.max(0.78, m.roughness ?? 0.78);
+        return m;
+      });
+      o.material = Array.isArray(o.material) ? converted : converted[0];
+      o.castShadow = true;
+    });
+    group.add(beast);
+
+    // Two simple emissive eyes are deliberately oversized: they are a gameplay
+    // telegraph first and decoration second, especially in fog and at speed.
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a14, fog: false });
+    for (const x of [-0.16, 0.16]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), eyeMat);
+      eye.position.set(x, 1.75, 0.62);
+      group.add(eye);
+    }
+
+    const glow = new THREE.PointLight(0xff3118, 0, 18, 2);
+    glow.position.set(0, 1.8, 0.4);
+    group.add(glow);
+
+    this.guardian = group;
+    this.guardianGlow = glow;
+    this.root.add(group);
+  }
+
+  _updateShrineGuardian(dt, x, prevZ, state) {
+    if (!this.guardian || this._guardianResolved || this.caught || this.escaped) return false;
+
+    if (!this._guardianActive) {
+      if (this.z > GUARDIAN_TRIGGER_Z) return false;
+
+      this._guardianActive = true;
+      this._guardianLaneX = LANE_X[this.lane];
+      this._guardianZ = GUARDIAN_SPAWN_Z;
+      this._guardianPhase = 0;
+      this.guardian.visible = true;
+      this.guardian.position.set(
+        this._guardianLaneX,
+        jungleCourseHeight(this._guardianZ),
+        this._guardianZ,
+      );
+      this.guardianGlow.intensity = 5.5;
+      this._shake = Math.max(this._shake, 0.18);
+      if (this._audio) this._audio.playOneShot("guardianRoar", { volume: 0.9 });
+    }
+
+    const oldGuardianZ = this._guardianZ;
+    this._guardianZ += GUARDIAN_SPEED * dt; // +z is toward Kai
+    this._guardianPhase += dt * 13;
+
+    // Supernatural gallop: a small vertical thump and fore/aft pitch make the
+    // otherwise static statue read as a charging creature instead of a prop
+    // sliding along the floor.
+    const floorY = jungleCourseHeight(this._guardianZ);
+    const thump = Math.abs(Math.sin(this._guardianPhase)) * 0.16;
+    this.guardian.position.set(this._guardianLaneX, floorY + thump, this._guardianZ);
+    this.guardian.rotation.x = Math.sin(this._guardianPhase) * 0.045;
+    this.guardianGlow.intensity = 4.5 + Math.abs(Math.sin(this._guardianPhase * 0.5)) * 2.5;
+
+    // Swept head-on test. The beast is intentionally too tall/wide to jump;
+    // changing lanes is the safe answer.
+    const playerMinZ = Math.min(prevZ, this.z);
+    const playerMaxZ = Math.max(prevZ, this.z);
+    const beastMinZ = Math.min(oldGuardianZ, this._guardianZ);
+    const beastMaxZ = Math.max(oldGuardianZ, this._guardianZ);
+    const zOverlap =
+      playerMinZ - GUARDIAN_HALF_Z <= beastMaxZ &&
+      playerMaxZ + GUARDIAN_HALF_Z >= beastMinZ;
+    const xOverlap = Math.abs(x - this._guardianLaneX) <= GUARDIAN_HALF_X + 0.34;
+
+    if (zOverlap && xOverlap) {
+      this.caught = true;
+      this.failCause = "guardian";
+      this.finished = true;
+      state.alive = false;
+      state.failCause = "guardian";
+      state.handlerState = "GUARDIAN";
+      this.speed = 0;
+      this.boostSpeed = 0;
+      this._shake = 1;
+      if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
+      this._showCaughtOverlay("The Shrine Guardian caught Kai. Restart the level to try again.");
+      return true;
+    }
+
+    // Once it has thundered well past Kai, the encounter is complete.
+    if (this._guardianZ > this.z + GUARDIAN_DESPAWN_BEHIND) {
+      this._guardianResolved = true;
+      this._guardianActive = false;
+      this.guardian.visible = false;
+      this.guardianGlow.intensity = 0;
+    }
+
+    return false;
+  }
+
   _clipObstacles(x, prevZ) {
     const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
     const head = this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
@@ -1104,6 +2055,17 @@ export class Level01 extends Level {
    * than the Handler's cruise, so boost buys metres and stumbling spends them
    * — there is no separate bookkeeping to disagree with the physics.
    */
+  _handlerVaultOffset(z) {
+    for (const center of [-260, -620, -1785, -2910]) {
+      const d = Math.abs(z - center);
+      if (d < 5.5) {
+        const t = 1 - d / 5.5;
+        return Math.sin(t * Math.PI) * 1.15;
+      }
+    }
+    return 0;
+  }
+
   _updateHandler(dt, state) {
     // Interlude I takes him out of the race: "He doesn't make it. The seal
     // locks." The seal begins the moment the bars start FALLING rather than
@@ -1146,12 +2108,17 @@ export class Level01 extends Level {
       state.handlerGap = this.gap;
       // held, not faded with distance: he is the thing the camera has just been
       // swung round to look at
+      this.handler.position.y = jungleCourseHeight(this.handler.position.z) + this._handlerVaultOffset(this.handler.position.z);
+      const sealedX = this._routeOffsetAt(this.handler.position.z, this._routeSide);
+      this.handler.position.x += (sealedX - this.handler.position.x) * (1 - Math.exp(-6 * dt));
       this.handlerLight.intensity = this._handlerLightBase * HANDLER_SEALED_GLOW;
       return;
     }
 
     if (!this.caught && !this.escaped) {
-      const handlerSpeed = this.baseSpeed + HANDLER_CREEP;
+      if (this._handlerRageT > 0) this._handlerRageT = Math.max(0, this._handlerRageT - dt);
+      const rageBoost = this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0;
+      const handlerSpeed = this.baseSpeed + HANDLER_CREEP + rageBoost;
       this.gap = Math.min(HANDLER_MAX_GAP, this.gap + (this.speed - handlerSpeed) * dt);
 
       if (this.gap <= 0) {
@@ -1164,13 +2131,19 @@ export class Level01 extends Level {
         state.handlerState = "CAUGHT";
         this._shake = 0.6;
         if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
+        this._showCaughtOverlay("The Handler caught Kai.");
       } else {
-        state.handlerState = this.speed < handlerSpeed ? "CLOSING" : "LOSING_GROUND";
+        state.handlerState = this._handlerRageT > 0
+          ? "TRIGGERED"
+          : (this.speed < handlerSpeed ? "CLOSING" : "LOSING_GROUND");
       }
     }
 
     state.handlerGap = this.gap;
     this.handler.position.z = this.z + this.gap;
+    this.handler.position.y = jungleCourseHeight(this.handler.position.z) + this._handlerVaultOffset(this.handler.position.z);
+    const handlerRouteX = this._routeOffsetAt(this.handler.position.z, this._routeSide);
+    this.handler.position.x += (handlerRouteX - this.handler.position.x) * (1 - Math.exp(-6 * dt));
 
     // squared so he is a faint wash for most of the run and a real presence
     // only once he is genuinely close
@@ -1224,30 +2197,169 @@ export class Level01 extends Level {
 
     this._audio = new AudioSystem(camera);
     this._audioReady = true;
+    const ctx = this._audio.listener.context;
 
-    this._audio
-      .loadAll({
-        ambience: "assets/audio/level01/subway_ambience.mp3",
-        footstep: "assets/audio/shared/footstep_concrete.mp3",
-        gateSlam: "assets/audio/level01/gate_slam.mp3",
-        impact: "assets/audio/shared/impact_thud.mp3",
-        handlerBreath: "assets/audio/level01/handler_breath.mp3",
-        handlerCatch: "assets/audio/level01/handler_catch.mp3",
-        train: "assets/audio/level01/train_rumble.mp3",
-        music_l1: "assets/audio/level01/music_downline.mp3",
-      })
-      .then(() => {
-        this._audio.playAmbience("ambience", { volume: 0.35 });
-        // his breathing rides on the silhouette, so the listener's distance
-        // model does the tension for free as the gap closes
-        if (this.handler) {
-          this._audio.attachPositional(this.handler, "handlerBreath", {
-            volume: 0.9,
-            refDistance: 8,
-            maxDistance: HANDLER_LIGHT_RANGE,
-          });
-        }
+    const makeBuffer = (seconds, sampleFn) => {
+      const rate = ctx.sampleRate;
+      const n = Math.max(1, Math.floor(seconds * rate));
+      const buffer = ctx.createBuffer(1, n, rate);
+      const out = buffer.getChannelData(0);
+      for (let i = 0; i < n; i++) out[i] = sampleFn(i / rate, i, n);
+      return buffer;
+    };
+
+    let brown = 0;
+    const ambience = makeBuffer(6, (t) => {
+      brown = (brown + (Math.random() * 2 - 1) * 0.035) / 1.025;
+      const insects = Math.sin(t * Math.PI * 2 * 3100) * (Math.sin(t * Math.PI * 2 * 0.73) > 0.84 ? 0.02 : 0);
+      return THREE.MathUtils.clamp(brown * 0.09 + insects, -0.22, 0.22);
+    });
+    const footstep = makeBuffer(0.22, (t) => {
+      // Dirt/stone footfall: a low heel thump plus a short gritty transient.
+      // This is deliberately clearer than the old hissy step because the user
+      // should be able to feel Kai's cadence underneath the music.
+      const thump = Math.sin(t * Math.PI * 2 * 72) * Math.exp(-t * 22) * 0.62;
+      const grit = Math.sin(t * Math.PI * 2 * 1680) * Math.sin(t * Math.PI * 2 * 2330)
+        * Math.exp(-t * 42) * 0.24;
+      return thump + grit;
+    });
+    const impact = makeBuffer(0.32, (t) => {
+      const e = Math.exp(-t * 16);
+      return ((Math.random() * 2 - 1) * 0.4 + Math.sin(t * Math.PI * 2 * 58) * 0.75) * e;
+    });
+    const gateSlam = makeBuffer(0.9, (t) => {
+      const e = Math.exp(-t * 6.5);
+      return ((Math.random() * 2 - 1) * 0.55 + Math.sin(t * Math.PI * 2 * 43) * 0.8) * e;
+    });
+    const breath = makeBuffer(2.4, (t) => {
+      const phase = (t % 1.2) / 1.2;
+      const env = Math.pow(Math.sin(Math.PI * phase), 2);
+      return (Math.random() * 2 - 1) * 0.12 * env;
+    });
+    const catchSting = makeBuffer(0.55, (t) => {
+      const e = Math.exp(-t * 8);
+      return (Math.sin(t * Math.PI * 2 * (95 - t * 70)) * 0.7 + (Math.random() * 2 - 1) * 0.2) * e;
+    });
+    const guardianRoar = makeBuffer(1.15, (t) => {
+      const e = Math.exp(-t * 2.6);
+      const growl =
+        Math.sin(t * Math.PI * 2 * (58 - t * 18)) * 0.42 +
+        Math.sin(t * Math.PI * 2 * 31) * 0.26;
+      return (growl + (Math.random() * 2 - 1) * 0.22) * e;
+    });
+    const treeCreak = makeBuffer(0.8, (t) => {
+      const e = Math.exp(-t * 2.2);
+      return (
+        Math.sin(t * Math.PI * 2 * (115 - t * 55)) * 0.23 +
+        Math.sin(t * Math.PI * 2 * 37) * 0.12 +
+        (Math.random() * 2 - 1) * 0.08
+      ) * e;
+    });
+    const treeCrash = makeBuffer(0.72, (t) => {
+      const e = Math.exp(-t * 7.5);
+      return (
+        Math.sin(t * Math.PI * 2 * 48) * 0.45 +
+        (Math.random() * 2 - 1) * 0.65
+      ) * e;
+    });
+    const stoneGrind = makeBuffer(1.0, (t) => {
+      const e = Math.exp(-t * 2.7);
+      return (
+        Math.sin(t * Math.PI * 2 * 34) * 0.28 +
+        Math.sin(t * Math.PI * 2 * 71) * 0.16 +
+        (Math.random() * 2 - 1) * 0.22
+      ) * e;
+    });
+    const shrinePulse = makeBuffer(0.75, (t) => {
+      const e = Math.exp(-t * 4.0);
+      return (
+        Math.sin(t * Math.PI * 2 * (160 - t * 55)) * 0.27 +
+        Math.sin(t * Math.PI * 2 * 80) * 0.13
+      ) * e;
+    });
+    const bridgeCrack = makeBuffer(0.62, (t) => {
+      const e = Math.exp(-t * 8.5);
+      return (
+        (Math.random() * 2 - 1) * 0.58 +
+        Math.sin(t * Math.PI * 2 * 52) * 0.34
+      ) * e;
+    });
+    const tension = makeBuffer(4.0, (t) => {
+      const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2 * 1.0)), 10);
+      const sub = Math.sin(t * Math.PI * 2 * 44) * 0.065;
+      const drone = Math.sin(t * Math.PI * 2 * 71) * 0.022;
+      return sub * beat + drone;
+    });
+
+    // Eight-second jungle pursuit loop: hand-drum pulse + pentatonic wooden
+    // melody + a quiet bass drone. It is intentionally musical rather than an
+    // ambience/noise bed, while leaving room for footsteps and hazard cues.
+    const musicNotes = [220.0, 261.63, 293.66, 329.63, 392.0, 329.63, 293.66, 261.63,
+                        220.0, 293.66, 329.63, 392.0, 440.0, 392.0, 329.63, 293.66];
+    const bpm = 112;
+    const beatLen = 60 / bpm;
+    const music = makeBuffer(8.0, (t) => {
+      const beatPhase = t % beatLen;
+      const drumEnv = Math.exp(-beatPhase * 18);
+      const drum = (Math.sin(2 * Math.PI * 62 * beatPhase) * 0.16
+        + Math.sin(2 * Math.PI * 108 * beatPhase) * 0.045) * drumEnv;
+
+      const eighth = beatLen * 0.5;
+      const noteIndex = Math.floor(t / eighth) % musicNotes.length;
+      const noteT = t % eighth;
+      const noteEnv = Math.min(1, noteT * 28) * Math.exp(-noteT * 5.2);
+      const f = musicNotes[noteIndex];
+      const melody = (Math.sin(2 * Math.PI * f * noteT) * 0.052
+        + Math.sin(2 * Math.PI * f * 2 * noteT) * 0.018) * noteEnv;
+
+      const shakerPhase = t % (beatLen * 0.25);
+      const shaker = Math.sin(2 * Math.PI * 3150 * t) * Math.sin(2 * Math.PI * 4870 * t)
+        * Math.exp(-shakerPhase * 48) * 0.018;
+      const bass = Math.sin(2 * Math.PI * 55 * t) * 0.018;
+      return THREE.MathUtils.clamp(drum + melody + shaker + bass, -0.72, 0.72);
+    });
+
+    this._audio.buffers.set("ambience", ambience);
+    this._audio.buffers.set("footstep", footstep);
+    this._audio.buffers.set("impact", impact);
+    this._audio.buffers.set("gateSlam", gateSlam);
+    this._audio.buffers.set("handlerBreath", breath);
+    this._audio.buffers.set("handlerCatch", catchSting);
+    this._audio.buffers.set("guardianRoar", guardianRoar);
+    this._audio.buffers.set("treeCreak", treeCreak);
+    this._audio.buffers.set("treeCrash", treeCrash);
+    this._audio.buffers.set("stoneGrind", stoneGrind);
+    this._audio.buffers.set("shrinePulse", shrinePulse);
+    this._audio.buffers.set("bridgeCrack", bridgeCrack);
+    this._audio.buffers.set("tension", tension);
+    this._audio.buffers.set("jungleMusic", music);
+
+    const resume = () => ctx.resume();
+    this._resumeAudio = resume;
+    window.addEventListener("pointerdown", resume, { once: true });
+    window.addEventListener("keydown", resume, { once: true });
+
+    // Keep the synthetic wind/insects very quiet; the audible bed is now the
+    // music plus Kai's footsteps instead of a constant noisy ambience.
+    this._audio.playAmbience("ambience", { volume: 0.07 });
+    this._musicTrack = new THREE.Audio(this._audio.listener);
+    this._musicTrack.setBuffer(music);
+    this._musicTrack.setLoop(true);
+    this._musicTrack.setVolume(0.16);
+    this._musicTrack.play();
+
+    this._tensionTrack = new THREE.Audio(this._audio.listener);
+    this._tensionTrack.setBuffer(tension);
+    this._tensionTrack.setLoop(true);
+    this._tensionTrack.setVolume(0.012);
+    this._tensionTrack.play();
+    if (this.handler) {
+      this._audio.attachPositional(this.handler, "handlerBreath", {
+        volume: 0.6,
+        refDistance: 7,
+        maxDistance: HANDLER_LIGHT_RANGE,
       });
+    }
   }
 
   update(dt, state) {
@@ -1305,24 +2417,30 @@ export class Level01 extends Level {
     // this frame's lane and jump state are known
     const prevZ = this.z;
     this.z -= this.speed * dt;
+    this._floorY = jungleCourseHeight(this.z);
 
     // lanes
     if (input.pressed("left") && this.lane > 0) {
+      this._lastRouteIntent = -1;
       this.laneFrom = this.lane;
       this.lane--;
       this.laneT = 0;
     }
     if (input.pressed("right") && this.lane < 2) {
+      this._lastRouteIntent = 1;
       this.laneFrom = this.lane;
       this.lane++;
       this.laneT = 0;
     }
     if (this.laneT < 1) this.laneT = Math.min(1, this.laneT + dt / 0.16);
-    const x = THREE.MathUtils.lerp(
+    const localX = THREE.MathUtils.lerp(
       LANE_X[this.laneFrom],
       LANE_X[this.lane],
       THREE.MathUtils.smoothstep(this.laneT, 0, 1),
     );
+    this._updateRouteChoice(localX);
+    const x = localX + this._routeOffsetAt(this.z);
+    this._worldX = x;
 
     // jump
     if (input.pressed("jump") && !this.airborne) {
@@ -1359,14 +2477,39 @@ export class Level01 extends Level {
 
     // --- obstacles: a clip costs ground, not health ---
     const clipped = this._clipObstacles(x, prevZ);
-    if (clipped) {
+    const fallingTreeClip = this._updateFallingTrees(dt, prevZ);
+    const specialClip = this._updateAdventureHazards(dt, x, prevZ);
+    if (clipped || fallingTreeClip || specialClip) {
       // the stumble debt IS the three metres; do not also subtract from the
-      // gap or the barrier gets charged twice
+      // gap for ordinary scenery. Moving shrine hazards are the deliberate
+      // exception below: their noise actively provokes the Handler.
       this._stumbleDebt += CLIP_PENALTY;
       this.boostSpeed = 0;
-      this._shake = Math.max(this._shake, 0.35);
-      if (this._audio) this._audio.playOneShot("impact", { volume: 0.6 });
+      this._shake = Math.max(this._shake, fallingTreeClip ? 0.5 : specialClip ? 0.58 : 0.35);
+      if (this._audio) this._audio.playOneShot("impact", { volume: fallingTreeClip ? 0.8 : specialClip ? 0.9 : 0.6 });
+
+      if (specialClip && this._specialImpactType) {
+        this._triggerHandlerFromMovingImpact(this._specialImpactType, this._specialImpactX, state);
+      }
     }
+
+    // Visible hit reaction for moving/flying objects. It affects only Kai's
+    // capsule mesh; lane coordinates and collision stay deterministic.
+    if (this._impactLeanT > 0) {
+      this._impactLeanT = Math.max(0, this._impactLeanT - dt);
+      const u = this._impactLeanT / IMPACT_LEAN_TIME;
+      this.body.rotation.z = this._impactLeanDir * 0.24 * Math.sin(u * Math.PI);
+    } else {
+      this.body.rotation.z *= Math.exp(-18 * dt);
+      if (Math.abs(this.body.rotation.z) < 0.001) this.body.rotation.z = 0;
+    }
+
+    this._updateStoryLetters(dt, state, x, prevZ);
+    this._updateGuardianTeases(dt);
+    this._updateCollapsingBridge(dt, x, prevZ, state);
+
+    // --- cursed shrine guardian: head-on contact is an instant loss ---
+    this._updateShrineGuardian(dt, x, prevZ, state);
 
     // --- the southbound: the other way to lose ---
     // Runs even once he is dead, so the rake carries on over him and recycles
@@ -1379,10 +2522,12 @@ export class Level01 extends Level {
       state.failCause = "southbound";
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("impact", { volume: 1 });
+      this._showCaughtOverlay("Kai was hit by the oncoming hazard.");
     }
 
     state.distance = -this.z;
-    this.player.position.set(x, this.y, this.z);
+    state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
+    this.player.position.set(x, this._floorY + this.y, this.z);
 
     // --- the way out ---
     // Reaching the vehicle is not an ending, it is the handoff: level 02 is the
@@ -1415,14 +2560,15 @@ export class Level01 extends Level {
 
     // the pursuit reads this.z, so it has to run after the clip is applied
     this._updateHandler(dt, state);
+    this._updateHandlerPressure(dt);
 
     // pooled scenery and obstacle meshes follow him; this also advances the
     // obstacle cursor, so it has to come after the clip test above
     this._updateObstacleVisuals();
 
     // shadow camera follows so shadows stay inside it
-    this.key.position.set(x + 6, 14, this.z + 10);
-    this.key.target.position.set(x, 0, this.z - 6);
+    this.key.position.set(x - 35, 55 + this._floorY, this.z - 75);
+    this.key.target.position.set(x, this._floorY, this.z - 12);
 
     // --- look-back camera (mouse2 / C) ---
     // @1A: input.lookBack was bound in Input.js and unread. Holding it orbits
@@ -1453,11 +2599,11 @@ export class Level01 extends Level {
     cam.position.lerp(this._tmp, 1 - Math.exp(-(9 + swing * 9) * dt));
 
     // aim down-tunnel normally, and at whatever is behind him when swung round
-    this._tmpAim.set(x * 0.7, 1.5, this.z - 9);
+    this._tmpAim.set(x * 0.7, this._floorY + 1.5, this.z - 9);
     if (swing > 0) {
       this._tmpBack.set(
         this.handler ? this.handler.position.x : 0,
-        1.7,
+        (this.handler ? this.handler.position.y : this._floorY) + 1.7,
         // his actual gap, so the aim tracks him closing rather than staring at a
         // fixed point; clamped so a sealed Handler 100 m back still frames
         this.z + THREE.MathUtils.clamp(this.gap + 2, 8, 60),
@@ -1489,28 +2635,61 @@ export class Level01 extends Level {
     this._displaySpeed += (this.speed - this._displaySpeed) * (1 - Math.exp(-8 * dt));
     const normalizedSpeed = THREE.MathUtils.clamp(this._displaySpeed / this.maxSpeed, 0, 1);
     state.normalizedSpeed = normalizedSpeed; // HUD / other levels can read it
-    updateSpeedWarp(this.wallMaterial, dt, normalizedSpeed);
+    updateJungleSpeedWarp(this.speedWarpMaterial, dt, normalizedSpeed);
 
     // strip lights pulse a little faster as speed rises. The pool slide applies
     // it, since that is what decides which lights are live this frame.
     const pulse = 1.0 + Math.sin(performance.now() * 0.004 * (1 + normalizedSpeed)) * 0.15;
     this._updateTunnelDetail(pulse);
+    updateJungleWildlife(this._wildlife, dt, this.z, this._worldX);
+    this._updateDarkShrine(dt);
+    if (this._musicTrack) {
+      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.025 : 0.045;
+      const chaseLift = this._handlerRageT > 0 ? 0.035 : 0;
+      this._musicTrack.setVolume(0.15 + phaseLift + chaseLift);
+    }
+    if (this._tensionTrack) {
+      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.012 : 0.025;
+      const guardianLift = this._guardianActive ? 0.045 : 0;
+      this._tensionTrack.setVolume(0.008 + phaseLift + this._darkFactor * 0.03 + guardianLift);
+    }
 
     // --- footsteps: trigger on stride distance, only while grounded ---
     if (!this.airborne && !this.sliding && !this.caught && this._audio) {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
-        this._audio.playFootstep({ volume: 0.4, dt });
+        this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
       }
     }
   }
 
   teardown() {
+    this._removeCaughtOverlay();
+    if (this._bannerTimer) clearTimeout(this._bannerTimer);
+    if (this._storyTimer) clearTimeout(this._storyTimer);
+    if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
+    if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
+    this._transientBanner = null;
+    this._storyCard = null;
+    if (this._musicTrack) {
+      if (this._musicTrack.isPlaying) this._musicTrack.stop();
+      this._musicTrack = null;
+    }
+    if (this._tensionTrack) {
+      if (this._tensionTrack.isPlaying) this._tensionTrack.stop();
+      this._tensionTrack = null;
+    }
+
     if (this._audio) {
       this._audio.teardown();
       this._audio = null;
       this._audioReady = false;
+    }
+    if (this._resumeAudio) {
+      window.removeEventListener("pointerdown", this._resumeAudio);
+      window.removeEventListener("keydown", this._resumeAudio);
+      this._resumeAudio = null;
     }
     // hand the shared camera back exactly as Game set it up
     if (this.game && this.game.camera) {
