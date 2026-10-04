@@ -28,6 +28,9 @@ export async function attachModel(assets, holder, path, opts = {}) {
     lift = 0,            // nudge up/down if the wheels sink or float
     tint = null,         // optional colour multiplier, e.g. 0xff5533
     keepPlaceholder = false,
+    wheels = null,       // RegExp naming the wheel meshes when they aren't called "wheel"
+    ground = null,       // RegExp naming the meshes that touch the road (default: the whole model).
+                         // For models with stray geometry below the tyres.
   } = opts;
 
   let gltf;
@@ -54,9 +57,15 @@ export async function attachModel(assets, holder, path, opts = {}) {
   // centre on x/z and sit the underside on y = 0
   box = new THREE.Box3().setFromObject(model);
   const centre = box.getCenter(new THREE.Vector3());
+  let floor = box.min.y;
+  if (ground) {
+    const g = new THREE.Box3();
+    model.traverse((o) => { if (o.isMesh && ground.test(o.name)) g.expandByObject(o); });
+    if (!g.isEmpty()) floor = g.min.y;     // stand on the tyres, not on stray geometry
+  }
   model.position.x -= centre.x;
   model.position.z -= centre.z;
-  model.position.y -= box.min.y - lift;
+  model.position.y -= floor - lift;
 
   // bounds in the holder's own space (car facing +Z, wheels on y = 0), for lights,
   // skid marks and collisions
@@ -93,6 +102,7 @@ export async function attachModel(assets, holder, path, opts = {}) {
   if (previous) holder.remove(previous);
 
   model.name = 'vehicle-model';
+  if (wheels) model.userData.wheelPattern = wheels;
   rigWheels(model);                 // wheels roll and steer (see wheels.js)
   holder.add(model);
   return model;

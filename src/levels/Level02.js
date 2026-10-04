@@ -243,7 +243,9 @@ export class Level02 extends Level {
     this._picker?.setIndex(this._carIndex);
     const selected = CARS[this._carIndex];
     this._modelSwap = this._modelSwap.then(async () => {
-      const model = await this.car.attachModel(this.assets, selected.path, { length: selected.length, yaw: selected.yaw || 0 });
+      const model = await this.car.attachModel(this.assets, selected.path, {
+        length: selected.length, yaw: selected.yaw || 0, ground: selected.ground || null, wheels: selected.wheels || null,
+      });
       this.car.applyStats(selected.stats);
       if (!model) return;
       this._carModel = model;

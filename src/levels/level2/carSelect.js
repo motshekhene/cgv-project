@@ -25,7 +25,10 @@ export const CARS = [
   },
   {
     // "Car" by theking1322, CC BY 3.0 (modelled side-on: turned to face +Z)
+    // its body has stray vertices well below the tyres: stand it on the wheels,
+    // which are separate meshes called Cylinder001-004
     id: 'muscle', name: 'Muscle', path: 'level2/cars/muscle.glb', length: 4.8, yaw: Math.PI / 2,
+    ground: /^Cylinder00[1-4]$/, wheels: /^Cylinder00[1-4]$/,
     blurb: 'Big engine, heavy body — wins the shoving matches', stats: { speed: 45, accel: 23, handling: 0.85, strength: 1.2 },
   },
   {
@@ -37,8 +40,9 @@ export const CARS = [
     blurb: 'Fastest car here — one bad PIT and it is in pieces', stats: { speed: 50, accel: 24, handling: 0.9, strength: 0.65 },
   },
   {
-    id: 'bruiser', name: 'Bruiser', path: 'level2/cars/suv.glb', length: 4.8,
-    blurb: 'Slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
+    // "Pickup Truck" by Quaternius, CC0
+    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3,
+    blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
   },
 ];
 
