@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BLACKOUT PROTOCOL — Engine Prototype</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --cyan:#3fe0ff; --magenta:#ff3fb0; --orange:#ff8a3f;
+    --bg:#05060a; --panel:rgba(6,8,14,0.72); --line:rgba(255,255,255,0.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#eef2f6;}
+  #stage{position:fixed;inset:0;}
+  canvas{display:block;width:100%;height:100%;}
+
+  /* ---------- top bar ---------- */
+  #topbar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;
+    justify-content:space-between;padding:16px 22px;z-index:10;pointer-events:none;}
+  #brand{pointer-events:auto;}
+  #brand .t1{font-size:11px;letter-spacing:3px;color:#8b95a7;font-weight:600;}
+  #brand .t2{font-size:18px;letter-spacing:2px;font-weight:800;color:#fff;margin-top:2px;}
+  #tabs{display:flex;gap:8px;pointer-events:auto;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:5px;backdrop-filter:blur(6px);}
+  .tab{padding:9px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;
+    letter-spacing:1.5px;color:#9aa3b2;transition:color .2s,background .2s;user-select:none;}
+  .tab:hover{color:#fff;}
+  .tab.active{color:#0a0c10;}
+  .tab[data-i="0"].active{background:var(--cyan);}
+  .tab[data-i="1"].active{background:var(--magenta);}
+  .tab[data-i="2"].active{background:var(--orange);}
+  #engineTag{pointer-events:auto;text-align:right;font-size:10px;color:#65708a;
+    letter-spacing:1px;line-height:1.5;}
+  #engineTag b{color:#c7cedb;}
+
+  /* ---------- level title block ---------- */
+  #levelInfo{position:fixed;left:22px;bottom:22px;z-index:10;max-width:400px;pointer-events:none;}
+  #levelInfo .num{font-size:11px;letter-spacing:4px;font-weight:700;margin-bottom:4px;}
+  #levelInfo .name{font-size:30px;font-weight:800;letter-spacing:1px;margin-bottom:8px;
+    text-shadow:0 2px 18px rgba(0,0,0,.6);}
+  #levelInfo .sub{font-size:13px;color:#c3cad8;line-height:1.5;font-style:italic;}
+
+  /* ---------- HUD bars ---------- */
+  #hud{position:fixed;top:78px;left:0;right:0;display:flex;justify-content:center;
+    z-index:9;pointer-events:none;}
+  .hudbox{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    padding:10px 18px;display:none;min-width:260px;backdrop-filter:blur(6px);}
+  .hudbox.show{display:block;}
+  .hudlabel{font-size:10px;letter-spacing:2px;color:#9aa3b2;display:flex;justify-content:space-between;margin-bottom:6px;}
+  .hudbar{height:8px;border-radius:5px;background:rgba(255,255,255,.08);overflow:hidden;}
+  .hudfill{height:100%;border-radius:5px;transition:width .25s ease-out;}
+
+  /* ---------- signal toast ---------- */
+  #signal{position:fixed;top:78px;right:22px;z-index:9;background:var(--panel);
+    border:1px solid var(--line);border-left:3px solid #fff;border-radius:6px;
+    padding:10px 14px;font-size:12px;letter-spacing:1.5px;font-weight:700;
+    opacity:0;transform:translateX(12px);transition:opacity .5s,transform .5s;
+    max-width:260px;backdrop-filter:blur(6px);}
+  #signal.show{opacity:1;transform:translateX(0);}
+
+  /* ---------- rearview PiP ---------- */
+  #rearlabel{position:fixed;z-index:9;font-size:9px;letter-spacing:2px;color:#9aa3b2;
+    display:none;}
+  #rearlabel.show{display:block;}
+
+  /* ---------- hit flash ---------- */
+  #flash{position:fixed;inset:0;background:rgba(255,40,40,.28);opacity:0;
+    pointer-events:none;z-index:8;transition:opacity .12s;}
+
+  /* ---------- vignette + scanline for "engine" feel ---------- */
+  #vignette{position:fixed;inset:0;pointer-events:none;z-index:6;
+    box-shadow:inset 0 0 180px rgba(0,0,0,.75);}
+  #grain{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:.05;
+    background-image:repeating-linear-gradient(0deg,#fff 0px,transparent 1px,transparent 2px);}
+
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#05060a;z-index:50;font-size:12px;letter-spacing:3px;color:#7c8598;}
+</style>
+</head>
+<body>
+
+<div id="loading">LOADING ENGINE BUILD…</div>
+
+<div id="stage"></div>
+<div id="vignette"></div>
+<div id="grain"></div>
+<div id="flash"></div>
+
+<div id="topbar">
+  <div id="brand">
+    <div class="t1">CGV GROUP PROJECT — BETA RENDER</div>
+    <div class="t2">BLACKOUT PROTOCOL</div>
+  </div>
+  <div id="tabs">
+    <div class="tab active" data-i="0">01 RUN</div>
+    <div class="tab" data-i="1">02 DRIVE</div>
+    <div class="tab" data-i="2">03 FIGHT</div>
+  </div>
+  <div id="engineTag">
+    ENGINE: THREE.JS r128 &nbsp;·&nbsp; <b id="fps">60</b> FPS<br>
+    <b id="tris">0</b> TRIS &nbsp;·&nbsp; <b id="calls">0</b> DRAW CALLS
+  </div>
+</div>
+
+<div id="hud">
+  <div class="hudbox" id="hudRun">
+    <div class="hudlabel"><span>PURSUER PROXIMITY</span><span id="runVal">—</span></div>
+    <div class="hudbar"><div class="hudfill" id="runFill" style="background:var(--cyan);width:40%"></div></div>
+  </div>
+  <div class="hudbox" id="hudDrive">
+    <div class="hudlabel"><span>CAR INTEGRITY</span><span id="driveVal">100%</span></div>
+    <div class="hudbar"><div class="hudfill" id="driveFill" style="background:var(--magenta);width:100%"></div></div>
+  </div>
+  <div class="hudbox" id="hudFight">
+    <div class="hudlabel"><span id="phaseLabel">PHASE 01 — PURSUIT</span><span id="bossVal">100%</span></div>
+    <div class="hudbar"><div class="hudfill" id="bossFill" style="background:var(--orange);width:100%"></div></div>
+  </div>
+</div>
+
+<div id="signal"></div>
+<div id="rearlabel">REAR CAM</div>
+
+<div id="levelInfo">
+  <div class="num" id="liNum" style="color:var(--cyan)">01 · DOWNLINE</div>
+  <div class="name" id="liName">PLATFORM 4 — SOUTHBOUND</div>
+  <div class="sub" id="liSub">He is fifteen metres behind you and he never gets tired.</div>
+</div>
+
+<script>
+/* ============================================================
+   BLACKOUT PROTOCOL — non-interactive engine-style prototype
+   Renders three auto-playing cinematic loops (RUN / DRIVE / FIGHT)
+   to preview mood, lighting and camera language before build.
+   ============================================================ */
+
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = false;
+stage.appendChild(renderer.domElement);
+
+const clock = new THREE.Clock();
+let current = null; // active level object
+let levelIndex = 0;
+
+window.addEventListener('resize', ()=>{
+  renderer.setSize(innerWidth, innerHeight);
+  if(current && current.camera){
+    current.camera.aspect = innerWidth/innerHeight;
+    current.camera.updateProjectionMatrix();
+  }
+});
+
+/* ---------------- helpers ---------------- */
+
+function skyDome(colorTop, colorBottom){
+  const c = document.createElement('canvas'); c.width=4; c.height=256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,colorTop); g.addColorStop(1,colorBottom);
+  ctx.fillStyle=g; ctx.fillRect(0,0,4,256);
+  const tex = new THREE.CanvasTexture(c);
+  const geo = new THREE.SphereGeometry(400,24,16);
+  const mat = new THREE.MeshBasicMaterial({map:tex, side:THREE.BackSide, fog:false, depthWrite:false});
+  return new THREE.Mesh(geo, mat);
+}
+
+function makeHuman(color, h){
+  h = h||1.7;
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({color, roughness:.8, metalness:.05});
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(h*0.14, h*0.17, h*0.42, 10), bodyMat);
+  torso.position.y = h*0.62;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(h*0.12,10,10), bodyMat);
+  head.position.y = h*0.95;
+  const legL = new THREE.Mesh(new THREE.CylinderGeometry(h*0.07,h*0.07,h*0.4,8), bodyMat);
+  legL.position.set(-h*0.09, h*0.2,0);
+  const legR = legL.clone(); legR.position.x = h*0.09;
+  g.add(torso, head, legL, legR);
+  g.userData.legs = [legL, legR];
+  return g;
+}
+
+function disposeScene(scene){
+  scene.traverse(o=>{
+    if(o.geometry) o.geometry.dispose();
+    if(o.material){
+      const mats = Array.isArray(o.material)?o.material:[o.material];
+      mats.forEach(m=>{ if(m.map) m.map.dispose(); m.dispose(); });
+    }
+  });
+}
+
+/* ================================================================
+   LEVEL 1 — RUN / DOWNLINE  (flooded metro tunnel, chase cam)
+   ================================================================ */
+function buildRun(){
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x020608, 3, 34);
+  scene.background = new THREE.Color(0x010203);
+
+  const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 200);
+
+  scene.add(new THREE.AmbientLight(0x0a2a33, 0.9));
+
+  const SEG_LEN = 8, SEG_COUNT = 8;
+  const segGroup = new THREE.Group();
+  const wallMat = new THREE.MeshStandardMaterial({color:0x0b1114, roughness:.9, metalness:.1});
+  const floorMat = new THREE.MeshStandardMaterial({color:0x03181c, roughness:.15, metalness:.7});
+  const segments = [];
+  for(let i=0;i<SEG_COUNT;i++){
+    const seg = new THREE.Group();
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, SEG_LEN), floorMat);
+    floor.rotation.x = -Math.PI/2;
+    const ceil = floor.clone(); ceil.position.y = 3.4; ceil.rotation.x = Math.PI/2;
+    const wallL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.4, SEG_LEN), wallMat);
+    wallL.position.set(-3, 1.7, 0);
+    const wallR = wallL.clone(); wallR.position.x = 3;
+    seg.add(floor, ceil, wallL, wallR);
+    // emergency strip + light every other segment
+    if(i%2===0){
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.15, SEG_LEN*0.8),
+        new THREE.MeshBasicMaterial({color:0x3fe0ff}));
+      strip.position.set(-2.98, 2.2, 0); strip.rotation.y = Math.PI/2;
+      const pl = new THREE.PointLight(0x3fe0ff, 1.4, 9);
+      pl.position.set(0, 2, 0);
+      seg.add(strip, pl);
+    }
+    // occasional pillar obstacle silhouette
+    if(i%3===1){
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.5,3.2,0.5), wallMat);
+      pillar.position.set((Math.random()>0.5?1.6:-1.6), 1.6, SEG_LEN*0.3);
+      seg.add(pillar);
+    }
+    seg.position.z = -i*SEG_LEN;
+    segments.push(seg);
+    segGroup.add(seg);
+  }
+  scene.add(segGroup);
+
+  // mist particles
+  const mistCount = 260;
+  const mistGeo = new THREE.BufferGeometry();
+  const mistPos = new Float32Array(mistCount*3);
+  for(let i=0;i<mistCount;i++){
+    mistPos[i*3]   = (Math.random()-0.5)*5.5;
+    mistPos[i*3+1] = Math.random()*3;
+    mistPos[i*3+2] = -Math.random()*SEG_LEN*SEG_COUNT;
+  }
+  mistGeo.setAttribute('position', new THREE.BufferAttribute(mistPos,3));
+  const mist = new THREE.Points(mistGeo, new THREE.PointsMaterial({
+    color:0x8fe9ff, size:0.05, transparent:true, opacity:0.35, depthWrite:false
+  }));
+  scene.add(mist);
+
+  // player + pursuer
+  const player = makeHuman(0xd8dee6, 1.7);
+  scene.add(player);
+  const pursuer = makeHuman(0x090a0c, 1.85);
+  scene.add(pursuer);
+  const pGlow = new THREE.PointLight(0xff5533, 0.5, 4);
+  pursuer.add(pGlow); pGlow.position.y = 1.4;
+
+  camera.position.set(0, 1.5, 3.2);
+
+  const boards = ["SECTOR 2 CLEAR","HE'S STILL COMING","NO SERVICE BEYOND THIS POINT","THIRD RAIL — LIVE"];
+  let boardT = 2;
+
+  function update(t, dt, api){
+    // scroll tunnel toward camera to fake forward motion
+    const speed = 9;
+    segments.forEach(seg=>{
+      seg.position.z += speed*dt;
+      if(seg.position.z > SEG_LEN*1.5){
+        seg.position.z -= SEG_LEN*SEG_COUNT;
+      }
+    });
+    mist.geometry.attributes.position.array.forEach; // noop safeguard
+    const arr = mist.geometry.attributes.position.array;
+    for(let i=0;i<mistCount;i++){
+      arr[i*3+2] += speed*dt*0.6;
+      if(arr[i*3+2] > 4) arr[i*3+2] -= SEG_LEN*SEG_COUNT;
+    }
+    mist.geometry.attributes.position.needsUpdate = true;
+
+    // player lane-shift + run bob
+    const lane = Math.sin(t*0.7)*1.1;
+    player.position.set(lane, Math.abs(Math.sin(t*9))*0.06, -1.4);
+    player.rotation.y = Math.sin(t*0.7)*0.15;
+    player.userData.legs[0].rotation.x = Math.sin(t*9)*0.6;
+    player.userData.legs[1].rotation.x = -Math.sin(t*9)*0.6;
+
+    camera.position.x = lane*0.6;
+    camera.position.y = 1.55 + Math.abs(Math.sin(t*9))*0.03;
+    camera.lookAt(player.position.x, 1.3, player.position.z-3);
+
+    // pursuer distance oscillates (tension)
+    const dist = 6 + Math.sin(t*0.35)*3.2 + 3.2;
+    pursuer.position.set(lane*0.4 + Math.sin(t*0.5)*0.6, 0, -1.4 - dist);
+    pursuer.userData.legs[0].rotation.x = Math.sin(t*9)*0.6;
+    pursuer.userData.legs[1].rotation.x = -Math.sin(t*9)*0.6;
+
+    const prox = Math.max(0, 1 - (dist-4)/9);
+    api.hud.run(prox);
+
+    boardT -= dt;
+    if(boardT<=0){ boardT = 6+Math.random()*3; api.signal(boards[Math.floor(Math.random()*boards.length)]); }
+  }
+
+  return {scene, camera, update, dispose:()=>disposeScene(scene)};
+}
+
+/* ================================================================
+   LEVEL 2 — DRIVE / REDLINE  (highway, dusk-to-night, chase cam + PiP)
+   ================================================================ */
+function buildDrive(){
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x1a0f22, 8, 90);
+  scene.add(skyDome('#3a1830','#05060d'));
+
+  const camera = new THREE.PerspectiveCamera(58, innerWidth/innerHeight, 0.1, 400);
+  const rearCam = new THREE.PerspectiveCamera(50, 3.2, 0.1, 200);
+
+  scene.add(new THREE.AmbientLight(0x1a1420, 1.0));
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(6,16,16),
+    new THREE.MeshBasicMaterial({color:0xffe9c7}));
+  moon.position.set(-60,60,-160); scene.add(moon);
+
+  // road with repeating canvas texture (asphalt + dashed lane lines)
+  const rc = document.createElement('canvas'); rc.width=64; rc.height=256;
+  const rctx = rc.getContext('2d');
+  rctx.fillStyle = '#15161b'; rctx.fillRect(0,0,64,256);
+  rctx.fillStyle = '#2a2c33'; rctx.fillRect(0,0,64,3); rctx.fillRect(0,253,64,3);
+  rctx.fillStyle = '#e8c94a';
+  for(let y=0;y<256;y+=40) rctx.fillRect(30,y,4,22);
+  const roadTex = new THREE.CanvasTexture(rc);
+  roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping;
+  roadTex.repeat.set(1, 40);
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(16,400),
+    new THREE.MeshStandardMaterial({map:roadTex, roughness:.35, metalness:.5}));
+  road.rotation.x = -Math.PI/2; road.position.z = -150;
+  scene.add(road);
+
+  const groundMat = new THREE.MeshStandardMaterial({color:0x08050b, roughness:1});
+  const groundL = new THREE.Mesh(new THREE.PlaneGeometry(200,400), groundMat);
+  groundL.rotation.x=-Math.PI/2; groundL.position.set(-108,-0.02,-150); scene.add(groundL);
+  const groundR = groundL.clone(); groundR.position.x = 108; scene.add(groundR);
+
+  // streetlights (recycled pool)
+  const poleMat = new THREE.MeshStandardMaterial({color:0x1c1d22});
+  const poles = [];
+  const POLE_GAP = 22, POLE_COUNT = 14;
+  for(let i=0;i<POLE_COUNT;i++){
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,5,6), poleMat);
+    pole.position.y = 2.5;
+    const lampGeo = new THREE.SphereGeometry(0.22,8,8);
+    const lampMat = new THREE.MeshBasicMaterial({color:0xffd28a});
+    const lamp = new THREE.Mesh(lampGeo, lampMat); lamp.position.y=5;
+    const pl = new THREE.PointLight(0xffb45a, 1.1, 14);
+    pl.position.y = 5;
+    g.add(pole, lamp, pl);
+    g.position.set(i%2===0? -8.4 : 8.4, 0, -i*POLE_GAP);
+    poles.push(g); scene.add(g);
+  }
+
+  // simple traffic ahead
+  function carMesh(color, headlights){
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.7,3.6),
+      new THREE.MeshStandardMaterial({color, roughness:.35, metalness:.6}));
+    body.position.y = 0.5;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.4,0.5,1.8),
+      new THREE.MeshStandardMaterial({color:0x0a0b0d, roughness:.2, metalness:.7}));
+    cab.position.set(0,0.9,-0.2);
+    g.add(body, cab);
+    if(headlights){
+      [-0.6,0.6].forEach(x=>{
+        const hl = new THREE.PointLight(0xfff2cf, 1.6, 10);
+        hl.position.set(x, 0.55, 1.9); g.add(hl);
+        const hlm = new THREE.Mesh(new THREE.SphereGeometry(0.09,6,6),
+          new THREE.MeshBasicMaterial({color:0xfff2cf}));
+        hlm.position.copy(hl.position); g.add(hlm);
+      });
+    }
+    return g;
+  }
+  const traffic = [];
+  for(let i=0;i<4;i++){
+    const c = carMesh([0x8a1f2a,0x1f3a5f,0x2f2f33,0x5a4a1f][i], false);
+    c.position.set(i%2===0?-2.6:2.6, 0, -30 - i*26);
+    traffic.push(c); scene.add(c);
+  }
+
+  const playerCar = carMesh(0xd6d9de, true);
+  playerCar.position.set(0,0,0);
+  scene.add(playerCar);
+
+  const chaser = carMesh(0x0c0c0e, true);
+  chaser.position.set(0.4,0,7);
+  scene.add(chaser);
+
+  // rain
+  const rainCount = 500;
+  const rainGeo = new THREE.BufferGeometry();
+  const rainPos = new Float32Array(rainCount*3);
+  for(let i=0;i<rainCount;i++){
+    rainPos[i*3]=(Math.random()-0.5)*40;
+    rainPos[i*3+1]=Math.random()*20;
+    rainPos[i*3+2]=-Math.random()*140;
+  }
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos,3));
+  const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({
+    color:0xaad4ff, size:0.06, transparent:true, opacity:0.5, depthWrite:false
+  }));
+  scene.add(rain);
+
+  document.getElementById('rearlabel').classList.add('show');
+
+  const boards = ["TOLL PLAZA 4KM","YOUR CONTACT NEVER LEFT THE BUILDING","REDLINE — 6 LANES OPEN"];
+  let boardT = 3, integrity = 100, flashT = 0;
+
+  function update(t, dt, api){
+    const speed = 26;
+    road.material.map.offset.y += dt*speed*0.05;
+
+    poles.forEach(p=>{
+      p.position.z += speed*dt;
+      if(p.position.z > 10) p.position.z -= POLE_GAP*POLE_COUNT;
+    });
+    traffic.forEach((c,i)=>{
+      c.position.z += speed*dt*0.7;
+      if(c.position.z > 10) c.position.z -= 100;
+    });
+    const rarr = rain.geometry.attributes.position.array;
+    for(let i=0;i<rainCount;i++){
+      rarr[i*3+1] -= dt*30;
+      rarr[i*3+2] += speed*dt;
+      if(rarr[i*3+1] < 0){ rarr[i*3+1]=20; }
+      if(rarr[i*3+2] > 10) rarr[i*3+2] -= 140;
+    }
+    rain.geometry.attributes.position.needsUpdate = true;
+
+    const drift = Math.sin(t*0.6)*1.6;
+    playerCar.position.x = drift;
+    playerCar.rotation.z = Math.sin(t*0.6)*0.03;
+    chaser.position.x = drift*0.7 + Math.sin(t*0.9)*0.5;
+    chaser.position.z = 6 + Math.sin(t*0.4)*2.5;
+
+    camera.position.set(drift*0.6, 2.6, 6.2);
+    camera.lookAt(drift, 0.6, -6);
+
+    rearCam.position.set(drift*0.6, 2.2, -1.5);
+    rearCam.lookAt(chaser.position.x, 0.7, chaser.position.z);
+
+    // occasional hit
+    flashT -= dt;
+    boardT -= dt;
+    if(Math.random() < 0.0025 && integrity>8){
+      integrity -= 6+Math.random()*10;
+      flashT = 0.18;
+      api.signal("IMPACT — REAR QUARTER");
+    }
+    document.getElementById('flash').style.opacity = flashT>0? 0.5:0;
+
+    api.hud.drive(Math.max(0,integrity));
+
+    if(boardT<=0){ boardT=7+Math.random()*3; api.signal(boards[Math.floor(Math.random()*boards.length)]); }
+  }
+
+  function dispose(){
+    disposeScene(scene);
+    document.getElementById('rearlabel').classList.remove('show');
+  }
+
+  return {scene, camera, rearCam, update, dispose};
+}
+
+/* ================================================================
+   LEVEL 3 — FIGHT / DEEPHOLD  (lava mine, orbiting cinematic cam)
+   ================================================================ */
+function buildFight(){
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x1a0603, 4, 40);
+  scene.background = new THREE.Color(0x0a0201);
+
+  const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 200);
+
+  scene.add(new THREE.AmbientLight(0x2a0e05, 0.6));
+
+  // lava floor
+  const lavaMat = new THREE.MeshStandardMaterial({color:0x662000, emissive:0xff5500, emissiveIntensity:1.1, roughness:.5});
+  const lava = new THREE.Mesh(new THREE.RingGeometry(6, 26, 48), lavaMat);
+  lava.rotation.x = -Math.PI/2; lava.position.y = -0.3;
+  scene.add(lava);
+
+  // center platform
+  const platMat = new THREE.MeshStandardMaterial({color:0x2a2622, roughness:.95});
+  const plat = new THREE.Mesh(new THREE.CylinderGeometry(6.4,7,0.6,24), platMat);
+  scene.add(plat);
+
+  // cave wall ring
+  const wallMat = new THREE.MeshStandardMaterial({color:0x1c1512, roughness:1});
+  const walls = [];
+  for(let i=0;i<20;i++){
+    const a = (i/20)*Math.PI*2;
+    const h = 6+Math.random()*6;
+    const w = new THREE.Mesh(new THREE.BoxGeometry(3.5, h, 3.5), wallMat);
+    w.position.set(Math.cos(a)*23, h/2-1, Math.sin(a)*23);
+    w.rotation.y = a;
+    scene.add(w); walls.push(w);
+    if(i%3===0){
+      const fissure = new THREE.Mesh(new THREE.PlaneGeometry(0.5,h*0.7),
+        new THREE.MeshBasicMaterial({color:0xff6a1a}));
+      fissure.position.set(Math.cos(a)*21.2, h*0.3, Math.sin(a)*21.2);
+      fissure.rotation.y = a;
+      scene.add(fissure);
+      const fl = new THREE.PointLight(0xff5a1a, 1.2, 14);
+      fl.position.copy(fissure.position); scene.add(fl);
+    }
+  }
+
+  // boss + player
+  const boss = makeHuman(0x120a08, 2.1);
+  boss.position.set(0,0,-2.2);
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.16,10,10),
+    new THREE.MeshBasicMaterial({color:0xff5522}));
+  core.position.y = 1.3; boss.add(core);
+  const coreLight = new THREE.PointLight(0xff5522, 1.6, 8);
+  coreLight.position.y = 1.3; boss.add(coreLight);
+  scene.add(boss);
+
+  const hero = makeHuman(0xd6dbe2, 1.7);
+  hero.position.set(0,0,2.2);
+  const key = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.22,0.05),
+    new THREE.MeshBasicMaterial({color:0x9fe8ff}));
+  key.position.set(0.35,1.1,0.2); hero.add(key);
+  scene.add(hero);
+
+  // embers
+  const emberCount = 300;
+  const eGeo = new THREE.BufferGeometry();
+  const ePos = new Float32Array(emberCount*3);
+  for(let i=0;i<emberCount;i++){
+    ePos[i*3] = (Math.random()-0.5)*30;
+    ePos[i*3+1] = Math.random()*10;
+    ePos[i*3+2] = (Math.random()-0.5)*30;
+  }
+  eGeo.setAttribute('position', new THREE.BufferAttribute(ePos,3));
+  const embers = new THREE.Points(eGeo, new THREE.PointsMaterial({
+    color:0xff8a3f, size:0.09, transparent:true, opacity:0.85, depthWrite:false
+  }));
+  scene.add(embers);
+
+  const phases = ["PHASE 01 — PURSUIT","PHASE 02 — STAND","PHASE 03 — DESPERATION"];
+  let phaseT = 0, phaseI = 0, bossHP = 100;
+
+  function update(t, dt, api){
+    lava.material.emissiveIntensity = 0.9 + Math.sin(t*1.4)*0.25;
+    const arr = embers.geometry.attributes.position.array;
+    for(let i=0;i<emberCount;i++){
+      arr[i*3+1] += dt*1.4;
+      if(arr[i*3+1] > 10) arr[i*3+1] = 0;
+    }
+    embers.geometry.attributes.position.needsUpdate = true;
+
+    boss.position.y = Math.sin(t*1.6)*0.03;
+    boss.rotation.y = Math.sin(t*0.3)*0.25;
+    boss.userData.legs.forEach(l=>l.rotation.x = Math.sin(t*1.2)*0.05);
+    hero.rotation.y = Math.sin(t*0.5+1)*0.3;
+    key.material.color.setHSL(0.55, 1, 0.6+Math.sin(t*4)*0.2);
+
+    const angle = t*0.15;
+    camera.position.set(Math.cos(angle)*9, 3.2+Math.sin(t*0.4)*0.4, Math.sin(angle)*9);
+    camera.lookAt(0, 1.1, 0);
+
+    phaseT -= dt;
+    if(phaseT<=0){
+      phaseT = 9;
+      phaseI = (phaseI+1)%phases.length;
+      bossHP = Math.max(15, bossHP-28);
+      api.signal(phases[phaseI]);
+    }
+    api.hud.fight(phases[phaseI], bossHP);
+  }
+
+  return {scene, camera, update, dispose:()=>disposeScene(scene)};
+}
+
+/* ---------------- level plumbing ---------------- */
+
+const LEVELS = [
+  { build: buildRun, num:'01 · DOWNLINE', name:'PLATFORM 4 — SOUTHBOUND',
+    sub:'He is fifteen metres behind you and he never gets tired.', color:'--cyan', hud:'hudRun' },
+  { build: buildDrive, num:'02 · REDLINE', name:'SIX LANES, SUNSET INTO NIGHT',
+    sub:'Now you have a vehicle, and for the first time he can hurt you.', color:'--magenta', hud:'hudDrive' },
+  { build: buildFight, num:'03 · DEEPHOLD', name:'NINE HUNDRED METRES DOWN',
+    sub:'The corridor ends. There is nowhere left to run.', color:'--orange', hud:'hudFight' },
+];
+
+const hudApi = {
+  run: v=>{
+    document.getElementById('runFill').style.width = (v*100).toFixed(0)+'%';
+    document.getElementById('runVal').textContent = v>0.7? 'CRITICAL' : v>0.4? 'CLOSING' : 'CLEAR';
+  },
+  drive: v=>{
+    document.getElementById('driveFill').style.width = v.toFixed(0)+'%';
+    document.getElementById('driveVal').textContent = v.toFixed(0)+'%';
+  },
+  fight: (label, hp)=>{
+    document.getElementById('phaseLabel').textContent = label;
+    document.getElementById('bossFill').style.width = hp+'%';
+    document.getElementById('bossVal').textContent = hp+'%';
+  }
+};
+
+let signalTimeout = null;
+function signal(msg){
+  const el = document.getElementById('signal');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(signalTimeout);
+  signalTimeout = setTimeout(()=>el.classList.remove('show'), 3200);
+}
+
+function setLevel(i){
+  if(current){ current.dispose(); }
+  levelIndex = i;
+  const def = LEVELS[i];
+  current = def.build();
+  current.camera.aspect = innerWidth/innerHeight;
+  current.camera.updateProjectionMatrix();
+
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', +t.dataset.i===i));
+  document.getElementById('liNum').textContent = def.num;
+  document.getElementById('liNum').style.color = `var(${def.color})`;
+  document.getElementById('liName').textContent = def.name;
+  document.getElementById('liSub').textContent = def.sub;
+  document.querySelectorAll('.hudbox').forEach(h=>h.classList.remove('show'));
+  document.getElementById(def.hud).classList.add('show');
+}
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=> setLevel(+t.dataset.i));
+});
+
+/* ---------------- main loop ---------------- */
+
+let fpsAcc=0, fpsFrames=0, fpsT=0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.getElapsedTime();
+
+  if(current){
+    current.update(t, dt, {hud:hudApi, signal});
+    renderer.setScissorTest(false);
+    renderer.setViewport(0,0,innerWidth,innerHeight);
+    renderer.render(current.scene, current.camera);
+
+    // rear-view PiP for the drive level
+    if(current.rearCam){
+      const w = Math.min(260, innerWidth*0.22), h = w*0.42;
+      const x = innerWidth/2 - w/2, y = innerHeight - h - 26;
+      renderer.setScissorTest(true);
+      renderer.setScissor(x,y,w,h);
+      renderer.setViewport(x,y,w,h);
+      renderer.render(current.scene, current.rearCam);
+      renderer.setScissorTest(false);
+      document.getElementById('rearlabel').style.left = x+'px';
+      document.getElementById('rearlabel').style.top = (y-16)+'px';
+    }
+  }
+
+  fpsAcc += dt; fpsFrames++;
+  if(fpsAcc>0.4){
+    document.getElementById('fps').textContent = Math.round(fpsFrames/fpsAcc);
+    document.getElementById('tris').textContent = renderer.info.render.triangles;
+    document.getElementById('calls').textContent = renderer.info.render.calls;
+    fpsAcc=0; fpsFrames=0;
+  }
+}
+
+setLevel(0);
+document.getElementById('loading').style.display = 'none';
+animate();
+</script>
+</body>
+</html>

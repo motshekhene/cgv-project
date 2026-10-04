@@ -1,0 +1,26 @@
+# Level 2 asset credits
+
+Everything here that the team did not make. Copy these into the in-game credits screen.
+
+| Asset | File(s) | Author | Source | Licence |
+|---|---|---|---|---|
+| Cars Bundle: Sports Car ×2, Car ×2, SUV, Taxi (player Street Racer, traffic) | `cars/coupe.glb`, `cars/street-racer.glb`, `cars/sedan.glb`, `cars/hatch.glb`, `cars/suv.glb`, `traffic/taxi.glb` | Quaternius | https://poly.pizza/bundle/Cars-Bundle-FE5IWe6OMk | CC0 1.0 (public domain) |
+| "Toyota AE86" (Drifter) | `cars/drifter.glb` | IvOfficial | https://poly.pizza/m/ZEFWmOPSgh | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Car" (Muscle) | `cars/muscle.glb` | theking1322 | https://poly.pizza/m/t8njpnyrxg | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Convertible" (Executive) | `cars/executive.glb` | Poly by Google | https://poly.pizza/m/dggOiBLYyuR | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Pickup Truck" (traffic) | `traffic/pickup.glb` | Quaternius | https://poly.pizza/m/qn4grQgHm8 | CC0 1.0 (public domain) |
+| "Range Rover" (the Handler's car) | `handler-ranger.glb` | IvOfficial | https://poly.pizza/m/8zk4o6nALW | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "CAR Model" (Supercar) | `cars/supercar.glb` | Ignition Labs | https://poly.pizza/m/5zUWP5UsLg- | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Richie" (the Handler's drones) | `hazards/drone.glb` | joney_lol | https://poly.pizza/m/BwaLw2Olre | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Van" (traffic) | `traffic/van.glb` | jeremy | https://poly.pizza/m/9hUUD2DWk1v | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+| "Bus" (traffic) | `traffic/bus.glb` | Poly by Google | https://poly.pizza/m/4CPpvEmrMoF | CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/ |
+
+The CC BY models are used unmodified apart from scaling, positioning and recolouring at load time.
+In-game names are generic (Sedan, GT Coupe, …); no brand names are shown.
+
+Level 2 also uses the shared jungle kit in `assets/jungle/` (trees, bushes, grass, rocks, ruins, logs/crates, mud and forest-floor textures — Quaternius / ambientCG / Poly by Google, all CC0; see `assets/jungle/README.md`).
+All Level 2 sound is synthesised in code (`src/levels/level2/sound.js`) — no third-party audio.
+
+Team code reused in Level 2 (no third-party assets):
+- `src/ui/theme.js` (Jungle Shrine UI look) and `src/shaders/waterfall.js`, `water.js`, `noise.js` (waterfall curtain and water surface) — from the Level 3 branch (`mahlatse/level3`), copied unchanged. Level 2's HUD, on-screen controls and end cards use the theme; the falls at the end of the River Road use the shaders.
+- Signs, light shafts, pollen, wildlife, sky and trail materials — Level 1's `src/levels/level1/jungleWorld.js`.
