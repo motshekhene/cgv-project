@@ -46,7 +46,11 @@ export const CARS = [
   },
 ];
 
-export const HANDLER_MODEL = 'level2/police-car.glb';   // Quaternius, CC0
+// the Handler drives an expedition Range Rover ("Range Rover" by IvOfficial,
+// CC BY 3.0) in its own tan, with the red/blue light bar on the roof rack.
+// Its wheels are Tire1-4 (the "Spare Tire" on the back door must not spin).
+export const HANDLER_MODEL = 'level2/handler-ranger.glb';
+export const HANDLER_OPTIONS = { length: 4.9, wheels: /^Tire\d$/ };
 
 const KEY = 'blackout.level2.car';
 const PAINT_KEY = 'blackout.level2.paint';

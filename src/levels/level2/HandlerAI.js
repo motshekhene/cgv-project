@@ -11,6 +11,7 @@ const MOVE_LABEL = {
   SHUNT: 'REAR SHUNT',
   PIN: 'WALL PIN',
   SHOOT: 'TYRE SHOT',
+  HARASS: 'TAILGATING',
   DRONE: 'DRONE LAUNCH',
 };
 
@@ -26,16 +27,16 @@ const _v = new THREE.Vector2();
  * more than yours move him.
  *
  *   APPROACH   closes in from behind
- *   HARASS     rides alongside on the side with more road and keeps jabbing
- *              his door into yours — real contact, small damage
+ *   HARASS     tailgates you, glued to your rear bumper, and keeps tapping
+ *              it — real contact from behind, small damage
+ *   He only ever hits you from BEHIND. If he ends up level with you he stays
+ *   in his own lane and drops back before merging in behind.
  *   TELEGRAPH  lightbar strobes and the HUD names the move that's coming,
  *              while he lines up for it:
- *     SLAM       swings wide, locks where you are, slams into your side
- *     PIT        tucks in at your rear quarter and taps it — your tail kicks
- *                out and you lose speed
- *     SHUNT      drops in directly behind and rams your rear bumper
- *     PIN        only when you're near a rail: he gets on the inside and
- *                shoves you into the wall, grinding you along it
+ *     SHUNT      drops back, lines up dead behind you and charges your rear
+ *                bumper (change lane or boost to dodge)
+ *     (SLAM / PIT / PIN, the old side attacks, are still implemented below
+ *      but no longer chosen — see _chooseMove)
  *     SHOOT      (after ~18 s) drops back and shoots at your rear tyre —
  *                see HandlerWeapons.js
  *     DRONE      first at ~25 s, then about every 30 s: a spike-strip or
@@ -197,16 +198,16 @@ export class HandlerAI {
         && this.elapsed - (this.lastDroneAt ?? -Infinity) > 30) {
       return 'DRONE';
     }
-    const awayBlocked = this._boxedIn(-this.side);   // your escape route from him
-    const nearWall = Math.abs(p.x) > this.railX - 5.5 && Math.sign(p.x) === -this.side;
-    if (nearWall && this.lastMove !== 'PIN' && !this._hurt && Math.random() < 0.5) return 'PIN';
-    // a SLAM you can't swerve away from isn't a dodge, it's a tax
-    const options = awayBlocked ? ['PIT', 'SHUNT'] : ['SLAM', 'PIT', 'SHUNT'];
+    // he only ever hits you from BEHIND: the rear shunt is his ram. (SLAM / PIT /
+    // PIN — side attacks — are still in this file but no longer chosen.)
+    void p;
+    const options = ['SHUNT', 'SHUNT'];
     // ranged attacks unlock as the chase goes on, and come up more often later
     if (this.weapons && this.elapsed > 18) options.push('SHOOT');
     if (this.weapons && this.elapsed > 25 && this.weapons.canLaunchDrone()) options.push('DRONE');
     const pool = options.filter((m) => m !== this.lastMove);
-    return pool[Math.floor(Math.random() * pool.length)];
+    const from = pool.length ? pool : options;
+    return from[Math.floor(Math.random() * from.length)];
   }
 
   update(dt) {
@@ -229,6 +230,13 @@ export class HandlerAI {
     const dz = p.z - m.z;                 // >0: player is ahead of him
     const dist = Math.hypot(p.x - m.x, dz);
 
+    // he works from BEHIND you. If he's level with you (you braked, he
+    // overshot), he stays in his own lane and drops back before merging in
+    // behind — he never cuts across your side.
+    const behind = dz > LEN + 0.6;
+    if (!behind) this.side = Math.sign(m.x - p.x) || this.side;
+    const laneBehind = () => (behind ? p.x : p.x + this.side * (GAP + 0.8));
+
     // ---------- where he wants to be ----------
     let tx = p.x + this.side * (GAP + 1.5);
     let tz = p.z - LEN - 4;
@@ -240,16 +248,9 @@ export class HandlerAI {
 
     switch (this.state) {
       case 'APPROACH': {
-        // only swap sides while safely behind, never through the player
-        if (dz > LEN + 2) {
-          if (p.x > 3) this.side = -1;
-          else if (p.x < -3) this.side = 1;
-        }
-        tx = p.x + this.side * (GAP + 0.8);
-        tz = p.z - LEN - 1;
-        // in the slot behind you, or already alongside (you came to him)
-        const alongside = Math.abs(dz) < LEN && Math.abs(p.x - m.x) < GAP + 2;
-        if (Math.abs(tz - m.z) < 3 || alongside) {
+        tx = laneBehind();
+        tz = p.z - LEN - 2.5;
+        if (behind && Math.abs(tz - m.z) < 3 && Math.abs(m.x - p.x) < GAP) {
           this.harassFor = THREE.MathUtils.lerp(4, 2.2, a) + Math.random() * 1.2;
           this.jabTimer = 0.6 + Math.random() * 0.6;
           this._enter('HARASS');
@@ -258,17 +259,18 @@ export class HandlerAI {
       }
 
       case 'HARASS': {
-        // door to door, surging forward and back, jabbing in every second or so
+        // TAILGATING: glued to your rear bumper, surging, and every second or
+        // so he taps it — a real nudge from behind (small damage)
         const t = this.stateTimer;
         this.jabTimer -= dt;
         const jabbing = this.jabTimer < 0;
-        if (this.jabTimer < -0.3) this.jabTimer = THREE.MathUtils.lerp(1.5, 0.9, a) + Math.random() * 0.5;
-        const jabIn = this._hurt ? 0.4 : 0.9;
-        tx = p.x + this.side * (jabbing ? GAP - jabIn : GAP + 0.45);
-        tz = p.z - 0.6 + Math.sin(t * 1.3) * 1.4;
-        maxLat = jabbing ? 7 : 5;
-        keepClear = !jabbing;
-        if (dz > 25) this._enter('APPROACH');
+        if (this.jabTimer < -0.35) this.jabTimer = THREE.MathUtils.lerp(1.6, 1.0, a) + Math.random() * 0.5;
+        tx = p.x;
+        tz = jabbing ? p.z - LEN + (this._hurt ? 0.2 : 0.6) : p.z - LEN - 1.3 + Math.sin(t * 1.4) * 0.6;
+        maxLat = 6;
+        accel = jabbing ? 24 : 18;
+        keepClear = false;
+        if (dz > 25 || !behind) this._enter('APPROACH');
         else if (t > this.harassFor && this._fairToAttack()) {
           this.nextMove = this._chooseMove();
           this.locked = false;
@@ -295,16 +297,16 @@ export class HandlerAI {
           tx = p.x + this.side * (GAP + 0.5);
           tz = p.z - LEN * 0.75;          // tucked in at your rear quarter
         } else if (move === 'SHUNT') {
-          // drop back first, only then slide in behind you
+          // drops back, lines up dead behind you, revs — then charges
           tz = p.z - LEN - 7;
-          tx = dz > LEN + 1.5 ? p.x : p.x + this.side * (GAP + 0.6);
+          tx = laneBehind();
         } else if (move === 'PIN') {
           tx = p.x + this.side * (GAP + 0.3);
           tz = p.z;
         } else if (move === 'SHOOT' || move === 'DRONE') {
-          // falls back to a firing position off your rear quarter
-          tx = p.x + this.side * (GAP + 2.5);
-          tz = p.z - 9;
+          // falls back to a firing position behind you, a little to one side
+          tx = behind ? p.x + this.side * 1.6 : laneBehind();
+          tz = p.z - 10;
         }
         maxLat = 5;
         if (this.stateTimer > windUp) {
@@ -344,9 +346,12 @@ export class HandlerAI {
         break;
 
       case 'SHUNT':
-        tx = p.x;
+        // he commits to the lane you were in when he launched: change lane
+        // (or boost away) and he thunders past / falls short
+        if (this.stateTimer < dt * 1.5) this.ramX = p.x;
+        tx = this.ramX;
         fixedSpeed = car.speed + 9 + 3 * a;   // closes on your bumper
-        maxLat = 3.5;
+        maxLat = 2;
         accel = 22;
         keepClear = false;
         if (this.moveLanded) this._enter('RECOVER');
@@ -366,27 +371,27 @@ export class HandlerAI {
         break;
 
       case 'SHOOT':
-        // holds his firing position while the sight tracks you
-        tx = p.x + this.side * (GAP + 2.5);
-        tz = p.z - 9;
+        // holds his firing position behind you while the sight tracks you
+        tx = behind ? p.x + this.side * 1.6 : laneBehind();
+        tz = p.z - 10;
         if (!this.weapons.busy) this._enter('APPROACH');
         break;
 
       case 'DRONE':
-        tx = p.x + this.side * (GAP + 2.5);
+        tx = laneBehind();
         tz = p.z - 12;
         if (this.stateTimer > 1) this._enter('APPROACH');
         break;
 
       case 'DODGED':
-        tx = p.x + this.side * (GAP + 3);
+        tx = laneBehind();
         tz = p.z - 18;
         if (this.stateTimer > 2.0) this._enter('APPROACH');
         break;
 
       case 'RECOVER':
-        tx = p.x + this.side * (GAP + 2.5);
-        tz = p.z - LEN - 5;
+        tx = laneBehind();
+        tz = p.z - LEN - 6;
         if (this.stateTimer > 1.3) this._enter('APPROACH');
         break;
     }
@@ -591,8 +596,10 @@ export class HandlerAI {
       return;
     }
 
-    // smaller bumps: harass jabs, brake-checks, the shove during a PIN
-    if (this.damageCooldown === 0 && this.hostile && c.impulse > 1.2 && !this._hurt) {
+    // smaller bumps: the tailgating taps — only from BEHIND cost health; a side
+    // scrape (you swerved into him) is just physics
+    const fromBehind = c.localZ < -c.half.l * 0.4;
+    if (this.damageCooldown === 0 && this.hostile && fromBehind && c.impulse > 1.2 && !this._hurt) {
       this.damageCooldown = 0.9;
       const damage = Math.min(3, Math.round(c.impulse * 0.4));
       if (this.onContact) this.onContact({ damage, impact: Math.min(0.6, 0.15 + c.impulse / 12), side });

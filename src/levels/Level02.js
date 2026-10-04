@@ -7,7 +7,7 @@ import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
 import { Skids, Smoke } from './level2/skids.js';
-import { CARS, HANDLER_MODEL, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
+import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
 import { createGameOverScreen } from './level2/gameOver.js';
@@ -183,7 +183,7 @@ export class Level02 extends Level {
     this._paintIndex = loadSavedPaint();
     this._paintInfo = new Map();                  // detected factory colour per model file
     await this._selectCar(this._carIndex);
-    const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL);
+    const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL, HANDLER_OPTIONS);
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds, handlerModel);
 
     await this.traffic.init(this.car.mesh.position.z);
@@ -460,7 +460,13 @@ export class Level02 extends Level {
     const v = Math.min(1.3, Math.abs(car.speed) / car.maxSpeed);
     const k = 1 - Math.exp(-dt * 6);            // position follow rate
     const kl = 1 - Math.exp(-dt * 9);           // aim follow rate
-    const back = 7.4 + v * 1.8, up = 3.3 + v * 0.4;
+    // when he's tailgating, he'd sit between the camera and your car: lift
+    // the camera and tilt down so you see over him
+    const hz = car.mesh.position.z - this.handler.mesh.position.z;
+    const hx = Math.abs(this.handler.mesh.position.x - car.mesh.position.x);
+    const close = hz > 0 && hz < 12 && hx < 2.5 ? THREE.MathUtils.clamp((12 - hz) / 6, 0, 1) : 0;
+    this._lift = (this._lift || 0) + (close - (this._lift || 0)) * (1 - Math.exp(-dt * 3));
+    const back = 7.4 + v * 1.8 - this._lift * 0.8, up = 3.3 + v * 0.4 + this._lift * 2.6;
     const sh = Math.sin(car.heading), ch = Math.cos(car.heading);
     this._camOffset.set(-sh * back, up, -ch * back);
     this._camDesired = (this._camDesired || new THREE.Vector3()).copy(car.mesh.position).add(this._camOffset);
