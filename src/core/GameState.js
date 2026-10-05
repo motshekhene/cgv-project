@@ -32,10 +32,6 @@ export class GameState {
     this.awards = []; // one-time shrine gifts collected in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 
-    // Set in the prologue when the key is copied. Story progression, so it
-    // persists across levels and is NOT cleared by resetForLevel.
-    this.hasKey = false;
-
     // Numbers a finished level hands to its win cutscene (distance, closest
     // call, ...). Set just before the level switches, so NOT cleared by
     // resetForLevel — the win scene reads it after the reset.

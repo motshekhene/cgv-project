@@ -24,7 +24,7 @@ assets/jungle/     every model and texture the game uses (index: assets/jungle/R
 assets/characters/ kai.fbx, handler.fbx
 public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
-intros/            Level 1 and 2 intro and win scenes, one page each: npm run intros (docs/LEVEL1_2_INTROS_AND_WINS.md)
+intros/            the Level 1 intro on its own page: npm run intro:l1
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
 ```
@@ -36,10 +36,10 @@ Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — 
 `npm run dev` plays the whole thing in order:
 
 ```
-prologue → level01-intro → level01 → level01-win → level02-intro → level02 → level02-win → level03
+level01-intro → level01 → level02 → level03
 ```
 
-Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. Cutscenes skip with Space / Enter / click, the prologue with K. The order is set in `src/main.js`.
+Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. The intro skips with Space / Enter / click. The order is set in `src/main.js`.
 
 ## A few rules (please follow these)
 

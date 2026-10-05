@@ -1,5 +1,7 @@
 # Levels 1 & 2: intro and winning scenes
 
+> **MVP note (integration/mvp):** only the Level 1 intro (`TrailIntro`) is in the game. The Level 1 win, Level 2 intro and Level 2 win scenes were taken out so the run flows straight from level to level; their code is still on `mahlatse/level3`.
+
 How Level 1 and Level 2 start, and how they end when the player wins, set in the Jungle Shrine world. All four scenes are built and run on their own (see [Running the scenes](#running-the-scenes)). Level 3 is at the bottom for reference, since it's already built.
 
 Each level ends where the next one begins: the gate leads on toward the river road, and the river carries Kai over the waterfall into Site 7.
