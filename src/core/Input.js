@@ -30,6 +30,7 @@ export const DEFAULT_BINDINGS = {
   pause: ["escape"],
   restart: ["r"],
   skip: ['k'],
+  mute:     ['m'],
 };
 
 export class Input {
