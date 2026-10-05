@@ -21,7 +21,7 @@ assets/
 │   │   └── props/         16 glTF/GLB   logs, crates, barrels, stones, the bridge
 │   ├── textures/          6 PBR sets (colour / normal / roughness / ao)
 │   └── environment/       sky-light.exr (lighting only)
-└── textures/              lava-*.jpg   (old Deephold Level 3, remove once the shrine is in)
+└── textures/              (empty: the old Deephold lava textures went when the shrine landed)
 ```
 
 All source packs are CC0 (Quaternius, ambientCG, Poly by Google). No credit is legally required, but list them on the credits screen anyway.

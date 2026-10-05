@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# raw downloads (zips, full packs). The cleaned, game-ready copies live in assets/jungle/
+_source/downloads/
+# concept render output
+tools/concepts/out/

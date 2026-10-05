@@ -1,24 +1,115 @@
-import "./style.css";
-import { Game } from "./core/Game.js";
-import { Prologue } from "./levels/Prologue.js";
-import { Level01 } from "./levels/Level01.js";
-import { Level02 } from "./levels/Level02.js";
+/**
+ * The one state object passed to every level's update().
+ *
+ * Use THESE field names everywhere. If level 02 writes `hp` and level 03
+ * writes `health`, the HUD ends up reading one of them and silently showing
+ * the wrong number in front of a marker.
+ *
+ * MERGE NOTE (1A + 3A, 5 Oct): both branches added fields to reset(). Both
+ * sets are kept — 1A's pursuit/fail tracking and 3A's awards + helmet flag.
+ */
+export class GameState {
+  constructor() {
+    this.reset();
+  }
 
-const game = new Game();
+  reset() {
+    // progression
+    this.level = "level01"; // 'level01' | 'level02' | 'level03'
+    this.phase = 1; // sub-phase inside a level (boss phases, etc.)
+    this.paused = false;
+    this.timeScale = 1; // 1 normally, < 1 for the Key's slow-mo pulse
 
-game.registerLevel("prologue", () => new Prologue());
-game.registerLevel("level01", () => new Level01());
-game.registerLevel("level02", () => new Level02());
-// 3A: register level03 here the same way once it exists
-// game.registerLevel("level03", () => new Level03());
+    // the player
+    this.health = 100;
+    this.maxHealth = 100;
+    this.stamina = 100;
+    this.maxStamina = 100;
+    this.boostHeat = 0; // 0..1, level 02
+    this.alive = true;
 
-game.onLevelChanged = (name) => console.log("[game] level:", name);
-game.onPaused = (v) => console.log("[game]", v ? "paused" : "resumed");
+    // scoring and story
+    this.distance = 0; // metres travelled in the current level
+    this.bestDistance = 0;
+    this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.awards = []; // one-time shrine gifts in level 03's forest: 'vitality' | 'strategy' | 'power'
+    this.deaths = 0;
 
-// ?level=level02 in the URL jumps straight into a level while developing
-const wanted = new URLSearchParams(location.search).get("level");
-await game.setLevel(game.levels.has(wanted) ? wanted : "prologue");
-game.start();
+    // Set in the prologue when the key is copied. Story progression, so it
+    // persists across levels and is NOT cleared by resetForLevel.
+    this.hasKey = false;
 
-// handy while developing — open the console and poke at it
-window.game = game;
+    // The pursuer. Level 01's only currency is distance, so handlerGap IS the
+    // health bar for that level — the run ends when it reaches 0.
+    // handlerState:
+    //   IDLE          not in the chase yet
+    //   LOSING_GROUND Kai is pulling away — the gap is growing
+    //   CLOSING       Kai is slower than the pursuer — the gap is shrinking
+    //   CAUGHT        gap hit 0; the run is lost
+    //   SEALED        a gate cut him off, or Kai reached the exit; out of play
+    this.handlerState = "IDLE";
+    this.handlerGap = 0; // metres between Kai and the Handler
+    this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
+    this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
+
+    // Why the run ended, so the fail screen can say it instead of guessing.
+    // Level 01 has two losses — "he catches you, or the southbound does".
+    // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
+    this.failCause = null;
+  }
+
+  /** Called by Game when a new level starts. Keeps letters and awards, resets the rest. */
+  resetForLevel(levelName) {
+    this.level = levelName;
+    this.phase = 1;
+    this.timeScale = 1;
+    this.health = this.maxHealth;
+    this.stamina = this.maxStamina;
+    this.boostHeat = 0;
+    this.distance = 0;
+    this.normalizedSpeed = 0;
+    this.handlerState = "IDLE";
+    this.handlerGap = 0;
+    this.failCause = null;
+    this.alive = true;
+    // NOTE for 3A: handlerHelmetOff is deliberately NOT reset here, because
+    // only you know whether a restarted level 03 should put the helmet back
+    // on. If it should, add `this.handlerHelmetOff = false;` on this line.
+  }
+
+  damage(amount) {
+    this.health = Math.max(0, this.health - amount);
+    if (this.health === 0) this.alive = false;
+    return this.alive;
+  }
+
+  heal(amount) {
+    this.health = Math.min(this.maxHealth, this.health + amount);
+  }
+
+  spendStamina(amount) {
+    if (this.stamina < amount) return false;
+    this.stamina -= amount;
+    return true;
+  }
+
+  regenStamina(perSecond, dt) {
+    this.stamina = Math.min(this.maxStamina, this.stamina + perSecond * dt);
+  }
+
+  collectLetter(id) {
+    if (this.letters.includes(id)) return false;
+    this.letters.push(id);
+    return true;
+  }
+
+  collectAward(id) {
+    if (this.awards.includes(id)) return false;
+    this.awards.push(id);
+    return true;
+  }
+
+  lettersInLevel(levelName) {
+    return this.letters.filter((id) => id.startsWith(levelName)).length;
+  }
+}

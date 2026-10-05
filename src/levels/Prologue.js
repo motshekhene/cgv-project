@@ -655,7 +655,7 @@ export class Prologue extends Level {
 
     this.hud.skip = mk(
       base + mono + ';right:34px;bottom:34px;color:#5b6379;font-size:11.5px;letter-spacing:.2em',
-      'K — SKIP &nbsp;·&nbsp; M — MUTE'
+      'X — SKIP &nbsp;·&nbsp; M — MUTE'
     );
 
     this.hud.thought = mk(
@@ -823,7 +823,7 @@ export class Prologue extends Level {
     this.t += dt;
 
     if (this.input.pressed('mute')) this.sfx.setMuted(!this.sfx.muted);
-    if (this.input.isDown('skip') && !this.leaving) { this._exit(state); return; }
+    if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
     if (this.cardT > 0) {
       this.cardT -= dt;
@@ -950,7 +950,7 @@ export class Prologue extends Level {
           '<span style="opacity:.4"> &nbsp;&nbsp;|&nbsp;&nbsp; </span>' +
           '<b style="color:#8f9bb0">Q</b> &nbsp; CLOSE THE LAPTOP'
         );
-        if (this.input.pressed('ability')) {
+        if (this.input.pressed('decline')) {
           this.lines.push('');
           this.lines.push('!9 DAYS');
           this._drawScreen();
@@ -1133,4 +1133,3 @@ export class Prologue extends Level {
     super.teardown();
   }
 }
-  

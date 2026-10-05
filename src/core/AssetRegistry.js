@@ -74,7 +74,7 @@ export class AssetRegistry {
     return this._load(this.gltf, path);
   }
 
-  /** Returns the loaded FBX root (with .animations). */
+  /** Returns the loaded FBX root (with .animations). Clone with SkeletonUtils.clone. */
   fbx(path) {
     return this._load(this.fbxLoader, path);
   }

@@ -4,6 +4,9 @@
  * Use THESE field names everywhere. If level 02 writes `hp` and level 03
  * writes `health`, the HUD ends up reading one of them and silently showing
  * the wrong number in front of a marker.
+ *
+ * MERGE NOTE (1A + 3A, 5 Oct): both branches added fields to reset(). Both
+ * sets are kept — 1A's pursuit/fail tracking and 3A's awards + helmet flag.
  */
 export class GameState {
   constructor() {
@@ -29,6 +32,7 @@ export class GameState {
     this.distance = 0; // metres travelled in the current level
     this.bestDistance = 0;
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.awards = []; // one-time shrine gifts in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 
     // Set in the prologue when the key is copied. Story progression, so it
@@ -43,9 +47,10 @@ export class GameState {
     //   CLOSING       Kai is slower than the pursuer — the gap is shrinking
     //   CAUGHT        gap hit 0; the run is lost
     //   SEALED        a gate cut him off, or Kai reached the exit; out of play
-    this.handlerState = 'IDLE';
+    this.handlerState = "IDLE";
     this.handlerGap = 0; // metres between Kai and the Handler
     this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
+    this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
 
     // Why the run ended, so the fail screen can say it instead of guessing.
     // Level 01 has two losses — "he catches you, or the southbound does".
@@ -53,7 +58,7 @@ export class GameState {
     this.failCause = null;
   }
 
-  /** Called by Game when a new level starts. Keeps letters, resets the rest. */
+  /** Called by Game when a new level starts. Keeps letters and awards, resets the rest. */
   resetForLevel(levelName) {
     this.level = levelName;
     this.phase = 1;
@@ -63,10 +68,13 @@ export class GameState {
     this.boostHeat = 0;
     this.distance = 0;
     this.normalizedSpeed = 0;
-    this.handlerState = 'IDLE';
+    this.handlerState = "IDLE";
     this.handlerGap = 0;
     this.failCause = null;
     this.alive = true;
+    // NOTE for 3A: handlerHelmetOff is deliberately NOT reset here, because
+    // only you know whether a restarted level 03 should put the helmet back
+    // on. If it should, add `this.handlerHelmetOff = false;` on this line.
   }
 
   damage(amount) {
@@ -92,6 +100,12 @@ export class GameState {
   collectLetter(id) {
     if (this.letters.includes(id)) return false;
     this.letters.push(id);
+    return true;
+  }
+
+  collectAward(id) {
+    if (this.awards.includes(id)) return false;
+    this.awards.push(id);
     return true;
   }
 
