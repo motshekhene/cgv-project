@@ -52,6 +52,8 @@ export function disposeObject(root) {
   if (!root) return;
   root.traverse((obj) => {
     if (obj.geometry) obj.geometry.dispose();
+    // instanced meshes own their per-instance matrix buffers
+    if (obj.isInstancedMesh) obj.dispose();
 
     // lights own a shadow map texture that nothing else will free
     if (obj.isLight && obj.shadow && obj.shadow.map) {

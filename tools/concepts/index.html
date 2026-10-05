@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Level 3 Concept Renders</title>
+  <style>
+    html, body { margin: 0; background: #000; overflow: hidden; }
+    #stage { position: relative; width: 1920px; height: 1080px; }
+    #stage canvas { display: block; }
+    #hud { position: absolute; inset: 0; pointer-events: none; }
+    /* light cinematic vignette, same on every shot */
+    #vignette { position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(0,0,0,.38) 100%); }
+    /* gameplay shots: soft top shade so the real HUD stays readable on bright skies */
+    body.play #vignette { background: linear-gradient(rgba(0,0,0,.42), transparent 16%), radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(0,0,0,.38) 100%); }
+  </style>
+</head>
+<body>
+  <div id="stage"><div id="vignette"></div><div id="hud"></div></div>
+  <script type="module" src="./scene.js"></script>
+</body>
+</html>

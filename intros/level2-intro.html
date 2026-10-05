@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="../favicon.svg" />
+    <title>Level 2 intro · BLACKOUT PROTOCOL</title>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <script type="module">
+      import { runCutscene } from '../src/intros/run.js';
+      import { CampIntro } from '../src/intros/level2/CampIntro.js';
+      runCutscene(CampIntro, { next: './level2-win.html', nextLabel: 'LEVEL 2 WIN SCENE', handoffNote: 'LEVEL 2 TAKES OVER HERE' });
+    </script>
+  </body>
+</html>

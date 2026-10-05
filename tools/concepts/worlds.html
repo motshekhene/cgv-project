@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blackout Protocol Worlds</title>
+<style>
+  :root {
+    --bg: #0d0f12; --panel: #15191e; --ink: #f2efe9; --mute: #9aa3ad; --line: #262c34;
+    --display: 'Bahnschrift', 'Segoe UI', system-ui, sans-serif; --body: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); }
+  img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 16px; }
+
+  header { padding: 56px 0 28px; }
+  .kicker { font: 600 12px var(--display); letter-spacing: .3em; text-transform: uppercase; color: var(--accent, var(--mute)); }
+  h1 { font: 700 clamp(44px, 8vw, 88px)/0.92 var(--display); margin: 10px 0 14px; letter-spacing: .02em; }
+  .lede { font-size: 18px; color: #cfd4d9; margin: 0; }
+  .flow { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; font: 700 14px var(--display); letter-spacing: .18em; }
+  .flow span { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; }
+  .flow i { color: var(--mute); font-style: normal; align-self: center; }
+
+  .nav { position: sticky; top: 0; z-index: 5; background: #0d0f12ee; backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  .nav .wrap { display: flex; gap: 6px; overflow-x: auto; padding-top: 10px; padding-bottom: 10px; }
+  .nav a { flex: none; color: var(--ink); text-decoration: none; font: 600 13px var(--display); letter-spacing: .1em; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); }
+  .nav a b { color: var(--accent); }
+  .nav a:hover { background: var(--panel); }
+
+  .prologue { position: relative; margin: 28px 0 8px; border-radius: 10px; overflow: hidden; aspect-ratio: 21 / 8; }
+  .prologue .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 22px 18px; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
+  .prologue b { font: 700 22px var(--display); display: block; }
+
+  section.world { padding: 56px 0 8px; scroll-margin-top: 60px; }
+  .whead { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .whead h2 { font: 700 clamp(30px, 4.5vw, 46px)/1 var(--display); margin: 6px 0 0; }
+  .whead h2 em { font-style: normal; color: var(--accent); }
+  .dots { display: flex; gap: 6px; }
+  .dots i { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #ffffff22; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .shot { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9; cursor: zoom-in; background: #000; border: 1px solid var(--line); }
+  .shot .tag { position: absolute; left: 12px; top: 12px; font: 700 12px var(--display); letter-spacing: .2em; padding: 5px 9px; border-radius: 4px; background: #000000b0; color: var(--accent); }
+  .shot .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 14px 12px; font-size: 15px; background: linear-gradient(transparent, rgba(0,0,0,.78)); }
+
+  .vote { padding: 64px 0 80px; }
+  .vote h2 { font: 700 34px var(--display); margin: 6px 0 18px; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .card { background: var(--panel); border-radius: 8px; overflow: hidden; border-top: 3px solid var(--accent); text-decoration: none; color: var(--ink); }
+  .card .t { aspect-ratio: 16 / 9; }
+  .card div.n { padding: 12px 14px; font: 700 17px var(--display); }
+  .card div.n small { display: block; font: 400 13px var(--body); color: var(--mute); margin-top: 3px; }
+
+  .lb { position: fixed; inset: 0; background: #000000ee; display: none; align-items: center; justify-content: center; z-index: 10; cursor: zoom-out; padding: 16px; }
+  .lb.on { display: flex; }
+  .lb img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+
+  @media (max-width: 760px) {
+    .grid, .cards { grid-template-columns: 1fr; }
+    .prologue { aspect-ratio: 16 / 9; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">CGV group project · story concept</div>
+    <h1>BLACKOUT<br>PROTOCOL</h1>
+    <p class="lede">Four worlds. The same chase. Pick the one we build.</p>
+    <div class="flow"><span>RUN</span><i>→</i><span>DRIVE</span><i>→</i><span>FIGHT</span></div>
+  </header>
+</div>
+<nav class="nav"><div class="wrap" id="nav"></div></nav>
+<main class="wrap" id="main"></main>
+<div class="lb" id="lb"><img alt=""></div>
+
+<script>
+const IMG = {};  /* filled in by the build step: name → image URL */
+const img = (n) => IMG[n] || `out/${n}.jpg`;
+
+const WORLDS = [
+  { id: 'shrine', letter: 'A', name: 'Jungle Shrine', place: 'SITE 7', accent: '#9ed36a',
+    palette: ['#5f9a2e', '#7a7c66', '#f4e2b0', '#2f7f7a'],
+    run: 'On foot through the jungle ruins', drive: 'Mud road along the river', fight: 'The shrine courtyard', reveal: 'The helmet comes off' },
+  { id: 'monastery', letter: 'B', name: 'Mountain Monastery', place: 'THE PASS', accent: '#e05a4f',
+    palette: ['#3f74b8', '#9c988e', '#a3262a', '#f4f7fb'],
+    run: 'Up the snowy pilgrim path', drive: 'The cliff road over the pass', fight: 'The monastery terrace', reveal: 'The helmet comes off' },
+  { id: 'desert', letter: 'C', name: 'Desert Canyon', place: 'RELAY 7', accent: '#f0a35e',
+    palette: ['#c98a5a', '#f6d6a6', '#3a76c4', '#4ff0d8'],
+    run: 'Through the dusty town', drive: 'The open desert highway', fight: 'The relay station', reveal: 'The helmet comes off' },
+  { id: 'coast', letter: 'D', name: 'Coastal Cliffs', place: 'STATION 7', accent: '#ffb26b',
+    palette: ['#25335e', '#f6a774', '#0d2a46', '#9a9298'],
+    run: 'Down the harbour pier', drive: 'The coast road at dusk', fight: 'The cliff edge at sunset', reveal: 'The helmet comes off' },
+];
+
+const shot = (n, tag, cap) => `<div class="shot" data-src="${n}"><img src="${img(n)}" alt="${cap}" loading="lazy"><span class="tag">${tag}</span><div class="cap">${cap}</div></div>`;
+
+document.getElementById('nav').innerHTML = WORLDS.map(w => `<a href="#${w.id}" style="--accent:${w.accent}"><b>${w.letter}</b> ${w.name}</a>`).join('') + `<a href="#vote">Vote</a>`;
+
+let html = `<div class="prologue"><img src="${img('prologue')}" alt="Kai in the data centre"><div class="cap"><span class="kicker" style="color:#9fdcff">Prologue · same in every world</span><b>01:48. Kai copies the key. The door opens.</b></div></div>`;
+
+for (const w of WORLDS) {
+  html += `<section class="world" id="${w.id}" style="--accent:${w.accent}">
+    <div class="whead"><div><div class="kicker">World ${w.letter} · ${w.place}</div><h2>${w.name}</h2></div>
+      <div class="dots">${w.palette.map(c => `<i style="background:${c}"></i>`).join('')}</div></div>
+    <div class="grid">
+      ${shot(w.id + '-run', '1 · RUN', w.run)}
+      ${shot(w.id + '-drive', '2 · DRIVE', w.drive)}
+      ${shot(w.id + '-hero', '3 · FIGHT', w.fight)}
+      ${shot(w.id + '-reveal', '4 · REVEAL', w.reveal)}
+    </div></section>`;
+}
+
+html += `<section class="vote" id="vote"><div class="kicker">Team vote</div><h2>Which world?</h2>
+  <div class="cards">${WORLDS.map(w => `<a class="card" href="#${w.id}" style="--accent:${w.accent}"><div class="t"><img src="${img(w.id + '-hero')}" alt="" loading="lazy"></div><div class="n" style="color:${w.accent}">${w.letter} · ${w.name}<small>${w.place}</small></div></a>`).join('')}</div></section>`;
+
+document.getElementById('main').innerHTML = html;
+
+const lb = document.getElementById('lb');
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('.shot');
+  if (s) { lb.querySelector('img').src = img(s.dataset.src); lb.classList.add('on'); }
+  else if (e.target.closest('.lb')) lb.classList.remove('on');
+});
+addEventListener('keydown', (e) => { if (e.key === 'Escape') lb.classList.remove('on'); });
+window.__ready = Promise.all([...document.images].map(i => i.decode().catch(() => {}))).then(() => true);
+</script>
+</body>
+</html>
