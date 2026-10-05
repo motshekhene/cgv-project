@@ -22,12 +22,24 @@ The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPL
 ```
 assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
 assets/characters/ kai.fbx, handler.fbx
+public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
 intros/            Level 1 and 2 intro and win scenes, one page each: npm run intros (docs/LEVEL1_2_INTROS_AND_WINS.md)
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
-_source/           raw downloads (texture sets, original packs). Never load from here in game code.
 ```
+
+Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — `_source/` is in `.gitignore`. Keep them on the team's shared drive.
+
+### Playing the game
+
+`npm run dev` plays the whole thing in order:
+
+```
+prologue → level01-intro → level01 → level01-win → level02-intro → level02 → level02-win → level03
+```
+
+Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. Cutscenes skip with Space / Enter / click, the prologue with K. The order is set in `src/main.js`.
 
 ## A few rules (please follow these)
 
@@ -62,11 +74,18 @@ Same rule in `index.html`:
 
 Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitive (Windows/Mac aren't, so this bug hides during development and only appears once hosted).
 
-### 3. Commit and push often to your individual branches as usual
+### 3. Models and textures
+
+- Load them through `AssetRegistry` (`assets.model(...)`, `assets.fbx(...)`, `assets.texture(...)`), not your own loader, so they are cached and freed between levels.
+- Shared models (Kai, the Handler, the jungle kit) live in `assets/characters/` and `assets/jungle/`. Reuse them rather than adding copies.
+- A model only one level needs goes in that level's own folder, e.g. `public/assets/level2/`.
+- Prefer `.glb`, keep textures at 2K or smaller, and note where it came from in a `CREDITS.md` next to it.
+
+### 4. Commit and push often to your individual branches as usual
 
 Small changes are fine, don't sit on big, unpushed changes for days.
 
-### 4. When in doubt, ask before pushing to `main`
+### 5. When in doubt, ask before pushing to `main`
 
 If you're not sure whether something will break the project for everyone, check with the group first.
 
