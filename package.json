@@ -5,6 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "intros": "vite --open /intros/",
+    "intro:l1": "vite --open /intros/level1-intro.html",
+    "win:l1": "vite --open /intros/level1-win.html",
+    "intro:l2": "vite --open /intros/level2-intro.html",
+    "win:l2": "vite --open /intros/level2-win.html",
     "build": "vite build",
     "preview": "vite preview"
   },

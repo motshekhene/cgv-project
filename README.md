@@ -22,7 +22,8 @@ The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPL
 ```
 assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
 assets/characters/ kai.fbx, handler.fbx
-src/               the game (core/, levels/, shaders/, ui/)
+src/               the game (core/, levels/, shaders/, ui/, intros/)
+intros/            Level 1 and 2 intro and win scenes, one page each: npm run intros (docs/LEVEL1_2_INTROS_AND_WINS.md)
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
 _source/           raw downloads (texture sets, original packs). Never load from here in game code.

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="../favicon.svg" />
+    <title>Intro and win scenes · BLACKOUT PROTOCOL</title>
+    <style>
+      :root {
+        --ink: #efe4c8; --ink-dim: #b8aa8a; --gold: #e3bb62; --line: rgba(227, 187, 98, .45); --key: #6fe3ff;
+        --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+        --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at top, #1f2617 0%, #0b0d09 60%, #050604 100%); color: var(--ink); font-family: var(--sans); }
+      main { max-width: 880px; margin: 0 auto; padding: 56px 16px 64px; }
+      h1 { margin: 0; font: 700 clamp(28px, 5vw, 44px) var(--serif); letter-spacing: .18em; color: var(--gold); }
+      .sub { margin: 10px 0 34px; font: italic 17px var(--serif); color: var(--ink-dim); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+      a.card { position: relative; display: block; padding: 18px 20px 20px; text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 3px;
+        background: linear-gradient(180deg, rgba(38, 44, 28, .82), rgba(13, 17, 11, .78)); box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
+      a.card:hover { border-color: var(--gold); box-shadow: 0 0 22px rgba(227, 187, 98, .25); }
+      .tag { font: 600 10px var(--sans); letter-spacing: .3em; color: var(--ink-dim); }
+      .name { margin: 6px 0 8px; font: 700 21px var(--serif); letter-spacing: .14em; color: var(--gold); }
+      .card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--ink); }
+      code { font: 12px Consolas, monospace; color: var(--key); }
+      .keys { margin-top: 30px; font-size: 13px; line-height: 1.8; color: var(--ink-dim); }
+      .keys b { color: var(--ink); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>INTROS &amp; WINS</h1>
+      <p class="sub">Levels 1 and 2, Jungle Shrine. Each scene runs on its own; the level teams plug them in.</p>
+      <div class="grid">
+        <a class="card" href="./level1-intro.html">
+          <div class="tag">LEVEL 1 · INTRO</div>
+          <div class="name">THE TRAIL</div>
+          <p>Out of the data centre into the misty jungle. A torch beam 15 metres back.</p>
+          <code>npm run intro:l1</code>
+        </a>
+        <a class="card" href="./level1-win.html">
+          <div class="tag">LEVEL 1 · WIN</div>
+          <div class="name">THE GATE</div>
+          <p>A dive under the falling portcullis. He hits the bars one beat late. ESCAPED.</p>
+          <code>npm run win:l1</code>
+        </a>
+        <a class="card" href="./level2-intro.html">
+          <div class="tag">LEVEL 2 · INTRO</div>
+          <div class="name">THE RIVER ROAD</div>
+          <p>Sunset at the logging camp. Kai takes the jeep; headlights snap on in the trees.</p>
+          <code>npm run intro:l2</code>
+        </a>
+        <a class="card" href="./level2-win.html">
+          <div class="tag">LEVEL 2 · WIN</div>
+          <div class="name">THE FALL</div>
+          <p>Night and rain on the viaduct. The last ram, the river, over the falls. SURVIVED.</p>
+          <code>npm run win:l2</code>
+        </a>
+      </div>
+      <div class="keys">
+        <b>Space / Enter / click</b> skip to the end · <b>R</b> replay · <b>Esc</b> pause<br />
+        <b>?t=6.5</b> start 6.5 s in · <b>?hold=7</b> freeze the clock at 7 s, e.g. <code>level1-win.html?t=2.4&amp;hold=3</code>
+      </div>
+    </main>
+  </body>
+</html>
