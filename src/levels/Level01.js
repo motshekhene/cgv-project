@@ -3,6 +3,7 @@ import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
 import { showEndCard } from "../ui/EndCard.js";
+import { loadCast, makeKai } from "../intros/cast.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -588,6 +589,7 @@ export class Level01 extends Level {
     body.castShadow = true;
     this.body = body;
     this.player.add(body);
+    await this._buildKai();
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
@@ -3282,6 +3284,7 @@ export class Level01 extends Level {
     state.distance = -this.z;
     state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
     this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
+    this._updateKai(dt);
     this._updateTempleRewards(dt, x, prevZ, state);
     this._updateTempleRunHUD();
 
@@ -3436,7 +3439,57 @@ export class Level01 extends Level {
     }
   }
 
+  /**
+   * Kai himself — the same rig, colours and Key as the Level 1 intro
+   * (intros/cast.js). The capsule stays as the invisible gameplay body:
+   * jumps, slides, lane changes and collisions still move and squash it
+   * exactly as before, and _updateKai() mirrors that onto the model.
+   * If the character fails to load, the capsule simply stays visible.
+   */
+  async _buildKai() {
+    const { kai } = await loadCast(this.assets);
+    if (!kai) return;
+    this.kai = makeKai(this.player, kai);
+    this.kai.root.rotation.y = Math.PI; // facing down the trail (-z), as in the intro
+    this.kai.root.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    this.body.visible = false;
+    this._kaiWasAirborne = false;
+  }
+
+  _updateKai(dt) {
+    const kai = this.kai;
+    if (!kai) return;
+
+    if (this.caught) {
+      if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
+    } else if (this.airborne) {
+      // the rig's running jump (1.25 s), sped up to fit the 0.77 s hop
+      if (!this._kaiWasAirborne) kai.playOnce(kai.actions.runningjump ? "runningjump" : "jump", { fade: 0.08, speed: 1.6 });
+    } else if (this.speed < 0.5) {
+      kai.play("idle", { fade: 0.3 });
+    } else {
+      kai.play("run", { fade: 0.15 });
+      // stride rate follows his speed, from a jog at the start to a sprint
+      kai.current.timeScale = 0.8 + 0.6 * THREE.MathUtils.clamp(this.speed / SPEED_TOP, 0, 1);
+    }
+    this._kaiWasAirborne = this.airborne;
+
+    // the capsule's squash is the slide: lean him back and drop him with it
+    const slide = THREE.MathUtils.clamp((1 - this._bodySquash) / 0.58, 0, 1);
+    kai.visual.position.y = -0.55 * slide;
+    // capsule tilts (jetpack pitch, side-on hits) carry over; Kai's root is
+    // turned 180 degrees, so both flip sign in his frame
+    kai.visual.rotation.set(-this.body.rotation.x - 1.1 * slide, 0, -this.body.rotation.z);
+
+    kai.update(dt);
+  }
+
   teardown() {
+    this.kai?.root.traverse((o) => {
+      if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
+    });
     this._removeCaughtOverlay();
     this._removeEscapedCard();
     this._removeTempleRunHUD();
