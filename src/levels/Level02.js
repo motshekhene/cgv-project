@@ -11,6 +11,7 @@ import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, sa
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
 import { createGameOverScreen } from './level2/gameOver.js';
+import { showEndCard } from '../ui/EndCard.js';
 import {
   loadJungleKit, createJungleMaterials, createJungleSky, createPollen, createLightShaft,
   createJungleWildlife, updateJungleWildlife, jungleCourseHeight,
@@ -623,17 +624,11 @@ export class Level02 extends Level {
         // the level ends in the water: flag it for whoever picks up from here
         this.finished = true;
         this.state.level2Complete = true;
-        this.state.lastRun = {
-          distance: this.state.distance,
-          integrity: Math.round((100 * this.car.health) / this.car.maxHealth),
-          rams: this._rams || 0,
-          letters: this.state.letters.filter((id) => id.startsWith('l2')).length,
-        };
       }
     } else {
       p.y = Math.max(-DROP - 3, p.y - dt * 1.4);              // it sinks into the pool
-      // hold on the splash for a few seconds, then on to the next scene
-      if (f.t > 3.5 && !this._handedOff) this._handOff();
+      // hold on the splash for a few seconds, then the win card
+      if (f.t > 3.5 && !this._survivedCard) this._showSurvivedCard();
       car.mesh.rotation.x = Math.min(1.4, car.mesh.rotation.x + dt * 0.2);
     }
 
@@ -831,20 +826,31 @@ export class Level02 extends Level {
     cam.lookAt(position.x, 0.8, position.z);
   }
 
+  /** After the splash: the team's win card; CONTINUE goes on to level 03. */
+  _showSurvivedCard() {
+    const integrity = Math.round((100 * this.car.health) / this.car.maxHealth);
+    this._survivedCard = showEndCard({
+      kind: 'win',
+      title: 'SURVIVED',
+      sub: 'You went over the falls. He stopped at the edge.',
+      lines: [{ text: `${Math.round(this.state.distance)} M  ·  INTEGRITY ${integrity}%  ·  RAMS TAKEN ${this._rams || 0}` }],
+      action: { label: 'CONTINUE', key: 'SPACE', onClick: () => this._handOff() },
+    });
+  }
+
   /**
-   * After the splash: the fall win scene in the full game, straight to level 03
-   * otherwise. Deferred to a microtask, as in Level01._startLevel02, so this
-   * level is not torn down from inside its own update().
+   * On to level 03. Deferred to a microtask, as in Level01._startLevel02, so
+   * this level is not torn down from inside its own update().
    */
   _handOff() {
+    if (this._handedOff) return;
     this._handedOff = true;
     const game = this.game;
-    const next = game.levels.has('level02-win') ? 'level02-win' : 'level03';
-    if (!game.levels.has(next)) return;
+    if (!game.levels.has('level03')) return;
     game.setPaused(true);
     Promise.resolve().then(async () => {
       try {
-        await game.setLevel(next);
+        await game.setLevel('level03');
       } catch (err) {
         console.error('[level02] handoff failed', err);
       } finally {
@@ -902,6 +908,7 @@ export class Level02 extends Level {
     this.game.removeSecondaryCamera('minimap');
     this._hud?.destroy();
     this._picker?.destroy();
+    this._survivedCard?.destroy();
     this._gameOverScreen?.destroy();
     this._flashEl?.remove();
     this._vignette?.remove();

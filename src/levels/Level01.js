@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
+import { showEndCard } from "../ui/EndCard.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -2288,102 +2289,59 @@ export class Level01 extends Level {
   _showCaughtOverlay(title = "THE HANDLER CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
 
-    const overlay = document.createElement("div");
-    overlay.dataset.level01Caught = "true";
-    Object.assign(overlay.style, {
-      position: "fixed",
-      inset: "0",
-      display: "grid",
-      placeItems: "center",
-      background: "rgba(3, 8, 5, 0.72)",
-      backdropFilter: "blur(5px)",
-      zIndex: "9999",
-      fontFamily: "system-ui, sans-serif",
-      color: "#f5f1df",
+    // the team's shared end card (ui/theme.js), same as levels 02 and 03
+    this._caughtOverlay = showEndCard({
+      kind: "lose",
+      title: "CAUGHT",
+      sub: title,
+      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
+      action: {
+        label: "RESTART LEVEL",
+        key: "R",
+        bindKey: false, // R already restarts the level globally (Game._frame)
+        onClick: async () => {
+          this._removeCaughtOverlay();
+          if (!this.game) return;
+          this.game.setPaused(false);
+          try {
+            await this.game.restart();
+          } catch (err) {
+            console.error("[level01] restart failed", err);
+          }
+        },
+      },
+      extra: [{ label: "RELOAD GAME", onClick: () => window.location.reload() }],
     });
+  }
 
-    const panel = document.createElement("div");
-    Object.assign(panel.style, {
-      width: "min(520px, calc(100vw - 36px))",
-      padding: "30px",
-      border: "1px solid rgba(178, 220, 126, 0.7)",
-      background: "rgba(11, 20, 13, 0.94)",
-      boxShadow: "0 22px 80px rgba(0,0,0,.55)",
-      textAlign: "center",
+  /** Kai reached the vehicle: the win card, and CONTINUE starts level 02. */
+  _showEscapedCard() {
+    if (this._escapedCard || typeof document === "undefined") return;
+    const distance = Math.round(this.state?.distance ?? 0);
+    const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
+    this._escapedCard = showEndCard({
+      kind: "win",
+      title: "ESCAPED",
+      sub: "You made it out of the jungle. He's still coming.",
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M` }],
+      action: {
+        label: "CONTINUE",
+        key: "SPACE",
+        onClick: () => {
+          this._removeEscapedCard();
+          this._startLevel02();
+        },
+      },
     });
+  }
 
-    const h = document.createElement("h1");
-    h.textContent = "CAUGHT";
-    Object.assign(h.style, {
-      margin: "0 0 10px",
-      fontSize: "clamp(42px, 8vw, 72px)",
-      letterSpacing: "0.08em",
-      color: "#c9e88c",
-    });
-
-    const p = document.createElement("p");
-    p.textContent = title;
-    Object.assign(p.style, {
-      margin: "0 0 24px",
-      opacity: "0.86",
-      fontSize: "16px",
-    });
-
-    const buttons = document.createElement("div");
-    Object.assign(buttons.style, {
-      display: "flex",
-      gap: "12px",
-      justifyContent: "center",
-      flexWrap: "wrap",
-    });
-
-    const makeButton = (label, primary, action) => {
-      const btn = document.createElement("button");
-      btn.textContent = label;
-      Object.assign(btn.style, {
-        cursor: "pointer",
-        border: primary ? "0" : "1px solid rgba(245,241,223,.4)",
-        padding: "12px 18px",
-        fontWeight: "800",
-        letterSpacing: "0.06em",
-        background: primary ? "#b9df76" : "transparent",
-        color: primary ? "#0b140d" : "#f5f1df",
-      });
-      btn.addEventListener("click", action);
-      return btn;
-    };
-
-    buttons.append(
-      makeButton("RESTART LEVEL", true, async () => {
-        this._removeCaughtOverlay();
-        if (!this.game) return;
-        this.game.setPaused(false);
-        try {
-          await this.game.restart();
-        } catch (err) {
-          console.error("[level01] restart failed", err);
-        }
-      }),
-      makeButton("RELOAD GAME", false, () => window.location.reload()),
-    );
-
-    const hint = document.createElement("div");
-    hint.textContent = "R also restarts the level";
-    Object.assign(hint.style, {
-      marginTop: "18px",
-      fontSize: "12px",
-      opacity: "0.52",
-      letterSpacing: "0.08em",
-    });
-
-    panel.append(h, p, buttons, hint);
-    overlay.append(panel);
-    document.body.append(overlay);
-    this._caughtOverlay = overlay;
+  _removeEscapedCard() {
+    this._escapedCard?.destroy();
+    this._escapedCard = null;
   }
 
   _removeCaughtOverlay() {
-    if (this._caughtOverlay?.parentNode) this._caughtOverlay.parentNode.removeChild(this._caughtOverlay);
+    this._caughtOverlay?.destroy();
     this._caughtOverlay = null;
   }
 
@@ -2938,24 +2896,17 @@ export class Level01 extends Level {
    */
   _startLevel02() {
     const game = this.game;
-    // the full game plays the gate win scene first; on its own, straight to level 02
-    const next = game?.levels?.has("level01-win") ? "level01-win" : "level02";
-    if (!game || !game.levels || !game.levels.has(next)) {
+    if (!game || !game.levels || !game.levels.has("level02")) {
       // running level 01 on its own, e.g. from a test page. Stay put rather
       // than throwing out of a rAF callback.
       console.warn("[level01] reached the vehicle, but no level02 is registered");
       return;
     }
 
-    this.state.lastRun = {
-      distance: this.state.distance,
-      closest: Number.isFinite(this._closest) ? this._closest : this.gap,
-      letters: this.state.letters.filter((id) => id.startsWith("l1")).length,
-    };
     game.setPaused(true);
     Promise.resolve().then(async () => {
       try {
-        await game.setLevel(next);
+        await game.setLevel("level02");
       } catch (err) {
         console.error("[level01] handoff to level02 failed", err);
       } finally {
@@ -3352,7 +3303,7 @@ export class Level01 extends Level {
       this._handOff -= dt;
       if (this._handOff <= 0) {
         this._handedOff = true;
-        this._startLevel02();
+        this._showEscapedCard();
       }
     }
 
@@ -3487,6 +3438,7 @@ export class Level01 extends Level {
 
   teardown() {
     this._removeCaughtOverlay();
+    this._removeEscapedCard();
     this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);

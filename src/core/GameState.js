@@ -32,10 +32,6 @@ export class GameState {
     this.awards = []; // one-time shrine gifts collected in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 
-    // Numbers a finished level hands to its win cutscene (distance, closest
-    // call, ...). Set just before the level switches, so NOT cleared by
-    // resetForLevel — the win scene reads it after the reset.
-    this.lastRun = null;
 
     // The pursuer. Level 01's only currency is distance, so handlerGap IS the
     // health bar for that level — the run ends when it reaches 0.

@@ -81,11 +81,15 @@ Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitiv
 - A model only one level needs goes in that level's own folder, e.g. `public/assets/level2/`.
 - Prefer `.glb`, keep textures at 2K or smaller, and note where it came from in a `CREDITS.md` next to it.
 
-### 4. Commit and push often to your individual branches as usual
+### 4. Win and defeat screens
+
+Every level ends on the same card from `src/ui/theme.js`. If your level has no FightHUD or StoryOverlay to show it on, use `showEndCard({ kind: 'win' | 'lose', title, sub, lines, action })` from `src/ui/EndCard.js`.
+
+### 5. Commit and push often to your individual branches as usual
 
 Small changes are fine, don't sit on big, unpushed changes for days.
 
-### 5. When in doubt, ask before pushing to `main`
+### 6. When in doubt, ask before pushing to `main`
 
 If you're not sure whether something will break the project for everyone, check with the group first.
 
