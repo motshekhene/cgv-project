@@ -2907,6 +2907,7 @@ export class Level01 extends Level {
     }
 
     state.handlerGap = this.gap;
+    this._closest = Math.min(this._closest ?? Infinity, this.gap);
     this.handler.position.z = this.z + this.gap;
     this.handler.position.y = jungleCourseHeight(this.handler.position.z) + this._handlerVaultOffset(this.handler.position.z);
     const handlerRouteX = this._routeOffsetAt(this.handler.position.z, this._routeSide);
@@ -2937,17 +2938,24 @@ export class Level01 extends Level {
    */
   _startLevel02() {
     const game = this.game;
-    if (!game || !game.levels || !game.levels.has("level02")) {
+    // the full game plays the gate win scene first; on its own, straight to level 02
+    const next = game?.levels?.has("level01-win") ? "level01-win" : "level02";
+    if (!game || !game.levels || !game.levels.has(next)) {
       // running level 01 on its own, e.g. from a test page. Stay put rather
       // than throwing out of a rAF callback.
       console.warn("[level01] reached the vehicle, but no level02 is registered");
       return;
     }
 
+    this.state.lastRun = {
+      distance: this.state.distance,
+      closest: Number.isFinite(this._closest) ? this._closest : this.gap,
+      letters: this.state.letters.filter((id) => id.startsWith("l1")).length,
+    };
     game.setPaused(true);
     Promise.resolve().then(async () => {
       try {
-        await game.setLevel("level02");
+        await game.setLevel(next);
       } catch (err) {
         console.error("[level01] handoff to level02 failed", err);
       } finally {

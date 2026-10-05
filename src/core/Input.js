@@ -33,6 +33,10 @@ export const DEFAULT_BINDINGS = {
   restart: ["r"],
   changeCar: ["v"], // level 02: open the car picker
   skip: [" ", "enter", "mouse0"], // cutscenes and cards
+  // prologue
+  skipScene: ["k"],
+  decline: ["q"],
+  mute: ["m"],
 };
 
 export class Input {
