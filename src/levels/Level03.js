@@ -146,8 +146,8 @@ export class Level03 extends Level {
     this._camLook = new THREE.Vector3(0, 1.4, 0);
     this._tmp = new THREE.Vector3();
     this._toBoss = new THREE.Vector3();
-    this._kaiBody = { prev: null, tree: null }; // last position + the trunk each fighter is touching
-    this._bossBody = { prev: null, tree: null };
+    this._kaiBody = { prev: null, plant: null }; // last position + the tree or bush each fighter is touching
+    this._bossBody = { prev: null, plant: null };
 
     if (introSeen) this._startFight();
     else this._startIntro();
@@ -420,7 +420,7 @@ export class Level03 extends Level {
 
     const b = this.boss.update(dt);
     this._separate();
-    // out in the jungle: trees, statues and walls are solid, and the ground isn't flat
+    // out in the jungle: trees, bushes, statues and walls are solid, and the ground isn't flat
     this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
     this._collide(this._bossBody, bp, 0.45, dt, false);
     cp.y = this.arena.fighterY(cp.x, cp.z);
@@ -461,18 +461,18 @@ export class Level03 extends Level {
   }
 
   /**
-   * Keep one fighter out of the scenery. Running into a trunk (a fresh contact,
-   * not leaning on it) rocks the tree and shakes leaves loose; Kai rolling into
+   * Keep one fighter out of the scenery. Running into a tree or bush (a fresh contact,
+   * not leaning on it) rocks it and shakes leaves loose; Kai rolling into
    * one also thumps the camera.
    */
   _collide(body, pos, rad, dt, rolling) {
     const speed = body.prev ? Math.hypot(pos.x - body.prev.x, pos.z - body.prev.z) / Math.max(dt, 1e-4) : 0;
-    const tree = this.arena.collide(pos, rad);
-    if (tree && tree !== body.tree && speed > 1.5) {
-      this.arena.shakeTree(tree, pos.x, pos.z, Math.min(1, speed / 6) * (rolling ? 1.5 : 1));
+    const plant = this.arena.collide(pos, rad);
+    if (plant && plant !== body.plant && speed > 1.5) {
+      this.arena.shakePlant(plant, pos.x, pos.z, Math.min(1, speed / 6) * (rolling ? 1.5 : 1));
       if (rolling) this._addShake(0.22);
     }
-    body.tree = tree;
+    body.plant = plant;
     (body.prev ||= new THREE.Vector3()).copy(pos);
   }
 
