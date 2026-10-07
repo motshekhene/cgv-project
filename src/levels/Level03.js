@@ -7,6 +7,7 @@ import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
 import { Wreck } from './level3/Wreck.js';
+import { Storm } from './level3/Storm.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -175,6 +176,8 @@ export class Level03 extends Level {
     this.water = new WaterFX(this.root, this.arena);
     this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
     this.bossWet = new Wetness(this.boss.fighter, this.water);
+    this.storm = new Storm(this.root, this.arena, this.water); // phase III's rain and lightning
+    this.storm.onBolt = () => this._addShake(0.12);
     if (this.handlerMeta?.clips.jump) {
       const bf = this.boss.fighter;
       const feet = bf.footTrack('jump');
@@ -438,8 +441,9 @@ export class Level03 extends Level {
 
     // dripping, prints, splashes; left idle in the fight, a soaked Kai shakes himself off
     const idle = this.mode === 'FIGHT' && !this._ended ? this.combat.still : null;
-    this.kaiWet.update(dt, { still: idle });
-    if (this.boss.root.visible) this.bossWet.update(dt);
+    const rain = this.storm.level;
+    this.kaiWet.update(dt, { still: idle, rain });
+    if (this.boss.root.visible) this.bossWet.update(dt, { rain });
     this.wreck.update(dt, this.time, this.water);
     this.water.update(dt);
 
@@ -447,6 +451,8 @@ export class Level03 extends Level {
     this._updatePointer();
     this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
+    this.storm.update(dt, real, this.game.camera, this.combat.root.position);
+    this.hud.lightning(this.arena.flash);
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);

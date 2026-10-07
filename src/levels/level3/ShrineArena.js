@@ -121,6 +121,7 @@ export class ShrineArena {
     this.scene = scene;
     this.dusk = 0;
     this.duskTarget = 0;
+    this.flash = 0; // a lightning flash on top of the light (Storm.js), 0..1
     this.flowTime = 0;
     this.dot = dotTexture();
     this._c = new THREE.Color();
@@ -918,6 +919,27 @@ export class ShrineArena {
       this.fireMat.emissiveIntensity = 4 * this.torchLevel;
     }
     if (this.flameMat) this.flameMat.opacity = this.torchLevel;
+
+    // lightning: the whole courtyard lit cold white for a beat, the sky and the haze with it
+    if (this.flash > 0) {
+      const f = this.flash;
+      this._c.setHex(0xdde6ff);
+      this.hemi.intensity += f * 5;
+      this.hemi.color.lerp(this._c, f * 0.8);
+      this.hemi.groundColor.lerp(this._c, f * 0.4);
+      this.fill.intensity += f * 2.5;
+      this.fill.color.lerp(this._c, f);
+      u.uTop.value.lerp(this._c, f * 0.6);
+      u.uHorizon.value.lerp(this._c, f * 0.8);
+      this.scene.fog.color.lerp(this._c, f * 0.5);
+    }
+  }
+
+  /** A lightning flash, 0..1, on top of the day/dusk light (Storm.js drives it). */
+  setFlash(k) {
+    if (k === this.flash) return;
+    this.flash = k;
+    this.setDusk(this.dusk);
   }
 
   update(dt, time, camera) {

@@ -409,14 +409,17 @@ export class Wetness {
     }
   }
 
-  /** `still`: whether the player is leaving them idle; omit it while a cutscene drives them. */
-  update(dt, { still = null } = {}) {
+  /**
+   * `still`: whether the player is leaving them idle; omit it while a cutscene drives them.
+   * `rain`: how hard it's raining (Storm.level, 0..1): soaks them through in ~7 s.
+   */
+  update(dt, { still = null, rain = 0 } = {}) {
     const root = this.f.root;
     root.updateMatrixWorld(true);
     const p = root.position;
     this.inWater = this.arena.waterDepth(p.x, p.z) > 0.04;
     if (this.inWater) this.wet = 1;
-    else this.wet = Math.max(0, this.wet - dt / DRY_TIME);
+    else this.wet = Math.min(1, Math.max(0, this.wet + (rain * 0.15 - (1 - rain) / DRY_TIME) * dt));
     if (this.streamT > 0) this.streamT -= dt;
 
     this._look();
@@ -437,7 +440,7 @@ export class Wetness {
       else this._spray(dt);
     }
 
-    if (this.autoShake && still !== null) {
+    if (this.autoShake && still !== null && rain < 0.1) { // no point shaking off in the rain
       this.shakeCD -= dt;
       if (this.f.shaking && !still) this.f.stopShake();
       this.stillT = still && !this.inWater ? this.stillT + dt : 0;

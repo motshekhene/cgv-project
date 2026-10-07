@@ -72,6 +72,9 @@ const CSS = THEME_CSS + END_CSS + `
   text-shadow:0 3px 0 rgba(0,0,0,.65), 0 0 18px currentColor; }
 .fh-pop.show { animation:fhpop .75s ease-out forwards; }
 .fh-flash { position:absolute; inset:0; background:radial-gradient(ellipse at center, transparent 48%, rgba(150,22,12,.78) 100%); opacity:0; transition:opacity .35s ease-out; }
+/* lightning (phase III's storm): the whole frame washes cold white for a beat */
+.fh-bolt { position:absolute; inset:0; pointer-events:none; opacity:0; mix-blend-mode:screen;
+  background:linear-gradient(180deg, rgba(228,236,255,.9), rgba(205,218,255,.45) 55%, rgba(205,218,255,.2)); }
 
 @media (max-width: 640px) {
   .fh-top { grid-template-columns:minmax(0, 1fr) 44px; }
@@ -106,6 +109,7 @@ export class FightHUD {
     this.el = document.createElement('div');
     this.el.className = 'fh';
     this.el.innerHTML = `
+      <div class="fh-bolt"></div>
       <div class="fh-flash"></div>
       <div class="fh-top">
         <div class="fh-player plaque">
@@ -137,6 +141,8 @@ export class FightHUD {
     this.st = q('.fh-st');
     this.pop = q('.fh-pop');
     this.flashEl = q('.fh-flash');
+    this.boltEl = q('.fh-bolt');
+    this._bolt = 0;
     this.tell = q('.fh-tell');
     this.toastEl = q('.fh-toast');
     this.ptr = q('.fh-ptr');
@@ -252,6 +258,13 @@ export class FightHUD {
     this.pop.textContent = text;
     this.pop.style.color = color;
     this._replay(this.pop, 'show');
+  }
+
+  /** Lightning, 0..1 (ShrineArena.flash): the screen washes white with it. */
+  lightning(k) {
+    if (Math.abs(k - this._bolt) < 0.01 && (k > 0 || this._bolt === 0)) return;
+    this._bolt = k;
+    this.boltEl.style.opacity = (k * 0.55).toFixed(3);
   }
 
   damageFlash() {
