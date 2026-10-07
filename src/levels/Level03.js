@@ -5,6 +5,7 @@ import { HandlerBoss } from './level3/HandlerBoss.js';
 import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
+import { WaterFX, Wetness } from './level3/Wetness.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -20,8 +21,10 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
  * handlerHelmetOff, letters, timeScale).
  *
  * Beats (docs/JUNGLE_SHRINE_IMPLEMENTATION.md, section 6):
- *   INTRO     Kai wakes in the pool, walks through the gate; the Handler drops
- *             off the arch behind him. Skippable; skipped on restarts.
+ *   INTRO     Kai wakes in the pool, wades out and shakes the water off, runs
+ *             through the gate dripping; the Handler drops off the arch behind
+ *             him. Skippable; skipped on restarts. He stays soaked into the
+ *             fight and dries over ~40 s (level3/Wetness.js).
  *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
  *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
  *             sky to dusk, lights the torches and runs the pool red. The fight
@@ -53,6 +56,12 @@ const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
 const FIGHT_FOV = 62;
 const KAI_START = new THREE.Vector3(-0.4, 0, -0.6); // where the intro leaves Kai
 const BOSS_LAND = new THREE.Vector3(-3.0, 0, -11.2); // where the Handler lands off the arch
+// intro shot A: Kai is out of the water and up on the path at WADE_OUT, shakes off, flicks his hands dry
+const WADE_OUT = 5.55;
+const SHAKE_AT = 5.75;
+const FLICK_AT = 6.8;
+const A_END = 7.7;
+const SHAKE_BEAT = A_END - 5.6; // how much longer that made the intro (shot A used to end at 5.6)
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -108,6 +117,10 @@ export class Level03 extends Level {
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
+    // Kai comes out of the pool soaked; either of them gets soaked again wading back in
+    this.water = new WaterFX(this.root, this.arena);
+    this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
+    this.bossWet = new Wetness(this.boss.fighter, this.water);
 
     this._baseMaxHealth = state.maxHealth;
     this._baseParry = this.combat.parryWindow;
@@ -330,6 +343,12 @@ export class Level03 extends Level {
     else if (this.mode === 'EPILOGUE' || this.mode === 'END') this._updateEpilogue(dt);
     else this._updateFight(dt, real, state);
 
+    // dripping, prints, splashes; left idle in the fight, a soaked Kai shakes himself off
+    const idle = this.mode === 'FIGHT' && !this._ended ? this.combat.still : null;
+    this.kaiWet.update(dt, { still: idle });
+    if (this.boss.root.visible) this.bossWet.update(dt);
+    this.water.update(dt);
+
     this._updateCamera(real);
     this._updatePointer();
     this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
@@ -527,22 +546,25 @@ export class Level03 extends Level {
     k.heading = 0.36; // facing the gate
     k.root.rotation.y = k.heading;
     k.fighter.play('sitting', { fade: 0 });
+    this.kaiWet.setWet(1); // soaked even if the intro is skipped on its first frame
   }
 
   /**
-   * ~12 s, four shots: (A) Kai sits up in the pool, seen from inside the gate;
+   * ~14.5 s, four shots: (A) Kai sits up in the pool, seen from inside the gate,
+   * wades out and shakes the water off as the camera backs through the arch;
    * (B) cut to the courtyard as he runs through the arch toward camera;
    * (C) the Handler drops off the arch behind him, Kai turns; (D) settle into
    * the fight camera.
    */
   _updateIntro(dt) {
-    const t = this.beatT;
+    // shot A runs on its own clock; B and C keep their timings, just SHAKE_BEAT later
+    const t = this.beatT < A_END ? this.beatT : this.beatT - SHAKE_BEAT;
     const k = this.combat;
     const kf = k.fighter;
     const a = this.arena.anchors;
     const kp = k.root.position;
 
-    if (t < 5.6) {
+    if (this.beatT < A_END) {
       // ---- A: the wake-up
       if (this._shot !== 'A') {
         this._shot = 'A';
@@ -556,9 +578,11 @@ export class Level03 extends Level {
         if (this._pose !== 'stand') {
           this._pose = 'stand';
           kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
+          this.kaiWet.stream(1.6); // the pool pours off him as he gets up
+          this.water.ripple(kp.x, kp.z, 2.2, 0.55, 2.4);
         }
         kp.y = floor - 0.45 * (1 - smooth(2.2, 3.5, t));
-      } else {
+      } else if (t < WADE_OUT) {
         if (this._pose !== 'walk') {
           this._pose = 'walk';
           kf.play('walk', { fade: 0.25 });
@@ -566,10 +590,28 @@ export class Level03 extends Level {
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
         kp.y = this.arena.groundHeight(kp.x, kp.z);
+      } else if (t < FLICK_AT) {
+        // out on the path: stop, and shake the water off like a dog
+        if (this._pose !== 'shake') {
+          this._pose = 'shake';
+          kf.play('idle', { fade: 0.3 });
+        }
+        if (t >= SHAKE_AT && !this._shook) this._shook = this.kaiWet.shakeOff();
+      } else if (this._pose !== 'flick') {
+        // ...and flick it off his hands
+        this._pose = 'flick';
+        this.kaiWet.flickHands();
       }
       if (t > 3.6) this.story.hideCard();
-      // slow push-in, then lift to follow him up
-      this.cine.pos.set(-3.25 + smooth(0, 5.6, t) * 0.15, 1.0 + smooth(1.5, 5.0, t) * 0.55, -17.7 + smooth(0, 5.6, t) * 0.5);
+      // slow push-in, lift to follow him up, then back out through the arch as he comes out of the water
+      const back = smooth(3.9, 6.0, t);
+      this.cine.pos.set(
+        -3.25 + smooth(0, 5.6, t) * 0.15 + back * 1.3,
+        1.0 + smooth(1.5, 5.0, t) * 0.55,
+        -17.7 + smooth(0, 5.6, t) * 0.5 + back * 2.4,
+      );
+      // ...and ease back in a little once he stops, so the spray reads
+      this.cine.pos.lerp(this._tmp.set(kp.x, this.cine.pos.y, kp.z), smooth(5.8, 7.6, t) * 0.3);
       this.cine.look.set(kp.x, kp.y + 0.55 + smooth(2.2, 3.6, t) * 0.75, kp.z);
       this.cine.rate = 4;
     } else if (t < 9.7) {
