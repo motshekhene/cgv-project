@@ -105,14 +105,15 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
-    const [kaiSrc, handlerSrc] = await Promise.all([
-      safe(assets.fbx('characters/kai.fbx')),
+    const [kai, handlerSrc] = await Promise.all([
+      this._loadKai(assets),
       safe(assets.fbx('characters/handler.fbx')),
       this.arena.build(assets),
     ]);
     if (!this.scene) return; // level was torn down while loading
 
-    this.combat = new CombatController(this.root, kaiSrc);
+    this.kaiMeta = kai.meta;
+    this.combat = new CombatController(this.root, kai.source, kai.meta);
     this.boss = new HandlerBoss(this.root, this.combat, handlerSrc);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.keyItem = this._attachKey(this.combat.fighter);
@@ -153,12 +154,31 @@ export class Level03 extends Level {
     else this._startIntro();
   }
 
+  /**
+   * Kai: the Mixamo one (assets/characters/kai-bryce.glb + .json, built by
+   * tools/build-kai.py) with real fight moves, or the Quaternius one if that
+   * hasn't been built. meta is the build's measurements of each move.
+   */
+  async _loadKai(assets) {
+    try {
+      const [gltf, meta] = await Promise.all([
+        assets.model('characters/kai-bryce.glb'),
+        fetch(assets.resolve('characters/kai-bryce.json')).then((r) => {
+          if (!r.ok) throw new Error(`kai-bryce.json: ${r.status}`);
+          return r.json();
+        }),
+      ]);
+      gltf.scene.animations = gltf.animations;
+      return { source: gltf.scene, meta };
+    } catch (e) {
+      console.warn('[level03] no Mixamo Kai, using the Quaternius one:', e?.message || e);
+      return { source: await safe(assets.fbx('characters/kai.fbx')), meta: null };
+    }
+  }
+
   /** The Key: a shielded drive glowing cyan in Kai's right hand, in every level. */
   _attachKey(fighter) {
-    let palm = null;
-    fighter.model?.traverse((o) => {
-      if (o.isBone && o.name === 'PalmR') palm = o;
-    });
+    const palm = fighter.bone('PalmR');
     if (!palm) return null;
     fighter.root.updateMatrixWorld(true);
     const s = palm.getWorldScale(new THREE.Vector3()).x;
@@ -204,9 +224,10 @@ export class Level03 extends Level {
     if (!this._fists) {
       if (!on) return;
       this._fists = [];
-      this.combat.fighter.root.updateMatrixWorld(true);
-      this.combat.fighter.model?.traverse((o) => {
-        if (!o.isBone || (o.name !== 'PalmL' && o.name !== 'PalmR')) return;
+      const f = this.combat.fighter;
+      f.root.updateMatrixWorld(true);
+      for (const o of [f.bone('PalmL'), f.bone('PalmR')]) {
+        if (!o) continue;
         const s = o.getWorldScale(new THREE.Vector3()).x;
         const glow = new THREE.Sprite(new THREE.SpriteMaterial({
           map: this.arena.dot, color: 0xffa040, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85,
@@ -215,7 +236,7 @@ export class Level03 extends Level {
         glow.position.set(0, 0.06 / s, 0);
         o.add(glow);
         this._fists.push(glow);
-      });
+      }
     }
     for (const f of this._fists) f.visible = on;
   }
@@ -545,7 +566,9 @@ export class Level03 extends Level {
     k.root.position.copy(this.arena.anchors.wake);
     k.heading = 0.36; // facing the gate
     k.root.rotation.y = k.heading;
-    k.fighter.play('sitting', { fade: 0 });
+    // the Mixamo Kai lies washed up in the shallows (the first frame of his getting-up clip); the old one sits
+    if (this.kaiMeta) k.fighter.playOnce('standing', { fade: 0, speed: 0 });
+    else k.fighter.play('sitting', { fade: 0 });
     this.kaiWet.setWet(1); // soaked even if the intro is skipped on its first frame
   }
 
@@ -572,20 +595,24 @@ export class Level03 extends Level {
         this.story.showCard('SITE 7', 'The current carried him over the falls.');
       }
       const floor = this.arena.groundHeight(kp.x, kp.z);
+      const sink = this.kaiMeta ? 0 : 0.45; // the old Kai's sitting clip sits on thin air: lower him onto the bed
       if (t < 2.2) {
-        kp.y = floor - 0.45; // sitting on the pool bed
+        kp.y = floor - sink; // on the pool bed
       } else if (t < 3.6) {
         if (this._pose !== 'stand') {
           this._pose = 'stand';
-          kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
+          if (this.kaiMeta) kf.setSpeed(1.6); // the getting-up clip, held on its first frame till now
+          else kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
           this.kaiWet.stream(1.6); // the pool pours off him as he gets up
           this.water.ripple(kp.x, kp.z, 2.2, 0.55, 2.4);
         }
-        kp.y = floor - 0.45 * (1 - smooth(2.2, 3.5, t));
+        kp.y = floor - sink * (1 - smooth(2.2, 3.5, t));
       } else if (t < WADE_OUT) {
         if (this._pose !== 'walk') {
           this._pose = 'walk';
-          kf.play('walk', { fade: 0.25 });
+          // no walk clip yet? walking backwards, played in reverse, walks forwards
+          if (kf.actions.walk) kf.play('walk', { fade: 0.25 });
+          else kf.play('walkback', { fade: 0.25, speed: -1.35 / (this.kaiMeta?.clips.walkback?.speed || 1.07) });
         }
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
