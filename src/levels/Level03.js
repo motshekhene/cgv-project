@@ -610,9 +610,10 @@ export class Level03 extends Level {
       } else if (t < WADE_OUT) {
         if (this._pose !== 'walk') {
           this._pose = 'walk';
-          // no walk clip yet? walking backwards, played in reverse, walks forwards
-          if (kf.actions.walk) kf.play('walk', { fade: 0.25 });
-          else kf.play('walkback', { fade: 0.25, speed: -1.35 / (this.kaiMeta?.clips.walkback?.speed || 1.07) });
+          // paced to the 1.35 m/s he wades at; no walk clip? walking backwards, played in reverse, walks forwards
+          const pace = (clip) => 1.35 / (this.kaiMeta?.clips[clip]?.speed || 1.35);
+          if (kf.actions.walk) kf.play('walk', { fade: 0.25, speed: pace('walk') });
+          else kf.play('walkback', { fade: 0.25, speed: -pace('walkback') });
         }
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;

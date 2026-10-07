@@ -5,6 +5,11 @@
       "duration": 2.367,
       "loop": true
     },
+    "walk": {
+      "duration": 1.033,
+      "loop": true,
+      "speed": 1.6
+    },
     "walkback": {
       "duration": 1.2,
       "loop": true,
