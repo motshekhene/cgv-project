@@ -168,6 +168,7 @@ export class Level02 extends Level {
     // he steers round traffic and the solid obstacles alike
     this._roadUsers = { pool: [] };
     this.handler.traffic = this._roadUsers;
+    this.handler.obstacles = this.obstacles;      // he won't start a move with a tree in front of you
 
     // ---- chase camera helpers ----
     this._camOffset = new THREE.Vector3();
@@ -473,6 +474,7 @@ export class Level02 extends Level {
       this.sound.crash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
+      if (hit.impact > 0.3) this.handler.giveSpace(2);   // fair: no piling in while you recover
     }
 
     // fallen trees, rockfalls, branches, animals crossing
@@ -482,6 +484,7 @@ export class Level02 extends Level {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.25 + hit.impact * 0.8);
       this._flash(`${hit.label}  -${hit.damage}`, '#f2934f');
+      if (hit.impact > 0.3) this.handler.giveSpace(2.5);
     }
 
     this.road.update(this.car.mesh.position);

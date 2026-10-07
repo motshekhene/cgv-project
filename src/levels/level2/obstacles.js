@@ -516,7 +516,7 @@ export class Obstacles {
       p.z -= Math.sign(dz) * oz;
       const rel = Math.max(0, car.speed);
       car.speed *= it.slow;
-      if (it.cool > 0) return null;
+      if (it.cool > 0 || rel < 8) return null;        // nosing into it slowly just stops you
       it.cool = 0.8;
       this._burst(at, 18, 0);
       return { kind: it.kind, label: it.label, damage: Math.round(it.damage * Math.min(1.4, 0.4 + rel / 30)), impact: Math.min(1, 0.4 + rel / 40), at };
