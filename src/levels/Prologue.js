@@ -41,8 +41,10 @@ import {
  *   leave    Ingram whistles two notes and walks off into the dark.
  *   rise     Kai gets up; control returns.
  *   walk     the stone is a few metres away across open ground. No obstacles.
- *   choice   E takes the horn, Q gives him a moment of doubt and puts the
- *            prompt back, so taking it is always deliberate.
+ *   choice   the scene turns him to face the horn first — he cannot be asked
+ *            to take what he has not seen — then E takes it and Q gives him
+ *            a moment of doubt and puts the prompt back, so taking it is
+ *            always deliberate.
  *   taken    he lifts the horn. Every ambient sound cuts out at once. The
  *            horn glows — the only cyan in the game.
  *   wide     a lamp moves in the trees behind him. The pull-back holds the
@@ -136,7 +138,7 @@ const SCRIPT = [
   { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
   { who: 'KAI', text: 'That horn is the only reason this valley is still standing.' },
   { who: 'INGRAM', text: 'I know what it is.' },
-  { who: 'INGRAM', text: "One night's pay. Enough that you never cut another line for them." },
+  { who: 'INGRAM', text: "I'm paying you one night's wage. Enough that you never guide a timber crew again." },
   { who: 'KAI', text: 'Why me?' },
   { who: 'INGRAM', text: 'Because I picked you.' },
   { who: 'INGRAM', text: "I've watched you walk that path since you were small." },
@@ -405,6 +407,10 @@ export class Prologue extends Level {
     this.leaving = false;
     this.scriptIndex = -1;        // which conversation line is up
     this.doubted = false;         // said the doubt line yet?
+    this._aimed = false;          // has the scene turned him to the horn yet?
+    this._aimSaid = false;
+    this._aimFromYaw = 0;
+    this._aimFromPitch = 0;
     this.halfway = false;         // said the open-ground line yet?
     this.beatT = 0;               // counts down to the next heartbeat
     this.dawnK = 0;               // 0 = night, 1 = level 01's morning
@@ -491,6 +497,13 @@ export class Prologue extends Level {
       link.rel = 'stylesheet';
       link.href = 'https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,500;0,600;1,500&display=swap';
       document.head.appendChild(link);
+    }
+    // the click-hint pulse is one tiny stylesheet, shared by every visit
+    if (!document.getElementById('prologue-pulse')) {
+      const st = document.createElement('style');
+      st.id = 'prologue-pulse';
+      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}';
+      document.head.appendChild(st);
     }
   }
 
@@ -727,6 +740,13 @@ export class Prologue extends Level {
     this.hornLight.position.set(0.05, 1.05, -0.08);
     g.add(this.hornLight);
 
+    // moonlight, parked over the stone. The fire is ten metres off and
+    // dying — without this fill the horn is a shadow on a shadow, and the
+    // choice at the stone would be about something the player never saw.
+    this.stoneLight = new THREE.PointLight(0x9fb4cc, 1.6, 8, 2);
+    this.stoneLight.position.set(0, 2.4, 0);
+    g.add(this.stoneLight);
+
     // Once he lifts it, the horn and its light move into here, and this group
     // follows him for the rest of the scene. The cyan has to travel with Kai
     // — it is on him in the wide shot, and it is how he looks arriving in
@@ -941,15 +961,18 @@ export class Prologue extends Level {
       'opacity:0;transition:opacity 1.2s',
     );
 
-    // the title, over the live fire. Warm serif letters, nothing else.
+    // the title, over the live fire. Warm serif letters, nothing else. It
+    // sits high in the frame so it never lands on either face in the
+    // two-shot, and the click hint pulses — it is the door into the scene.
     this.hud.title = mk(
-      base + ';left:0;right:0;top:34%;text-align:center;opacity:0;' +
+      base + ';left:0;right:0;top:18%;text-align:center;opacity:0;' +
       'transition:opacity 2.4s',
       `<div style="${SERIF};color:${CREAM};font-size:46px;font-weight:600;` +
       'letter-spacing:.3em;text-shadow:0 0 28px rgba(255,176,58,.4), 0 2px 18px rgba(0,0,0,.9)">' +
       'BLACKOUT PROTOCOL</div>' +
-      `<div style="color:#8f9bb0;font-size:12px;letter-spacing:.34em;margin-top:18px;${SERIF}">' +
-      'CLICK TO BEGIN</div>`,
+      `<div style="color:#cfd6c4;font-size:14px;letter-spacing:.34em;margin-top:24px;${SERIF};` +
+      'text-shadow:0 2px 12px rgba(0,0,0,.95);animation:prologuePulse 2.2s ease-in-out infinite">' +
+      'CLICK TO BEGIN</div>',
     );
 
     // the conversation. The text stands on whoever is speaking — in the
@@ -1471,6 +1494,13 @@ export class Prologue extends Level {
           this.t = 0;
           this._hush();
           this._prompt('');
+          // he stops here; the aim beat below holds the controls until he
+          // has actually seen the thing he is being asked to take
+          this.standing = false;
+          this._aimed = false;
+          this._aimSaid = false;
+          this._aimFromYaw = this.yaw;
+          this._aimFromPitch = this.pitch;
         }
         break;
       }
@@ -1480,6 +1510,27 @@ export class Prologue extends Level {
           // the doubt line has the screen; when it is done, the prompt comes
           // back — so taking the horn is always something chosen twice
           if (!this._talking()) this.doubted = false;
+        } else if (!this._aimed) {
+          // FIRST, THE HORN ITSELF. Before anyone asks him to take it, the
+          // scene turns him to face it and holds until he has looked.
+          const d = Math.hypot(STONE.x - this.px, STONE.z - this.pz);
+          const wantYaw = this._yawTo(STONE.x, STONE.z);
+          const wantPitch = Math.atan2(0.9 - this.eye, d);
+          let dy = wantYaw - this._aimFromYaw;
+          while (dy > Math.PI) dy -= Math.PI * 2;
+          while (dy < -Math.PI) dy += Math.PI * 2;
+          const k = Math.min(1, this.t / 1.2);
+          const ease = k * k * (3 - 2 * k);
+          this.yaw = this._aimFromYaw + dy * ease;
+          this.pitch = THREE.MathUtils.lerp(this._aimFromPitch, wantPitch, ease);
+          if (!this._aimSaid && this.t > 0.3) {
+            this._aimSaid = true;
+            this._say('There it is.', null, true);
+          }
+          if (k >= 1) {
+            this._aimed = true;
+            this.standing = true;      // controls return with the prompt
+          }
         } else {
           this._prompt(
             '<b style="color:' + HORN_HEX + '">E</b> — TAKE THE HORN' +
