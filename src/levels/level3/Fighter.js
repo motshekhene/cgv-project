@@ -4,17 +4,29 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 /**
  * Fighter — visual + animation layer shared by Kai and the Handler.
  *
- * Wraps a Quaternius FBX (same "HumanArmature" rig on every character, so clip
- * names match) in root > visual > pivot > model. `root` is what gameplay moves;
- * `pivot` is what procedural effects (roll, lean, flinch) rotate around the
- * body's centre. If no model is supplied it falls back to a capsule so the
- * level is always playable.
+ * Wraps a rigged model in root > visual > pivot > model. `root` is what
+ * gameplay moves; `pivot` is what procedural effects (roll, lean, flinch)
+ * rotate around the body's centre. If no model is supplied it falls back to a
+ * capsule so the level is always playable.
  *
- * Clips available on the rig: idle, walk, run, punch, swordslash, death, jump.
- * There is no block / dodge / hit clip, so those are procedural here.
+ * Two rigs:
+ *   Quaternius FBX ("HumanArmature", the Handler and the intros' Kai). Clips:
+ *     idle, walk, run, punch, swordslash, death, jump. There is no block / kick
+ *     clip, so the guard and the kicks are posed by hand here.
+ *   Mixamo (Level 3's Kai, built by tools/build-kai.py). Real clips for
+ *     everything; the guard is the block clip's pose, held (guardPose).
+ * bone('PalmR') etc. finds a bone by its Quaternius name on either rig.
  */
-const MODEL_HEIGHT_UNITS = 482.7; // measured: the FBX is authored in centimetres
+const MODEL_HEIGHT_UNITS = 482.7; // measured: the Quaternius FBX is authored in centimetres
 const CENTRE_Y = 0.9;
+
+// Quaternius bone names -> Mixamo's (GLTFLoader drops the ':' from "mixamorig:Hips")
+const MIXAMO = {
+  Head: 'Head', Hips: 'Hips', Torso: 'Spine2', PalmL: 'LeftHand', PalmR: 'RightHand',
+  FingersL: 'LeftHandMiddle1', FingersR: 'RightHandMiddle1', LowerArmL: 'LeftForeArm', LowerArmR: 'RightForeArm',
+  LowerLegL: 'LeftLeg', LowerLegR: 'RightLeg', FootL: 'LeftFoot', FootR: 'RightFoot',
+};
+const MIXAMO_ARMS = /^mixamorig(Left|Right)(Shoulder|Arm|ForeArm|Hand)/; // shoulders down to the fingertips
 
 // Guard pose: offsets applied on top of the playing clip so both fists sit in
 // front of the chin. Solved against the rig's bone axes (XYZ Euler, degrees).
@@ -44,7 +56,15 @@ const _pf = new THREE.Vector3();
 const _Y = new THREE.Vector3(0, 1, 0);
 
 export class Fighter {
-  constructor(parent, { source = null, height = 1.8, capsuleColor = 0xdfe8ee, darken = 1, palette = {} } = {}) {
+  /**
+   * modelHeight: the model's own height in its units (the Quaternius FBX default
+   * if omitted). guardPose: { clip, at }, a clip and time whose arm pose is the
+   * guard, for rigs with a block clip instead of the hand-posed one.
+   */
+  constructor(parent, {
+    source = null, height = 1.8, capsuleColor = 0xdfe8ee, darken = 1, palette = {},
+    modelHeight = MODEL_HEIGHT_UNITS, guardPose = null,
+  } = {}) {
     this.root = new THREE.Group();
     this.visual = new THREE.Group();
     this.pivot = new THREE.Group();
@@ -75,14 +95,16 @@ export class Fighter {
     this.shakeDur = 0;
     this.shakeAmp = 0; // eased 0..1, so a cancelled shake settles instead of snapping
     this.headBone = null;
+    this.bones = {};
+    this.rig = 'none';
 
-    if (source) this._buildFromModel(source, height, darken, palette);
+    if (source) this._buildFromModel(source, height, darken, palette, modelHeight, guardPose);
     else this._buildCapsule(height, capsuleColor);
   }
 
-  _buildFromModel(source, height, darken, palette) {
+  _buildFromModel(source, height, darken, palette, modelHeight, guardPose) {
     const model = cloneSkinned(source);
-    const s = height / MODEL_HEIGHT_UNITS;
+    const s = height / modelHeight;
     model.scale.setScalar(s);
     model.position.y = -CENTRE_Y;
     model.traverse((o) => {
@@ -93,13 +115,18 @@ export class Fighter {
       const cloned = list.map((m) => {
         // FBX imports as glossy Phong, which turns cloth into silver highlights.
         // Matte PBR keeps the clothes reading as their real colours.
+        const cutout = m.transparent || m.alphaTest > 0; // hair cards and eyelashes: alpha-tested, both sides
         const c = new THREE.MeshStandardMaterial({
           name: m.name,
           color: palette[m.name] !== undefined ? new THREE.Color(palette[m.name]) : m.color ? m.color.clone() : new THREE.Color(0xffffff),
           map: m.map || null,
+          normalMap: m.normalMap || null,
           roughness: 0.92,
           metalness: 0,
+          alphaTest: cutout ? 0.5 : 0,
+          side: cutout ? THREE.DoubleSide : THREE.FrontSide,
         });
+        if (m.normalMap) c.normalScale.copy(m.normalScale);
         if (darken !== 1) c.color.multiplyScalar(darken);
         c.userData.baseEmissive = c.emissive.clone();
         this.materials.push(c);
@@ -116,9 +143,10 @@ export class Fighter {
       }
     });
 
-    const byName = {};
+    const byName = this.bones;
     model.traverse((o) => { if (o.isBone) byName[o.name] = o; });
-    this.headBone = byName.Head || null;
+    this.rig = byName.mixamorigHips ? 'mixamo' : 'quaternius';
+    this.headBone = this.bone('Head');
     if (byName.FootR && byName.UpperLegR && byName.LowerLegR && byName.LowerLegR_end) {
       this.kickRig = {};
       for (const side of ['R', 'L']) {
@@ -136,7 +164,27 @@ export class Fighter {
       const key = clip.name.split('Man_').pop().toLowerCase();
       this.actions[key] = this.mixer.clipAction(clip);
     }
+    if (guardPose) this._guardFromClip(guardPose.clip, guardPose.at);
     this.play('idle');
+  }
+
+  /** A bone by its Quaternius name ('PalmR', 'FootL', 'Head'...), on either rig. */
+  bone(name) {
+    return this.bones[name] || this.bones['mixamorig' + (MIXAMO[name] || name)] || null;
+  }
+
+  /** Guard = the arms as they are `at` seconds into `clip` (e.g. the block, fully up). */
+  _guardFromClip(name, at) {
+    const clip = this.actions[name]?.getClip();
+    if (!clip) return;
+    for (const track of clip.tracks) {
+      if (!track.name.endsWith('.quaternion')) continue;
+      const boneName = track.name.slice(0, -'.quaternion'.length);
+      const bone = this.bones[boneName];
+      if (!bone || !MIXAMO_ARMS.test(boneName)) continue;
+      const v = track.createInterpolant().evaluate(at);
+      this.guardBones.push({ bone, target: new THREE.Quaternion(v[0], v[1], v[2], v[3]).normalize() });
+    }
   }
 
   _buildCapsule(height, color) {
@@ -165,18 +213,25 @@ export class Fighter {
     this.currentName = name;
   }
 
-  /** Restart a one-shot clip from the beginning even if it is already current. */
-  playOnce(name, { fade = 0.04, speed = 1 } = {}) {
+  /** Restart a one-shot clip (from `from` seconds in) even if it is already current. */
+  playOnce(name, { fade = 0.04, speed = 1, from = 0 } = {}) {
     const next = this.actions[name];
     if (!next) return 0;
     next.setLoop(THREE.LoopOnce, 1);
     next.clampWhenFinished = true;
     next.timeScale = speed;
-    next.reset().fadeIn(fade).play();
+    next.reset();
+    next.time = from;
+    next.fadeIn(fade).play();
     if (this.current && this.current !== next) this.current.fadeOut(fade);
     this.current = next;
     this.currentName = name;
-    return next.getClip().duration / speed;
+    return (next.getClip().duration - from) / speed;
+  }
+
+  /** Change the playing clip's speed without restarting it (0 holds it still). */
+  setSpeed(speed) {
+    if (this.current) this.current.timeScale = speed;
   }
 
   clipDuration(name) {
@@ -284,8 +339,12 @@ export class Fighter {
     if (this.guard > 0.01) {
       for (const g of this.guardBones) {
         this._stash(g.bone);
-        _q.identity().slerp(g.offset, this.guard);
-        g.bone.quaternion.multiply(_q);
+        if (g.target) {
+          g.bone.quaternion.slerp(g.target, this.guard); // a held pose: blend the clip's arms toward it
+        } else {
+          _q.identity().slerp(g.offset, this.guard); // an offset: add it on top of the clip
+          g.bone.quaternion.multiply(_q);
+        }
       }
     }
 

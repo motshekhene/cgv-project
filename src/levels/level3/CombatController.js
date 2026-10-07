@@ -18,8 +18,13 @@ import { Fighter } from './Fighter.js';
  * Controls (shared Input actions): forward/back/left/right move, attack =
  * ATTACK = punch chain, KICK = kick chain; dodge = roll; block (hold) / parry (tap just
  * before impact); ability = the Key slow-mo; lockOn toggles camera + strafing.
+ *
+ * Two Kais: the Quaternius one (MOVES, kicks and guard posed by hand) and the
+ * Mixamo one from tools/build-kai.py (clipMoves: every move is a real clip,
+ * timed from the build's measurements, and a clean hit staggers him briefly).
  */
 // Two separate chains: ATTACK = punch, punch, heavy hook; KICK = right, left, heavy kick.
+// These are for the Quaternius Kai: its punch clips, and kicks posed by hand (it has no kick clip).
 const MOVES = {
   attack: [
     { type: 'punch', clip: 'punch', speed: 2.3, windup: 0.07, active: 0.1, total: 0.36, damage: 12, stamina: 6, lunge: 3.2 },
@@ -32,6 +37,36 @@ const MOVES = {
     { type: 'kick', side: 'R', windup: 0.14, active: 0.12, total: 0.62, damage: 32, stamina: 18, lunge: 5.2, lean: 0.35, finisher: true },
   ],
 };
+/**
+ * The same chains on a rig with real fight clips (the Mixamo Kai): ATTACK = jab,
+ * cross, heavy hook; KICK = MMA kick, heavy roundhouse. `meta` is what
+ * tools/build-kai.py measured in each clip. A move starts its clip `lead`
+ * seconds before the clip's impact and plays it at `speed`, so the fist or foot
+ * lands just as the hit window opens; the recovery is the clip settling back,
+ * cut short (it crossfades into whatever comes next).
+ */
+function clipMoves(meta) {
+  const c = meta.clips;
+  const strike = (base, clip, lead, speed) => {
+    const m = c[clip];
+    const from = Math.max(0, m.hit - lead);
+    const windup = Math.max(0.05, (m.hit - from) / speed - 0.03);
+    const recover = Math.min(base.finisher ? 0.3 : 0.18, (m.settle - m.hit) / speed) + 0.12;
+    return { ...base, clip, from, speed, windup, total: windup + base.active + recover };
+  };
+  const light = { type: 'punch', active: 0.1, damage: 12, stamina: 6, lunge: 3.2 };
+  return {
+    attack: [
+      strike(light, 'jab', 0.22, 1.6),
+      strike(light, 'jabcross2', 0.2, 1.4),
+      strike({ type: 'punch', active: 0.12, damage: 26, stamina: 14, lunge: 4.5, finisher: true }, 'hook', 0.42, 1.5),
+    ],
+    kick: [
+      strike({ type: 'kick', active: 0.1, damage: 16, stamina: 9, lunge: 3.6 }, 'kick', 0.45, 1.5),
+      strike({ type: 'kick', active: 0.12, damage: 32, stamina: 18, lunge: 5.2, finisher: true }, 'roundhouse', 0.6, 1.5),
+    ],
+  };
+}
 const PARRY_WINDOW = 0.28;
 const ARENA_LIMIT = 12.6;
 const TURN_SPEED = 2.8; // rad/s while steering: a quarter turn in ~0.55 s
@@ -45,13 +80,21 @@ function shortestAngle(from, to) {
 }
 
 export class CombatController {
-  constructor(parent, source) {
+  /** meta: tools/build-kai.py's measurements when `source` is the Mixamo Kai, else null (the Quaternius one). */
+  constructor(parent, source, meta = null) {
     this.fighter = new Fighter(parent, {
       source,
       capsuleColor: 0xdfe8ee,
       // the pack's own Kai colours are near-black; these read clearly on the arena
       palette: { Skin: 0x9a6538, Hair: 0x1c1512, Shirt: 0x2f8fb5, Pants: 0x8a7658, Socks: 0xe6dfd6, Shoes: 0x2a2320 },
+      ...(meta && {
+        modelHeight: meta.height,
+        guardPose: meta.clips.block && { clip: 'block', at: meta.clips.block.hold },
+      }),
     });
+    this.meta = source && meta;
+    this.moves = this.meta ? clipMoves(meta) : MOVES;
+    this.staggerT = 0; // knocked back by a hit (the hit clip is playing): can't walk or swing
     this.root = this.fighter.root;
     this.root.position.set(0, 0, 4);
 
@@ -111,6 +154,8 @@ export class CombatController {
     }
 
     state.regenStamina(this.blocking || this.attacking ? 4 : 16, dt);
+    if (this.staggerT > 0) this.staggerT -= dt;
+    const staggered = this.staggerT > 0;
 
     const ix = input.axis('left', 'right');
     const iz = input.axis('back', 'forward');
@@ -148,6 +193,7 @@ export class CombatController {
     if (this.dodgeCD > 0) this.dodgeCD -= dt;
     if (input.pressed('dodge') && !this.dodging && this.dodgeCD <= 0 && !this.attacking && state.spendStamina(20)) {
       this.dodging = true;
+      this.staggerT = 0; // rolling out of a hit is allowed
       this.dodgeT = this.dodgeDuration;
       this.dodgeCD = this.dodgeDuration + 0.25;
       // steering: a dodge while turning sidesteps that way
@@ -172,7 +218,7 @@ export class CombatController {
       if (steer) this._aimAt(targetPos);
       this._startAttack(state, kind);
     };
-    if (pressed && !this.dodging && !this.blocking) {
+    if (pressed && !this.dodging && !this.blocking && !staggered) {
       if (!this.attacking) start(pressed);
       else if (this.attackT > this.attackDef.total * 0.2) this.queued = pressed;
     }
@@ -198,8 +244,8 @@ export class CombatController {
     }
 
     // ---- walking ----
-    if (moving && !this.dodging && !this.attacking) {
-      const speed = this.moveSpeed * (this.blocking ? 0.45 : 1) * (backing ? 0.55 : 1);
+    const speed = this.moveSpeed * (this.blocking ? 0.45 : 1) * (backing ? 0.55 : 1);
+    if (moving && !this.dodging && !this.attacking && !staggered) {
       this.root.position.addScaledVector(this._move, speed * dt);
     }
 
@@ -234,7 +280,7 @@ export class CombatController {
 
     // ---- animation ----
     const a = this.attackDef;
-    const kicking = a && a.type === 'kick';
+    const kicking = a && a.type === 'kick' && !a.clip; // no kick clip on the rig: the leg is posed by hand
     f.setGuard(this.blocking || kicking, kicking ? 0.65 : 1);
     if (kicking) {
       const t = this.attackT;
@@ -247,11 +293,12 @@ export class CombatController {
       f.setKick(null, 0);
       f.setLean(this.blocking ? 0.1 : 0);
     }
-    if (!this.attacking) {
+    if (!this.attacking && !staggered) {
       if (this.dodging) f.play('run', { speed: 1.6 });
+      else if (backing && f.actions.walkback) f.play('walkback', { speed: this._pace('walkback', speed) });
       else if (backing) f.play('walk', { speed: -0.9 }); // back-step: the walk cycle reversed
-      else if (moving) f.play('run', { speed: this.blocking ? 0.6 : 1 });
-      else if (turning) f.play('walk', { speed: 0.7 }); // stepping round on the spot
+      else if (moving) f.play('run', { speed: this.meta ? this._pace('run', speed) : this.blocking ? 0.6 : 1 });
+      else if (turning && f.actions.walk) f.play('walk', { speed: 0.7 }); // stepping round on the spot
       else f.play('idle');
     }
     this.still = !moving && !turning && !this.attacking && !this.dodging && !this.blocking;
@@ -267,8 +314,14 @@ export class CombatController {
     if (Math.abs(d) < AIM_ASSIST) this.heading += d;
   }
 
+  /** Clip speed for walking/running at `mps` (m/s), matched to the cycle's own stride so the feet don't skate. */
+  _pace(clip, mps) {
+    const natural = this.meta?.clips[clip]?.speed;
+    return natural ? Math.min(2, Math.max(0.5, mps / natural)) : 1;
+  }
+
   _startAttack(state, kind) {
-    const chain = MOVES[kind];
+    const chain = this.moves[kind];
     const a = chain[this.combo[kind] % chain.length];
     if (!state.spendStamina(a.stamina)) return;
     this.attackDef = a;
@@ -278,8 +331,8 @@ export class CombatController {
     this.combo[kind] = (this.combo[kind] + 1) % chain.length;
     // switching between punches and kicks restarts the other chain
     this.combo[kind === 'kick' ? 'attack' : 'kick'] = 0;
-    if (a.type === 'kick') this.fighter.play('idle', { fade: 0.05, speed: 1.4 });
-    else this.fighter.playOnce(a.clip, { speed: a.speed });
+    if (a.clip) this.fighter.playOnce(a.clip, { speed: a.speed, from: a.from || 0, fade: this.meta ? 0.08 : 0.04 });
+    else this.fighter.play('idle', { fade: 0.05, speed: 1.4 }); // a posed kick: update() sets the leg
   }
 
   _cancelAttack() {
@@ -303,7 +356,15 @@ export class CombatController {
   }
 
   onHurt() {
-    this.fighter.flinch();
+    const hit = this.meta?.clips.hit;
+    if (hit && !this.attacking && !this.dodging) {
+      // a real flinch: the hit clip from just before he rocks back, sped up; he's staggered while it plays
+      this.fighter.playOnce('hit', { from: Math.max(0, hit.peak - 0.3), speed: 1.6, fade: 0.05 });
+      this.fighter.flash(0xffffff, 0.12);
+      this.staggerT = 0.4;
+    } else {
+      this.fighter.flinch();
+    }
   }
 
   die() {

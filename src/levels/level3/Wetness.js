@@ -40,6 +40,7 @@ const WET_LOOK = {
   Pants: [0.5, 0.45],
   Socks: [0.62, 0.5],
   Shoes: [0.7, 0.35],
+  Body: [0.72, 0.42], // one material for skin and clothes together (the Mixamo Kai): darken less
   '*': [0.62, 0.45],
 };
 
@@ -338,18 +339,23 @@ export class Wetness {
     this._shown = -1;
 
     this.looks = fighter.materials.map((m) => {
-      const [k, rough] = WET_LOOK[m.name] || WET_LOOK['*'];
+      const [k, rough] = WET_LOOK[m.name] || (/hair/i.test(m.name) ? WET_LOOK.Hair : /body/i.test(m.name) ? WET_LOOK.Body : WET_LOOK['*']);
       return { m, dry: m.color.clone(), dryRough: m.roughness, k, rough: rough ?? m.roughness };
     });
+    // bones by their Quaternius names, found on either rig (Fighter.bone)
     this.bones = {};
-    fighter.model?.traverse((o) => {
-      if (o.isBone) this.bones[o.name] = o;
-    });
+    for (const n of [...DRIP_FROM.map(([b]) => b), ...SPRAY_FROM, 'FootL', 'FootR']) this.bones[n] = fighter.bone?.(n) || null;
     this.dripFrom = DRIP_FROM.filter(([n]) => this.bones[n]);
     this.dripTotal = this.dripFrom.reduce((s, [, w]) => s + w, 0);
     this.sprayFrom = SPRAY_FROM.map((n) => this.bones[n]).filter(Boolean);
     this.lifted = { L: false, R: false }; // each foot: off the ground since its last footfall
     this.lastStep = new THREE.Vector3(1e9, 0, 0);
+    // how high the ankle bone sits with the foot flat (~0.02 on the Quaternius rig, ~0.13 on Mixamo's)
+    this.ankle = 0.02;
+    if (this.bones.FootL) {
+      fighter.root.updateMatrixWorld(true);
+      this.ankle = Math.max(0, this.bones.FootL.getWorldPosition(_a).y - fighter.root.position.y);
+    }
   }
 
   get shaking() {
@@ -508,10 +514,10 @@ export class Wetness {
       const bone = this.bones['Foot' + side];
       if (!bone) continue;
       bone.getWorldPosition(_a);
-      const h = _a.y - root.y; // the foot bone is the ankle: ~0.02 when the foot is flat
+      const h = _a.y - root.y - this.ankle; // 0 with the foot flat on the ground
       const lifted = this.lifted[side];
-      if (h > 0.14) this.lifted[side] = true;
-      if (!lifted || h > 0.06) continue;
+      if (h > 0.12) this.lifted[side] = true;
+      if (!lifted || h > 0.04) continue;
       this.lifted[side] = false;
       if (Math.hypot(root.x - this.lastStep.x, root.z - this.lastStep.z) < 0.2) continue; // stepping on the spot
       this.lastStep.copy(root);
