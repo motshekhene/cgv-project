@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
+import { Hud } from "../core/Hud.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -554,6 +555,13 @@ export class Level01 extends Level {
     this._tmpBack = new THREE.Vector3();
     this._baseFov = this.game && this.game.camera ? this.game.camera.fov : 62;
     this._ensureAudio();
+
+    // The shared readout, so the chase shows its numbers like every other
+    // level. Level 1 has no damage model — the comment in GameState holds:
+    // the pursuit gap IS the health bar, and the state line under it (CLOSING
+    // / LOSING GROUND / CAUGHT) is the health status. The letter ids here are
+    // "level01-N", not the preset's "l1-N" guess, so pass the prefix through.
+    this.hud = Hud.forLevel("level01", { lettersIn: "level01-" }).mount();
   }
 
   _buildTunnel(mats) {
@@ -2662,9 +2670,17 @@ export class Level01 extends Level {
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
       }
     }
+
+    // last line of update(), so the HUD reads every state write this frame —
+    // including gap writes from the handler update further up
+    if (this.hud) this.hud.update(state);
   }
 
   teardown() {
+    if (this.hud) {
+      this.hud.unmount();
+      this.hud = null;
+    }
     this._removeCaughtOverlay();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);

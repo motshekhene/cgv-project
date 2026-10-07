@@ -7,6 +7,10 @@
  *
  * MERGE NOTE (1A + 3A, 5 Oct): both branches added fields to reset(). Both
  * sets are kept — 1A's pursuit/fail tracking and 3A's awards + helmet flag.
+ *
+ * These names are what src/core/Hud.js reads. The HUD does not guess and it
+ * does not accept alternatives: if a level tracks the player's condition in
+ * its own `hp`, the shared bar stays at 100 while the player dies.
  */
 export class GameState {
   constructor() {
@@ -52,6 +56,12 @@ export class GameState {
     this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
     this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
 
+    // Level 03's boss bar. Here rather than inside Level03 so the shared HUD
+    // has a name to read — Hud.forLevel('level03') draws these automatically.
+    // 3A: write to these instead of a private field and the bar just works.
+    this.enemyHealth = 100;
+    this.enemyMaxHealth = 100;
+
     // Why the run ended, so the fail screen can say it instead of guessing.
     // Level 01 has two losses — "he catches you, or the southbound does".
     // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
@@ -72,6 +82,7 @@ export class GameState {
     this.handlerGap = 0;
     this.failCause = null;
     this.alive = true;
+    this.enemyHealth = this.enemyMaxHealth;
     // NOTE for 3A: handlerHelmetOff is deliberately NOT reset here, because
     // only you know whether a restarted level 03 should put the helmet back
     // on. If it should, add `this.handlerHelmetOff = false;` on this line.
