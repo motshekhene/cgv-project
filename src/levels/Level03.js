@@ -8,6 +8,7 @@ import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
 import { Wreck } from './level3/Wreck.js';
 import { Storm } from './level3/Storm.js';
+import { KeyVision } from './level3/KeyVision.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -112,6 +113,13 @@ const TALK = [
   { who: 'handler', text: 'Not today.' },
 ];
 const TALK_AFTER = 1.6; // shot D starts this long after he lands
+// a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
+// the world runs at FOCUS_SCALE, Kai at FOCUS_KAI, and his hits do FOCUS_DAMAGE x (KeyVision draws it)
+const PERFECT_DODGE = 0.2;
+const FOCUS_TIME = 1.6;
+const FOCUS_SCALE = 0.25;
+const FOCUS_KAI = 0.9;
+const FOCUS_DAMAGE = 1.5;
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -147,6 +155,7 @@ export class Level03 extends Level {
     this._ended = false;
     this._abilityWas = false;
 
+    this._focusT = 0; // seconds of bent time left after a perfect dodge
     this.mode = 'LOADING'; // INTRO | FIGHT | REVEAL | EPILOGUE | END
     this.beatT = 0; // seconds into the current beat (real time, not slowed)
     this.cine = null; // { pos, look, fov, rate } while a cutscene owns the camera
@@ -178,6 +187,7 @@ export class Level03 extends Level {
     this.bossWet = new Wetness(this.boss.fighter, this.water);
     this.storm = new Storm(this.root, this.arena, this.water); // phase III's rain and lightning
     this.storm.onBolt = () => this._addShake(0.12);
+    this.vision = new KeyVision(); // the look of bent time (a perfect dodge, the Key)
     if (this.handlerMeta?.clips.jump) {
       const bf = this.boss.fighter;
       const feet = bf.footTrack('jump');
@@ -312,7 +322,8 @@ export class Level03 extends Level {
       const c = this.combat;
       if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
       if (c.dodging) {
-        hud().popup('DODGE', '#8fe8ff');
+        if (c.dodgeDuration - c.dodgeT <= PERFECT_DODGE) this._perfectDodge(state);
+        else hud().popup('DODGE', '#8fe8ff');
         return 'dodged';
       }
       if (c.parryReady()) {
@@ -362,10 +373,11 @@ export class Level03 extends Level {
       } else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
     };
     this.boss.onDefeated = () => {
-      this._hitStop(0.2);
-      this._addShake(0.5);
-      this._endTimer = 1.6;
+      this._hitStop(0.12);
+      this._addShake(0.55);
+      this._endTimer = 2.6;
       this._endKind = 'win';
+      this._startFinal();
     };
   }
 
@@ -404,6 +416,14 @@ export class Level03 extends Level {
     const a = Math.atan2(v.x, -v.z); // 0 = dead ahead, +pi/2 = to the right, pi = behind
     const halfFov = Math.atan(Math.tan((cam.fov * Math.PI) / 360) * cam.aspect) * 0.92;
     this.hud.setPointer(Math.abs(a) < halfFov ? null : a);
+  }
+
+  /** Dodged at the last instant: time bends round Kai. The world slows right down; he barely does. */
+  _perfectDodge(state) {
+    this._focusT = FOCUS_TIME;
+    state.stamina = Math.min(state.maxStamina, state.stamina + 20);
+    this.hud.popup('PERFECT DODGE', '#7fe8ff');
+    this._addShake(0.12);
   }
 
   _checkPlayerDeath(state) {
@@ -446,6 +466,11 @@ export class Level03 extends Level {
     if (this.boss.root.visible) this.bossWet.update(dt, { rain });
     this.wreck.update(dt, this.time, this.water);
     this.water.update(dt);
+
+    // bent time (a perfect dodge, the Key's slow-mo) shows: KeyVision fades in and out
+    const bent = this.mode === 'FIGHT' && !this._ended && (this._focusT > 0 || this.combat.abilityActive);
+    this.vision.strength += ((bent ? 1 : 0) - this.vision.strength) * (1 - Math.exp(-(bent ? 12 : 5) * real));
+    if (!bent && this.vision.strength < 0.003) this.vision.strength = 0;
 
     this._updateCamera(real);
     this._updatePointer();
@@ -493,7 +518,12 @@ export class Level03 extends Level {
     // the reveal shot holds Kai still for a beat; the key that skipped the intro doesn't also punch
     const controls = this.mode === 'FIGHT' && !this._muteInput ? input : NO_INPUT;
     this._muteInput = false;
-    this.combat.update(dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    // after a perfect dodge Kai keeps (nearly) his own pace while everything else crawls; hit-stop still freezes him
+    if (this._focusT > 0) this._focusT -= real;
+    const focus = this._focusT > 0 && this.mode === 'FIGHT';
+    const stopped = performance.now() < this._hitStopUntil;
+    this.combat.update(focus && !stopped ? real * FOCUS_KAI : dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
     // Kai's swing
     if (this.combat.consumeHit() && this.boss.state !== 'DOWN') {
@@ -503,7 +533,7 @@ export class Level03 extends Level {
       const facing = Math.sin(this.combat.heading) * this._toBoss.x + Math.cos(this.combat.heading) * this._toBoss.z;
       if (dist <= this.combat.attackRange && facing > 0.2) {
         const fin = this.combat.comboFinisher;
-        const dealt = this.boss.takeDamage(this.combat.attackDamage);
+        const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1));
         if (dealt > 0) {
           this.boss.root.position.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1));
           if (this.power) {
@@ -539,10 +569,13 @@ export class Level03 extends Level {
     this._abilityWas = this.combat.abilityActive;
 
     if (this.mode === 'REVEAL') this._updateReveal();
+    else if (this.mode === 'FINAL') this._updateFinal();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
-    state.timeScale = performance.now() < this._hitStopUntil ? 0.12
+    state.timeScale = stopped ? 0.12
+      : this.mode === 'FINAL' ? 0.15 + 0.85 * smooth(0.5, 2.3, this.beatT)
       : this.mode === 'REVEAL' ? 0.45
+      : focus ? FOCUS_SCALE
       : this.combat.abilityActive ? 0.35 : 1;
 
     this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
@@ -969,6 +1002,41 @@ export class Level03 extends Level {
     }
   }
 
+  /**
+   * The blow that drops him: a white flash, the bars come in and time all but
+   * stops, then eases back up while the camera, low and side-on to the two of
+   * them, drifts round. The epilogue's slow circle takes over from there.
+   */
+  _startFinal() {
+    this._enterBeat('FINAL');
+    this._focusT = 0;
+    this.story.setCinematic(true, false);
+    this.story.flash();
+    this.hud.setVisible(false);
+    this.hud.setTell('');
+    this.touch.setVisible(false);
+    const kp = this.combat.root.position;
+    const bp = this.boss.root.position;
+    const d = new THREE.Vector3(bp.x - kp.x, 0, bp.z - kp.z).normalize();
+    const side = new THREE.Vector3(-d.z, 0, d.x);
+    // from whichever side the camera was already on, so the cut doesn't flip them round
+    const mid = kp.clone().lerp(bp, 0.55);
+    const cam = this.game.camera.position;
+    if ((cam.x - mid.x) * side.x + (cam.z - mid.z) * side.z < 0) side.negate();
+    const sep = Math.hypot(bp.x - kp.x, bp.z - kp.z);
+    this._final = { mid, d, side, dist: Math.max(3.4, sep * 0.9 + 2.2) };
+    this._updateFinal(true);
+  }
+
+  _updateFinal(cut = false) {
+    const { mid, d, side, dist } = this._final;
+    const a = -0.35 + this.beatT * 0.22; // a slow arc round them
+    const out = side.clone().multiplyScalar(Math.cos(a)).addScaledVector(d, Math.sin(a));
+    const pos = mid.clone().addScaledVector(out, dist);
+    pos.y = mid.y + 1.05;
+    this._setCine(pos, new THREE.Vector3(mid.x, mid.y + 0.95, mid.z), { fov: 36, rate: 9, cut });
+  }
+
   _startEpilogue() {
     this._enterBeat('EPILOGUE');
     this.story.setCinematic(true, true);
@@ -990,12 +1058,16 @@ export class Level03 extends Level {
     if (this._shot !== 'E0') {
       this._shot = 'E0';
       this._orbitFrom = this.time;
+      // start across him from Kai: the Handler down in front, Kai standing over him beyond
+      const kp = k.root.position;
+      this._orbitA0 = Math.atan2(kp.z - bp.z, kp.x - bp.x) + Math.PI + 0.55;
       k.fighter.play('idle', { fade: 0.3 });
       k.fighter.setGuard(false);
-      this._setCine(new THREE.Vector3(bp.x + 3.4, bp.y + 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
+      const a0 = this._orbitA0;
+      this._setCine(new THREE.Vector3(bp.x + Math.cos(a0) * 3.8, bp.y + 1.4, bp.z + Math.sin(a0) * 3.8), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
     }
     const s = this.time - this._orbitFrom;
-    const a = 0.65 + s * 0.18;
+    const a = this._orbitA0 + s * 0.18;
     this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
     this.cine.rate = 3;
     if (this.mode === 'EPILOGUE' && this.beatT > 3) this._showEnd();
@@ -1080,7 +1152,14 @@ export class Level03 extends Level {
     cam.position.add(this._shakeOff);
   }
 
+  /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
+  render(renderer, scene, camera) {
+    if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);
+    else renderer.render(scene, camera);
+  }
+
   teardown() {
+    if (this.vision) this.vision.dispose();
     if (this.touch) this.touch.dispose();
     if (this.input) this.input.ignored.delete('mouse0');
     // skinned meshes own a bone texture that disposeObject() does not free

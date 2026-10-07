@@ -38,6 +38,9 @@ const CSS = THEME_CSS + END_CSS + `
 .so-award small { display:block; font-size:9px; font-weight:600; letter-spacing:.32em; color:var(--ink-dim); }
 .so-award b { display:block; font-family:var(--serif); font-size:20px; letter-spacing:.22em; color:var(--c); margin:1px 0 2px; }
 .so-award span { display:block; font-size:12px; color:var(--ink); letter-spacing:.04em; }
+.so-flash { position:absolute; inset:0; background:var(--c, #fff6e0); opacity:0; pointer-events:none; }
+.so-flash.go { animation:soFlash .7s ease-out forwards; }
+@keyframes soFlash { 0% { opacity:.85; } 100% { opacity:0; } }
 .so-talk { position:absolute; left:50%; bottom:calc(11vh + 48px); width:min(780px, 90vw); transform:translate(-50%, 10px); opacity:0;
   transition:opacity .35s ease, transform .35s ease; padding:14px 26px 16px; text-align:left; }
 .so-talk.show { opacity:1; transform:translate(-50%, 0); }
@@ -62,6 +65,7 @@ export class StoryOverlay {
     this.el = document.createElement('div');
     this.el.className = 'so';
     this.el.innerHTML = `
+      <div class="so-flash"></div>
       <div class="so-bar top"></div><div class="so-bar bot"></div>
       <div class="so-card"><h2></h2><hr><p></p></div>
       <div class="so-skip">SPACE / CLICK TO SKIP &#9656;</div>
@@ -77,6 +81,7 @@ export class StoryOverlay {
     this.letterEl = q('.so-letter');
     this.awardEl = q('.so-award');
     this.talkEl = q('.so-talk');
+    this.flashEl = q('.so-flash');
     this.end = q('.end');
     this.onSkip = null;
     this.skipEl.addEventListener('pointerdown', () => this.onSkip && this.onSkip());
@@ -88,6 +93,14 @@ export class StoryOverlay {
   setCinematic(on, skip = false) {
     this.el.classList.toggle('cine', on);
     this.skipEl.classList.toggle('on', on && skip);
+  }
+
+  /** A white flash over the whole frame (the final blow). */
+  flash(color = '#fff6e0') {
+    this.flashEl.style.setProperty('--c', color);
+    this.flashEl.classList.remove('go');
+    void this.flashEl.offsetWidth;
+    this.flashEl.classList.add('go');
   }
 
   /** The skip hint's wording (it always skips the whole cutscene when clicked). */

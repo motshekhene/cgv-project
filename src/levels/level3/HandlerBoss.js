@@ -218,6 +218,7 @@ export class HandlerBoss {
     this.flurry = 0; // Kai's hits in quick succession (COUNTER_AFTER)
     this.flurryT = 0;
     this.countering = false;
+    this.counterOff = false; // the level can hold his counters off (Kai's perfect-dodge window)
     this.phaseIndex = 0;
     this.helmetOff = false;
 
@@ -388,7 +389,7 @@ export class HandlerBoss {
 
     this.flurry = this.flurryT > 0 ? this.flurry + 1 : 1;
     this.flurryT = COUNTER_GAP;
-    if (this.flurry >= COUNTER_AFTER[this.phaseIndex] && (this.state === 'APPROACH' || this.state === 'RECOVER')) this._counter();
+    if (!this.counterOff && this.flurry >= COUNTER_AFTER[this.phaseIndex] && (this.state === 'APPROACH' || this.state === 'RECOVER')) this._counter();
     return dealt;
   }
 

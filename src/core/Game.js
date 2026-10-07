@@ -133,7 +133,9 @@ export class Game {
     if (!this.paused && this.level) this.level.update(dt, this.state);
     this.input.endFrame();
 
-    this.renderer.render(this.scene, this.camera);
+    // a level can take over drawing (e.g. a post-processing pass); most just let Game render
+    if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
+    else this.renderer.render(this.scene, this.camera);
   }
 
   _onResize() {
