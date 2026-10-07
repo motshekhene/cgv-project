@@ -6,7 +6,7 @@ import { HandlerWeapons } from './level2/HandlerWeapons.js';
 import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
-import { Skids, Smoke } from './level2/skids.js';
+import { Skids, Smoke, TyreTracks } from './level2/skids.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
@@ -160,6 +160,7 @@ export class Level02 extends Level {
     this.carLights = new CarLights(this.car.mesh);
     this.policeLights = new PoliceLights(this.handler.mesh);
     this.skids = new Skids(this.root);
+    this.tracks = new TyreTracks(this.root);       // tread prints in the mud from every wheel
     this.smoke = new Smoke(this.root);
     // only a few cars here and there: it's a gravel road, not a motorway
     this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 3, spawnMin: 250, spawnMax: 650, despawnAhead: 900 });
@@ -211,6 +212,7 @@ export class Level02 extends Level {
     await this._selectCar(this._carIndex);
     const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL, HANDLER_OPTIONS);
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds, handlerModel);
+    this._handlerBounds = handlerModel?.userData.bounds;
 
     await this.traffic.init(this.car.mesh.position.z);
     await this._jungleReady;
@@ -456,6 +458,7 @@ export class Level02 extends Level {
     this._wallCooldown = Math.max(0, (this._wallCooldown || 0) - dt);
 
     this.skids.update(dt, this.car, skidding);
+    this._updateTracks(dt);
     this.smoke.update(dt, this.skids.wheels(this.car), skidding);
 
     this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
@@ -555,6 +558,18 @@ export class Level02 extends Level {
       this.sound.silenceEngine();
       this._showGameOver();
     }
+  }
+
+  /** Tyre tracks in the mud: yours, the Handler's and the few cars'. */
+  _updateTracks(dt) {
+    const t = this.tracks;
+    t.follow('player', this.car.mesh, this.car.heading, this._carModel?.userData.bounds);
+    t.follow('handler', this.handler.mesh, this.handler.heading, this._handlerBounds);
+    this.traffic.pool.forEach((v, i) => {
+      if (v.parked) { t.reset(`traffic${i}`); return; }
+      t.follow(`traffic${i}`, v.holder, v.yaw, v.model?.userData.bounds);
+    });
+    t.update(dt);
   }
 
   /** Sky, sun, pollen, shafts, wildlife, water — the world that travels with you. */

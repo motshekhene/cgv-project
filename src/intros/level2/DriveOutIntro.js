@@ -8,6 +8,7 @@ import {
 import { attachModel } from '../../levels/level2/attachModel.js';
 import { CarLights, PoliceLights } from '../../levels/level2/carLights.js';
 import { spinWheels } from '../../levels/level2/wheels.js';
+import { TyreTracks } from '../../levels/level2/skids.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, loadSavedCar, loadSavedPaint } from '../../levels/level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from '../../levels/level2/paint.js';
 
@@ -174,6 +175,7 @@ export class DriveOutIntro extends Cutscene {
     if (hm) this.police.fit(hm.userData.bounds, hm);
 
     this.kai = makeKai(this.root, cast.kai);
+    this.tracks = new TyreTracks(this.root, { maxQuads: 1500, life: 30 });
 
     // mud thrown up by the back wheels as it pulls away, and on the turn
     this.spray = [
@@ -423,6 +425,11 @@ export class DriveOutIntro extends Cutscene {
     if (this.handlerModel) spinWheels(this.handlerModel, (this.handlerDist(s + 0.05) - hd) / 0.05, 0, ds);
     this.police?.update(dt, s > 8.4 ? 'TELEGRAPH' : 'APPROACH');
     const hp = this.handlerCar.position;
+
+    // tread prints up the track and onto the road, like Level 2's
+    this.tracks.follow('car', this.car, heading, this.carModel?.userData.bounds);
+    if (this.handlerCar.visible) this.tracks.follow('handler', this.handlerCar, this.handlerCar.rotation.y, this.handlerModel?.userData.bounds);
+    this.tracks.update(ds);
 
     // mud follows the wheels
     this.spray[0].at.set(cp.x, 0.2, cp.z - 2.2);
