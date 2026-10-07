@@ -20,7 +20,7 @@ import { Fighter } from './Fighter.js';
  * before impact); ability = the Key slow-mo; lockOn toggles camera + strafing.
  *
  * Two Kais: the Quaternius one (MOVES, kicks and guard posed by hand) and the
- * Mixamo one from tools/build-kai.py (clipMoves: every move is a real clip,
+ * Mixamo one from tools/build-character.py (clipMoves: every move is a real clip,
  * timed from the build's measurements, and a clean hit staggers him briefly).
  */
 // Two separate chains: ATTACK = punch, punch, heavy hook; KICK = right, left, heavy kick.
@@ -40,7 +40,7 @@ const MOVES = {
 /**
  * The same chains on a rig with real fight clips (the Mixamo Kai): ATTACK = jab,
  * cross, heavy hook; KICK = MMA kick, heavy roundhouse. `meta` is what
- * tools/build-kai.py measured in each clip. A move starts its clip `lead`
+ * tools/build-character.py measured in each clip. A move starts its clip `lead`
  * seconds before the clip's impact and plays it at `speed`, so the fist or foot
  * lands just as the hit window opens; the recovery is the clip settling back,
  * cut short (it crossfades into whatever comes next).
@@ -82,7 +82,7 @@ function shortestAngle(from, to) {
 }
 
 export class CombatController {
-  /** meta: tools/build-kai.py's measurements when `source` is the Mixamo Kai, else null (the Quaternius one). */
+  /** meta: tools/build-character.py's measurements when `source` is the Mixamo Kai, else null (the Quaternius one). */
   constructor(parent, source, meta = null) {
     this.fighter = new Fighter(parent, {
       source,

@@ -13,7 +13,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
  *   Quaternius FBX ("HumanArmature", the Handler and the intros' Kai). Clips:
  *     idle, walk, run, punch, swordslash, death, jump. There is no block / kick
  *     clip, so the guard and the kicks are posed by hand here.
- *   Mixamo (Level 3's Kai, built by tools/build-kai.py). Real clips for
+ *   Mixamo (Level 3's Kai and Handler, built by tools/build-character.py). Real clips for
  *     everything; the guard is the block clip's pose, held (guardPose).
  * bone('PalmR') etc. finds a bone by its Quaternius name on either rig.
  */
