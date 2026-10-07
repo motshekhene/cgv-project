@@ -100,7 +100,6 @@ export class AssetRegistry {
     return Promise.all(
       paths.map((p) => {
         if (p.endsWith(".glb") || p.endsWith(".gltf")) return this.model(p);
-        if (p.endsWith(".fbx")) return this.fbx(p);
         if (p.endsWith(".mp3") || p.endsWith(".ogg") || p.endsWith(".wav"))
           return this.sound(p);
         return this.texture(p);

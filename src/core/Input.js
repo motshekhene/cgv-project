@@ -33,14 +33,15 @@ export const DEFAULT_BINDINGS = {
   block: ["b", "mouse2"],
   lookBack: ["mouse2", "c"],
   interact: ["e"],
-  ability: ["v"],
+  ability: ["v", "q"], // V in level 03; Q still cycles paint in level 02's car picker
   lockOn: ["tab"],
   pause: ["escape"],
   restart: ["r"],
-  skip: [" ", "enter", "mouse0"], // advance one cutscene card
+  skip: [" ", "enter", "mouse0"], // cutscenes and cards
   skipScene: ["x"], // jump a whole intro — only polled by scenes that have one
   decline: ["q"], // the "no" half of a two-way choice (prologue)
   mute: ["m"],
+  changeCar: ["v"], // level 02: open the car picker
 };
 
 export class Input {

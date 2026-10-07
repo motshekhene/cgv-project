@@ -28,6 +28,9 @@ export class Game {
     this.levelName = null;
     this.running = false;
     this.paused = false;
+    // true while a level's init() is still running: nothing is updated or
+    // drawn, so a half-built scene (just its sky colour) never reaches the screen
+    this.loading = false;
 
     this.state = new GameState();
     this.input = new Input(window).attach();
@@ -63,8 +66,14 @@ export class Game {
 
     // hooks the UI layer can set — Game does not touch the DOM itself
     this.onLevelChanged = null;
+    this.onLevelLoading = null; // (name) — a level has started building
     this.onLoadProgress = null;
     this.onPaused = null;
+
+    // secondary cameras rendered as picture-in-picture overlays each frame.
+    // key: name string, value: { camera, viewport: { x, y, w, h } }
+    // x/y/w/h are normalised 0‥1 fractions of the canvas size.
+    this.secondaryCameras = new Map();
   }
 
   registerLevel(name, factory) {
@@ -77,17 +86,25 @@ export class Game {
     const factory = this.levels.get(name);
     if (!factory) throw new Error(`[game] no level registered as "${name}"`);
 
+    this.loading = true;
+    if (this.onLevelLoading) this.onLevelLoading(name);
+
     if (this.level) {
       this.level.teardown();
       this.level = null;
     }
+    this.secondaryCameras.clear();
     this.state.resetForLevel(name);
 
     const level = factory();
     level.game = this;
     this.level = level;
     this.levelName = name;
-    await level.init(this.scene, this.assets, this.input, this.state);
+    try {
+      await level.init(this.scene, this.assets, this.input, this.state);
+    } finally {
+      this.loading = false;
+    }
     if (this.onLevelChanged) this.onLevelChanged(name);
     return level;
   }
@@ -123,6 +140,12 @@ export class Game {
     this._last = now;
     const dt = raw * (this.state.timeScale ?? 1);
 
+    // a level is still building: keep the last finished frame on screen
+    if (this.loading) {
+      this.input.endFrame();
+      return;
+    }
+
     if (this.input.pressed("pause")) this.setPaused(!this.paused);
     if (this.input.pressed("restart")) {
       this.restart();
@@ -134,6 +157,39 @@ export class Game {
     this.input.endFrame();
 
     this.renderer.render(this.scene, this.camera);
+
+    // secondary cameras — rendered as small overlays on top of the main view
+    if (this.secondaryCameras.size > 0) {
+      const pw = this.renderer.domElement.width;
+      const ph = this.renderer.domElement.height;
+      this.renderer.setScissorTest(true);
+      for (const { camera: cam, viewport: vp } of this.secondaryCameras.values()) {
+        const vx = vp.x * pw;
+        const vy = vp.y * ph;
+        const vw = vp.w * pw;
+        const vh = vp.h * ph;
+        this.renderer.setViewport(vx, vy, vw, vh);
+        this.renderer.setScissor(vx, vy, vw, vh);
+        this.renderer.render(this.scene, cam);
+      }
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, pw, ph);
+    }
+  }
+
+  /**
+   * Register a secondary camera to render as a picture-in-picture overlay.
+   * viewport values are normalised 0‥1 (e.g. { x:0.75, y:0.75, w:0.24, h:0.23 }
+   * draws in the bottom-right quarter of the screen).
+   */
+  addSecondaryCamera(name, camera, viewport) {
+    this.secondaryCameras.set(name, { camera, viewport });
+    return this;
+  }
+
+  removeSecondaryCamera(name) {
+    this.secondaryCameras.delete(name);
+    return this;
   }
 
   _onResize() {

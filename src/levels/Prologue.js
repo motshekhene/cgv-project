@@ -1334,14 +1334,12 @@ export class Prologue extends Level {
     this.sfx.dawnBreak();
     this._applyDawn(1);      // the fade is black; the jump in light is free
     if (document.exitPointerLock) document.exitPointerLock();
-    // Mahlatse's "The Trail" intro picks up exactly here — Kai bursting out of
-    // the trees with the Key glowing. Use it when it is registered, and go
-    // straight into level 01 when it is not, so this file works both before
-    // and after his intros branch is merged. Nothing to change on either side.
-    const next = this.game.levels && this.game.levels.has('level01-intro')
-      ? 'level01-intro'
-      : 'level01';
-    setTimeout(() => this.game.setLevel(next), 1250);
+    // This prologue IS the intro of record: it ends on Kai breaking onto the
+    // trail at dawn, which is level 01's first frame, so go straight in. The
+    // level-1 cutscene (TrailIntro) stays reachable on its own via
+    // ?level=level01-intro, but playing both back to back is one intro too
+    // many. Straight into the run.
+    setTimeout(() => this.game.setLevel('level01'), 1250);
   }
 
   _updateCamera() {

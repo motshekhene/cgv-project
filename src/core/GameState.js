@@ -51,7 +51,7 @@ export class GameState {
     //   CLOSING       Kai is slower than the pursuer — the gap is shrinking
     //   CAUGHT        gap hit 0; the run is lost
     //   SEALED        a gate cut him off, or Kai reached the exit; out of play
-    this.handlerState = "IDLE";
+    this.handlerState = 'IDLE';
     this.handlerGap = 0; // metres between Kai and the Handler
     this.normalizedSpeed = 0; // 0..1, current speed over the level's ceiling
     this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
@@ -66,6 +66,11 @@ export class GameState {
     // Level 01 has two losses — "he catches you, or the southbound does".
     // null while alive | 'handler' | 'southbound' | 'crash' (level 02)
     this.failCause = null;
+
+    // level 03 — the Handler's boss bar. This is the pair main's level 03
+    // writes and its HUD reads; enemyHealth above stays for the 1A HUD.
+    this.bossHealth = 300;
+    this.bossMaxHealth = 300;
   }
 
   /** Called by Game when a new level starts. Keeps letters and awards, resets the rest. */
@@ -83,6 +88,7 @@ export class GameState {
     this.failCause = null;
     this.alive = true;
     this.enemyHealth = this.enemyMaxHealth;
+    this.bossHealth = this.bossMaxHealth;
     // NOTE for 3A: handlerHelmetOff is deliberately NOT reset here, because
     // only you know whether a restarted level 03 should put the helmet back
     // on. If it should, add `this.handlerHelmetOff = false;` on this line.

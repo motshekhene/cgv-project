@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { Hud } from "../core/Hud.js";
+import { showEndCard } from "../ui/EndCard.js";
+import { loadCast, makeKai } from "../intros/cast.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -329,6 +330,28 @@ const GUARDIAN_CLEAR_NEAR_Z = -1270;
 const GUARDIAN_CLEAR_FAR_Z = -1635;
 const GUARDIAN_DESPAWN_BEHIND = 24;
 
+// --- temple-run HUD, rewards & flight booster --------------------------------
+// Keep these systems inside Level01 so they can be removed/merged without
+// touching 1A's shared player controller or importing the experimental Kai
+// character module.
+const FINISH_DISTANCE = -ESCAPE_Z;
+const REWARD_PICKUP_X = 0.86;
+const REWARD_PICKUP_Y = 0.88;
+const REWARD_PICKUP_Z = 1.05;
+const REWARD_VISIBLE_AHEAD = 230;
+const REWARD_VISIBLE_BEHIND = 24;
+
+const JETPACK_PICKUPS = [
+  { z: -1668, lane: 1 },
+  { z: -2635, lane: 0 },
+];
+const JETPACK_DURATION = 6.0;
+const JETPACK_HEIGHT = 6.2;
+const JETPACK_SAFE_LIFT = 2.5;
+const JETPACK_SPEED_BONUS = 7.5;
+const JETPACK_RISE_RATE = 5.5;
+const JETPACK_FALL_RATE = 3.8;
+
 // --- the Handler ---
 // "He does not run faster than you. He just never slows down." So he is a
 // constant-speed follower matched to Kai's cruise, not an AI — there is no
@@ -374,7 +397,7 @@ export class Level01 extends Level {
     this.speed = this.baseSpeed;
     // normalisation ceiling for the speed-warp uniform: top gear plus a full
     // boost, so uSpeed only reaches 1.0 boosting in the last gear
-    this.maxSpeed = SPEED_TOP + BOOST_TOP;
+    this.maxSpeed = SPEED_TOP + Math.max(BOOST_TOP, JETPACK_SPEED_BONUS);
     this.boosting = false;
     // Once stamina runs dry the boost locks out until it has regenerated to
     // BOOST_UNLOCK. Without this, spendStamina() fails and succeeds on
@@ -429,6 +452,31 @@ export class Level01 extends Level {
     this._handlerPressureEvents = [];
     this._transientBanner = null;
     this._storyCard = null;
+
+    // Temple-run style rewards + HUD. These are level-local on purpose: no
+    // Kai model/controller code is imported or replaced.
+    this._rewardItems = [];
+    this._rewardMesh = null;
+    this._rewardDummy = new THREE.Object3D();
+    this._rewardTime = 0;
+    this.rewardCount = 0;
+    this.rewardScore = 0;
+    this._jetpackPickups = [];
+    this._jetpackActive = false;
+    this._jetpackT = 0;
+    this._flightLift = 0;
+    this._jetpackFx = null;
+    this._templeHud = null;
+    this._hudControls = {};
+    this._hudButtons = {};
+    this._virtualPressed = Object.create(null);
+    this._virtualHeld = new Set();
+    this._soundEnabled = true;
+    this._soundButton = null;
+    this._pauseButton = null;
+    this._pauseOverlay = null;
+    this._pauseHook = null;
+    this._previousOnPaused = null;
 
     // A hit from a moving/flying shrine hazard provokes the Handler instead of
     // behaving like a silent scenery clip. _specialImpactType is set by the
@@ -486,6 +534,8 @@ export class Level01 extends Level {
 
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
+    state.templeRewards = 0;
+    state.templeScore = 0;
 
     scene.background = new THREE.Color(0xcfd6a8);
     scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014);
@@ -521,6 +571,8 @@ export class Level01 extends Level {
     this._trainEvents = [];
     this._trainActive = false;
     this._buildObstacles(mats);
+    this._buildTempleRewards();
+    this._buildJetpackPickups();
     this._buildFallingTrees();
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
@@ -537,6 +589,7 @@ export class Level01 extends Level {
     body.castShadow = true;
     this.body = body;
     this.player.add(body);
+    await this._buildKai();
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
@@ -554,14 +607,9 @@ export class Level01 extends Level {
     this._tmpAim = new THREE.Vector3();
     this._tmpBack = new THREE.Vector3();
     this._baseFov = this.game && this.game.camera ? this.game.camera.fov : 62;
+    this._buildJetpackFx();
+    this._buildTempleRunHUD();
     this._ensureAudio();
-
-    // The shared readout, so the chase shows its numbers like every other
-    // level. Level 1 has no damage model — the comment in GameState holds:
-    // the pursuit gap IS the health bar, and the state line under it (CLOSING
-    // / LOSING GROUND / CAUGHT) is the health status. The letter ids here are
-    // "level01-N", not the preset's "l1-N" guess, so pass the prefix through.
-    this.hud = Hud.forLevel("level01", { lettersIn: "level01-" }).mount();
   }
 
   _buildTunnel(mats) {
@@ -1035,10 +1083,11 @@ export class Level01 extends Level {
     let clipped = false;
     this._specialImpactType = null;
     this._specialImpactX = x;
-    const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
-    const head = this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
+    const feet = this._flightLift + this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+    const head = this._flightLift + this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
 
     const registerHit = (h, hitX = x) => {
+      if (this._flightLift >= JETPACK_SAFE_LIFT) return;
       h.hit = true;
       clipped = true;
       this._specialImpactType = h.type;
@@ -1283,7 +1332,7 @@ export class Level01 extends Level {
       if (ev.z + FALL_TREE_HALF_Z + CLIP_PAD_Z < this.z) continue;
       if (prevZ <= ev.z - FALL_TREE_HALF_Z - CLIP_PAD_Z) continue;
 
-      const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+      const feet = this._flightLift + this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
       if (feet >= FALL_TREE_HI_Y) continue; // jumped it
 
       ev.clipped = true;
@@ -1435,15 +1484,17 @@ export class Level01 extends Level {
       this._showTransientBanner("BRIDGE COLLAPSING — DODGE THE GAPS AND DON'T STOP", 2.3);
     }
 
-    for (const gap of BRIDGE_GAPS) {
-      const key = `${gap.lane}:${gap.z}`;
-      if (this._bridgeGapHits.has(key)) continue;
-      const overlapZ = prevZ >= gap.z - gap.halfZ && this.z <= gap.z + gap.halfZ;
-      if (!overlapZ) continue;
-      if (Math.abs(x - LANE_X[gap.lane]) <= 0.95) {
-        this._bridgeGapHits.add(key);
-        this._instantLose(state, "bridge", "Kai fell through the collapsing shrine bridge. Restart the level to try again.");
-        return true;
+    if (this._flightLift < JETPACK_SAFE_LIFT) {
+      for (const gap of BRIDGE_GAPS) {
+        const key = `${gap.lane}:${gap.z}`;
+        if (this._bridgeGapHits.has(key)) continue;
+        const overlapZ = prevZ >= gap.z - gap.halfZ && this.z <= gap.z + gap.halfZ;
+        if (!overlapZ) continue;
+        if (Math.abs(x - LANE_X[gap.lane]) <= 0.95) {
+          this._bridgeGapHits.add(key);
+          this._instantLose(state, "bridge", "Kai fell through the collapsing shrine bridge. Restart the level to try again.");
+          return true;
+        }
       }
     }
 
@@ -1484,6 +1535,717 @@ export class Level01 extends Level {
     this._showCaughtOverlay(message);
   }
 
+  _buildTempleRewards() {
+    const rewards = [];
+    const rng = makeRng(20261004);
+
+    const add = (x, z, yOffset = 1.12, value = 10, color = 0xffd76b) => {
+      rewards.push({
+        x, z, yOffset, value, color,
+        collected: false,
+        phase: rng() * Math.PI * 2,
+      });
+    };
+
+    const laneAt = (lane, z, side = this._routeSide) =>
+      LANE_X[lane] + this._routeOffsetAt(z, side);
+
+    // Main course: alternating straight lines, lane weaves and jump arcs.
+    // High tokens sit around 2.7 m above the trail, so the capsule has to jump
+    // to bring its centre through them.
+    let site = 0;
+    for (let d = 170; d <= 3050; d += 48 + Math.floor(rng() * 15)) {
+      const z = -d;
+      if (z <= ROUTE_SPLIT_START_Z + 25 && z >= ROUTE_SPLIT_END_Z - 20) continue;
+      if (scriptedSetPieceZone(z) && site % 3 === 1) {
+        site++;
+        continue;
+      }
+
+      const lane = site % 3;
+      const pattern = site % 5;
+
+      if (pattern === 1 || pattern === 4) {
+        const ys = [1.12, 1.62, 2.18, 2.72, 2.18, 1.62, 1.12];
+        for (let i = 0; i < ys.length; i++) {
+          const rz = z - i * 2.25;
+          add(laneAt(lane, rz, 0), rz, ys[i], ys[i] > 2.5 ? 25 : 10, ys[i] > 2.5 ? 0x7fffd1 : 0xffd76b);
+        }
+      } else if (pattern === 2) {
+        for (let i = 0; i < 5; i++) {
+          const l = (lane + i) % 3;
+          const rz = z - i * 2.7;
+          add(laneAt(l, rz, 0), rz, 1.12, 10, 0xffd76b);
+        }
+      } else {
+        for (let i = 0; i < 4; i++) {
+          const rz = z - i * 2.6;
+          add(laneAt(lane, rz, 0), rz, 1.12, 10, 0xffd76b);
+        }
+      }
+      site++;
+    }
+
+    // Fork rewards: the left path is the easier route with a readable line.
+    for (let z = -748; z >= -958; z -= 18) {
+      add(LANE_X[1] + this._routeOffsetAt(z, -1), z, 1.12, 10, 0xffd76b);
+    }
+
+    // The Shrine Trial is harder, so it pays better: dense alternating lanes
+    // and several high-value jump tokens.
+    let n = 0;
+    for (let z = -748; z >= -958; z -= 11.5) {
+      const lane = n % 2 === 0 ? 0 : 2;
+      const high = n % 3 === 1;
+      add(
+        LANE_X[lane] + this._routeOffsetAt(z, 1),
+        z,
+        high ? 2.68 : 1.12,
+        high ? 30 : 15,
+        high ? 0x80ffe0 : 0xffb84f,
+      );
+      n++;
+    }
+
+    // Aerial reward ribbons after each booster. If the booster is missed these
+    // are intentionally out of reach, making the pickup feel like a real
+    // alternate layer rather than only a speed change.
+    for (const booster of JETPACK_PICKUPS) {
+      for (let i = 0; i < 22; i++) {
+        const z = booster.z - 12 - i * 5.0;
+        const lane = (booster.lane + (i > 7 && i < 14 ? 1 : 0)) % 3;
+        const x = LANE_X[lane] + this._routeOffsetAt(z, 0);
+        add(x, z, JETPACK_HEIGHT + 1.05 + Math.sin(i * 0.55) * 0.35, 20, 0x8cecff);
+      }
+    }
+
+    const geo = new THREE.TorusGeometry(0.28, 0.075, 8, 16);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: new THREE.Color(0x513600),
+      emissiveIntensity: 1.35,
+      roughness: 0.28,
+      metalness: 0.42,
+    });
+    const mesh = new THREE.InstancedMesh(geo, mat, rewards.length);
+    mesh.name = "temple-run-rewards";
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+
+    for (let i = 0; i < rewards.length; i++) {
+      mesh.setColorAt(i, new THREE.Color(rewards[i].color));
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+    this._rewardItems = rewards;
+    this._rewardMesh = mesh;
+    this.root.add(mesh);
+    this._updateRewardInstances(0);
+  }
+
+  _updateRewardInstances(dt) {
+    if (!this._rewardMesh) return;
+    this._rewardTime += dt;
+    const dummy = this._rewardDummy;
+
+    for (let i = 0; i < this._rewardItems.length; i++) {
+      const r = this._rewardItems[i];
+      const visible =
+        !r.collected &&
+        r.z >= this.z - REWARD_VISIBLE_AHEAD &&
+        r.z <= this.z + REWARD_VISIBLE_BEHIND;
+
+      if (!visible) {
+        dummy.position.set(0, -500, 0);
+        dummy.scale.setScalar(0.001);
+        dummy.rotation.set(0, 0, 0);
+      } else {
+        const bob = Math.sin(this._rewardTime * 3.6 + r.phase) * 0.11;
+        dummy.position.set(r.x, jungleCourseHeight(r.z) + r.yOffset + bob, r.z);
+        dummy.rotation.set(0.12, this._rewardTime * 2.8 + r.phase, 0);
+        dummy.scale.setScalar(1);
+      }
+      dummy.updateMatrix();
+      this._rewardMesh.setMatrixAt(i, dummy.matrix);
+    }
+    this._rewardMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  _updateTempleRewards(dt, x, prevZ, state) {
+    const playerY = this._floorY + this.y + this._flightLift + 1.05;
+
+    for (const r of this._rewardItems) {
+      if (r.collected) continue;
+      if (r.z > prevZ + REWARD_PICKUP_Z || r.z < this.z - REWARD_PICKUP_Z) continue;
+
+      const crossed = prevZ >= r.z - REWARD_PICKUP_Z && this.z <= r.z + REWARD_PICKUP_Z;
+      if (!crossed || Math.abs(x - r.x) > REWARD_PICKUP_X) continue;
+
+      const rewardY = jungleCourseHeight(r.z) + r.yOffset;
+      if (Math.abs(playerY - rewardY) > REWARD_PICKUP_Y) continue;
+
+      r.collected = true;
+      this.rewardCount++;
+      this.rewardScore += r.value;
+      state.templeRewards = this.rewardCount;
+      state.templeScore = this.rewardScore;
+
+      if (this._audio) this._audio.playOneShot("rewardChime", { volume: 0.32 });
+    }
+
+    this._updateRewardInstances(dt);
+  }
+
+  _buildJetpackPickups() {
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x9feaff,
+      emissive: new THREE.Color(0x36caff),
+      emissiveIntensity: 2.7,
+      roughness: 0.22,
+      metalness: 0.62,
+    });
+    const dark = new THREE.MeshStandardMaterial({
+      color: 0x2c3d40,
+      roughness: 0.5,
+      metalness: 0.72,
+    });
+
+    for (const def of JETPACK_PICKUPS) {
+      const group = new THREE.Group();
+      group.name = "jetpack-booster-pickup";
+
+      const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.55, 4, 8), material);
+      core.rotation.z = Math.PI / 2;
+      group.add(core);
+
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.07, 8, 20), material);
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+
+      for (const side of [-1, 1]) {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.62, 10), dark);
+        tank.position.set(side * 0.34, -0.05, 0);
+        tank.rotation.z = 0.18 * side;
+        group.add(tank);
+      }
+
+      const x = LANE_X[def.lane] + this._routeOffsetAt(def.z, 0);
+      group.position.set(x, jungleCourseHeight(def.z) + 1.45, def.z);
+      const glow = new THREE.PointLight(0x54dfff, 2.6, 12, 2);
+      group.add(glow);
+      this.root.add(group);
+
+      this._jetpackPickups.push({ ...def, x, group, collected: false, phase: Math.random() * Math.PI * 2 });
+    }
+  }
+
+  _buildJetpackFx() {
+    if (!this.player) return;
+    const group = new THREE.Group();
+    group.name = "jetpack-flight-fx";
+    group.position.set(0, 1.12, 0.24);
+
+    const tankMat = new THREE.MeshStandardMaterial({
+      color: 0x31454a,
+      roughness: 0.5,
+      metalness: 0.72,
+    });
+    const flameMat = new THREE.MeshBasicMaterial({
+      color: 0x79eaff,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    });
+
+    this._jetpackFlames = [];
+    for (const side of [-1, 1]) {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.68, 10), tankMat);
+      tank.position.set(side * 0.24, 0, 0);
+      group.add(tank);
+
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.75, 10), flameMat);
+      flame.rotation.x = -Math.PI / 2;
+      flame.position.set(side * 0.24, -0.28, 0.44);
+      group.add(flame);
+      this._jetpackFlames.push(flame);
+    }
+
+    const glow = new THREE.PointLight(0x61dfff, 0, 7, 2);
+    glow.position.set(0, -0.15, 0.35);
+    group.add(glow);
+    this._jetpackGlow = glow;
+
+    group.visible = false;
+    this.player.add(group);
+    this._jetpackFx = group;
+  }
+
+  _updateJetpackPickups(dt, x, prevZ) {
+    for (const p of this._jetpackPickups) {
+      if (p.collected) continue;
+      p.phase += dt * 2.8;
+      p.group.rotation.y += dt * 1.7;
+      p.group.position.y = jungleCourseHeight(p.z) + 1.45 + Math.sin(p.phase) * 0.18;
+
+      const crossed = prevZ >= p.z - 1.15 && this.z <= p.z + 1.15;
+      if (!crossed || Math.abs(x - p.x) > 1.0 || this._flightLift > 1.0) continue;
+
+      p.collected = true;
+      p.group.visible = false;
+      this._jetpackActive = true;
+      this._jetpackT = JETPACK_DURATION;
+      this.airborne = false;
+      this.sliding = false;
+      this.y = 0;
+      this.vy = 0;
+      this._showTransientBanner("JETPACK BOOST — AIR RUN!", 1.8);
+      if (this._audio) this._audio.playOneShot("jetpackIgnite", { volume: 0.48 });
+    }
+  }
+
+  _updateJetpack(dt) {
+    if (this._jetpackActive) {
+      this._jetpackT = Math.max(0, this._jetpackT - dt);
+      if (this._jetpackT <= 0) this._jetpackActive = false;
+    }
+
+    const targetLift = this._jetpackActive ? JETPACK_HEIGHT : 0;
+    const rate = this._jetpackActive ? JETPACK_RISE_RATE : JETPACK_FALL_RATE;
+    this._flightLift += (targetLift - this._flightLift) * (1 - Math.exp(-rate * dt));
+    if (!this._jetpackActive && this._flightLift < 0.015) this._flightLift = 0;
+
+    if (this._jetpackActive) {
+      this.airborne = false;
+      this.sliding = false;
+      this.y = 0;
+      this.vy = 0;
+    }
+
+    if (this._jetpackFx) {
+      this._jetpackFx.visible = this._jetpackActive || this._flightLift > 0.18;
+      if (this._jetpackGlow) this._jetpackGlow.intensity = this._jetpackActive ? 4.2 : 1.0;
+      for (let i = 0; i < (this._jetpackFlames || []).length; i++) {
+        const flame = this._jetpackFlames[i];
+        flame.scale.y = 0.72 + Math.sin(this._rewardTime * 18 + i) * 0.18;
+        flame.material.opacity = this._jetpackActive ? 0.88 : 0.35;
+      }
+    }
+
+    // The capsule tilts forward in flight. This is deliberately only the
+    // existing placeholder body; it does not import or implement Kai.
+    if (this.body) {
+      const targetPitch = this._jetpackActive ? -0.34 : 0;
+      this.body.rotation.x += (targetPitch - this.body.rotation.x) * (1 - Math.exp(-7 * dt));
+    }
+  }
+
+  _buildTempleRunHUD() {
+    if (typeof document === "undefined" || this._templeHud) return;
+
+    const root = document.createElement("div");
+    root.dataset.level01TempleHud = "true";
+    Object.assign(root.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "8500",
+      pointerEvents: "none",
+      fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif",
+      color: "#f5ffe6",
+      textShadow: "0 2px 8px rgba(0,0,0,.75)",
+    });
+
+    // Score panel stays in the top-left, but the game name now matches the
+    // project rather than borrowing another runner's title.
+    const stat = document.createElement("div");
+    Object.assign(stat.style, {
+      position: "absolute",
+      left: "22px",
+      top: "20px",
+      minWidth: "170px",
+      padding: "11px 13px",
+      background: "linear-gradient(135deg, rgba(8,20,11,.86), rgba(23,35,14,.70))",
+      border: "1px solid rgba(205,232,128,.42)",
+      borderRadius: "10px",
+      backdropFilter: "blur(5px)",
+      boxShadow: "0 10px 30px rgba(0,0,0,.28)",
+    });
+    stat.innerHTML = `
+      <div style="font-size:10px;letter-spacing:.18em;color:#d8f69a;font-weight:900">BLACKOUT PROTOCOL</div>
+      <div style="display:flex;gap:16px;margin-top:6px;align-items:flex-end">
+        <div><span data-reward-count style="font-size:22px;font-weight:900">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">TOKENS</div></div>
+        <div><span data-reward-score style="font-size:22px;font-weight:900;color:#ffdc72">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">SCORE</div></div>
+      </div>
+      <div data-jetpack-status style="margin-top:7px;font-size:10px;letter-spacing:.1em;color:#8eeaff;opacity:.55">JETPACK — FIND A BOOSTER</div>
+    `;
+
+    // Compact escape-route trail: back at the bottom centre, but intentionally
+    // smaller so it does not compete with the action controls on either side.
+    const progress = document.createElement("div");
+    Object.assign(progress.style, {
+      position: "absolute",
+      left: "50%",
+      bottom: "20px",
+      transform: "translateX(-50%)",
+      width: "clamp(230px, 31vw, 360px)",
+      padding: "7px 10px 6px",
+      borderRadius: "10px",
+      background: "rgba(7,16,9,.78)",
+      border: "1px solid rgba(205,232,128,.34)",
+      backdropFilter: "blur(5px)",
+      boxShadow: "0 10px 28px rgba(0,0,0,.30)",
+    });
+    progress.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:8px;letter-spacing:.12em;opacity:.72;margin-bottom:5px">
+        <span>ESCAPE ROUTE</span><span data-distance-left>${Math.round(FINISH_DISTANCE)} m LEFT</span>
+      </div>
+      <div style="position:relative;height:5px;border-radius:999px;background:rgba(255,255,255,.13);overflow:visible">
+        <div data-progress-fill style="position:absolute;inset:0 auto 0 0;width:0%;border-radius:999px;background:linear-gradient(90deg,#83ca65,#d8ef72,#ffce62);box-shadow:0 0 10px rgba(207,238,113,.32)"></div>
+        <div data-progress-dot style="position:absolute;left:0%;top:50%;width:11px;height:11px;border-radius:50%;background:#f2ffb7;border:2px solid #365329;transform:translate(-50%,-50%);box-shadow:0 0 10px rgba(232,255,161,.65)"></div>
+        <span title="Fork" style="position:absolute;left:${((-ROUTE_SPLIT_START_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#b0e7ff;transform:translate(-50%,-50%)"></span>
+        <span title="Bridge" style="position:absolute;left:${((-BRIDGE_START_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#ffcf73;transform:translate(-50%,-50%)"></span>
+        <span title="Gate" style="position:absolute;left:${((-GATE_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#ff8873;transform:translate(-50%,-50%)"></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:7px;letter-spacing:.09em;opacity:.46"><span>START</span><span data-progress-percent>0%</span><span>FINISH</span></div>
+    `;
+
+    // Action controls are kept low-left so the centre remains readable. BOOST
+    // is deliberately round with a gold rim; the faint labels underneath show
+    // the physical keyboard equivalents without cluttering the buttons.
+    const controls = document.createElement("div");
+    Object.assign(controls.style, {
+      position: "absolute",
+      inset: "0",
+      pointerEvents: "none",
+      zIndex: "4",
+    });
+
+    const actionControls = document.createElement("div");
+    Object.assign(actionControls.style, {
+      position: "absolute",
+      right: "27px",
+      bottom: "16px",
+      width: "144px",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: "12px",
+      pointerEvents: "auto",
+      touchAction: "none",
+      filter: "drop-shadow(0 8px 14px rgba(0,0,0,.30))",
+    });
+
+    const boostStyle = "width:68px;height:68px;border-radius:50%;border:2px solid rgba(238,193,74,.95);background:radial-gradient(circle at 35% 28%,rgba(255,218,104,.19),rgba(22,24,10,.88) 68%);color:#ffe19a;font:950 11px system-ui;letter-spacing:.08em;cursor:pointer;box-shadow:0 0 0 2px rgba(255,206,89,.08),0 0 20px rgba(237,183,50,.22),inset 0 1px rgba(255,255,255,.12);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
+    const lookStyle = "width:64px;height:64px;border-radius:50%;border:1px solid rgba(215,239,201,.46);background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.10),rgba(8,18,10,.88) 70%);color:#f3ffe7;font:900 9px system-ui;letter-spacing:.06em;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.08);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
+    const textButtonStyle = "border:1px solid rgba(244,255,219,.28);background:rgba(255,255,255,.06);color:#f5ffe6;border-radius:8px;height:38px;padding:0 12px;font:800 10px system-ui;letter-spacing:.08em;cursor:pointer;transition:transform .08s,background .08s,border-color .08s";
+
+    actionControls.innerHTML = `
+      <button type="button" data-screen-hold="boost" data-gold-control="true" title="Hold to boost" style="${boostStyle}">
+        <span>BOOST</span>
+        <span style="font-size:7px;letter-spacing:.12em;opacity:.28;font-weight:700">SHIFT</span>
+      </button>
+      <button type="button" data-screen-hold="lookBack" title="Hold to look back" style="${lookStyle}">
+        <span>LOOK<br>BACK</span>
+        <span style="font-size:7px;letter-spacing:.12em;opacity:.28;font-weight:700">C</span>
+      </button>
+    `;
+
+    // Proper D-pad at the bottom-right: each arrow sits in the direction it
+    // represents instead of being laid out in one horizontal row.
+    const dpad = document.createElement("div");
+    Object.assign(dpad.style, {
+      position: "absolute",
+      right: "22px",
+      bottom: "96px",
+      width: "154px",
+      height: "154px",
+      display: "grid",
+      gridTemplateColumns: "48px 48px 48px",
+      gridTemplateRows: "48px 48px 48px",
+      gap: "5px",
+      pointerEvents: "auto",
+      touchAction: "none",
+      filter: "drop-shadow(0 8px 14px rgba(0,0,0,.34))",
+    });
+    const arrowStyle = "width:48px;height:48px;border:1px solid rgba(225,245,208,.38);background:rgba(8,19,10,.78);color:#f5ffe6;border-radius:11px;font:950 22px system-ui;cursor:pointer;backdrop-filter:blur(5px);box-shadow:inset 0 1px rgba(255,255,255,.07);transition:transform .08s,background .08s,border-color .08s";
+    dpad.innerHTML = `
+      <button type="button" data-screen-action="jump" aria-label="jump" title="Jump" style="${arrowStyle};grid-column:2;grid-row:1">↑</button>
+      <button type="button" data-screen-action="left" aria-label="move left" title="Move left" style="${arrowStyle};grid-column:1;grid-row:2">←</button>
+      <div aria-hidden="true" style="grid-column:2;grid-row:2;width:34px;height:34px;align-self:center;justify-self:center;border-radius:50%;border:1px solid rgba(216,246,154,.15);background:rgba(216,246,154,.035)"></div>
+      <button type="button" data-screen-action="right" aria-label="move right" title="Move right" style="${arrowStyle};grid-column:3;grid-row:2">→</button>
+      <button type="button" data-screen-action="slide" aria-label="slide" title="Slide" style="${arrowStyle};grid-column:2;grid-row:3">↓</button>
+    `;
+
+    controls.append(actionControls, dpad);
+
+    // Sound and pause are compact clickable icons in the top-right. Tooltips
+    // and aria-labels keep them understandable without adding more HUD text.
+    const topActions = document.createElement("div");
+    Object.assign(topActions.style, {
+      position: "absolute",
+      right: "20px",
+      top: "18px",
+      display: "flex",
+      gap: "8px",
+      pointerEvents: "auto",
+      zIndex: "6",
+    });
+    const iconStyle = "width:40px;height:40px;border-radius:50%;border:1px solid rgba(217,239,201,.35);background:rgba(7,16,9,.78);color:#f5ffe6;font:900 17px system-ui;cursor:pointer;backdrop-filter:blur(6px);box-shadow:0 8px 22px rgba(0,0,0,.28);transition:transform .08s,background .08s,border-color .08s,opacity .12s";
+    topActions.innerHTML = `
+      <button type="button" data-sound-toggle aria-label="toggle sound" title="Sound on/off" style="${iconStyle}">🔊</button>
+      <button type="button" data-pause-toggle aria-label="pause game" title="Pause" style="${iconStyle}">Ⅱ</button>
+    `;
+
+    const pauseOverlay = document.createElement("div");
+    Object.assign(pauseOverlay.style, {
+      position: "absolute",
+      inset: "0",
+      display: "none",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "rgba(2,7,3,.53)",
+      backdropFilter: "blur(2px)",
+      pointerEvents: "auto",
+      zIndex: "3",
+    });
+    pauseOverlay.innerHTML = `
+      <div style="min-width:260px;padding:24px 28px;border-radius:14px;background:rgba(7,16,9,.92);border:1px solid rgba(205,232,128,.46);box-shadow:0 18px 55px rgba(0,0,0,.52);text-align:center">
+        <div style="font-size:10px;letter-spacing:.24em;color:#d8f69a">BLACKOUT PROTOCOL</div>
+        <div style="font-size:30px;font-weight:950;letter-spacing:.08em;margin:5px 0 4px">PAUSED</div>
+        <div style="font-size:10px;opacity:.6;margin-bottom:15px">ESC OR BUTTON TO CONTINUE</div>
+        <button type="button" data-resume-button style="${textButtonStyle};min-width:120px">▶ RESUME</button>
+      </div>
+    `;
+
+    root.append(stat, progress, pauseOverlay, controls, topActions);
+    document.body.append(root);
+
+    this._templeHud = root;
+    this._hudRewardCount = stat.querySelector("[data-reward-count]");
+    this._hudRewardScore = stat.querySelector("[data-reward-score]");
+    this._hudJetpack = stat.querySelector("[data-jetpack-status]");
+    this._hudProgressFill = progress.querySelector("[data-progress-fill]");
+    this._hudProgressDot = progress.querySelector("[data-progress-dot]");
+    this._hudDistanceLeft = progress.querySelector("[data-distance-left]");
+    this._hudProgressPercent = progress.querySelector("[data-progress-percent]");
+    this._hudCamera = null;
+    this._soundButton = topActions.querySelector("[data-sound-toggle]");
+    this._pauseButton = topActions.querySelector("[data-pause-toggle]");
+    this._pauseOverlay = pauseOverlay;
+
+    const pressVisual = (button, down) => {
+      if (!button) return;
+      const gold = button.dataset.goldControl === "true";
+      button.style.transform = down ? "translateY(2px) scale(.96)" : "translateY(0) scale(1)";
+      if (gold) {
+        button.style.background = down
+          ? "radial-gradient(circle at 35% 28%,rgba(255,224,130,.34),rgba(58,42,10,.92) 70%)"
+          : "radial-gradient(circle at 35% 28%,rgba(255,218,104,.19),rgba(22,24,10,.88) 68%)";
+        button.style.borderColor = down ? "rgba(255,229,142,1)" : "rgba(238,193,74,.95)";
+      } else {
+        button.style.background = down ? "rgba(216,246,154,.20)" : "rgba(8,19,10,.78)";
+        button.style.borderColor = down ? "rgba(216,246,154,.72)" : "rgba(225,245,208,.38)";
+      }
+    };
+
+    controls.querySelectorAll("[data-screen-action]").forEach((button) => {
+      const action = button.dataset.screenAction;
+      this._hudButtons[action] = button;
+      const fire = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.game?.paused) return;
+        this._virtualPressed[action] = true;
+        pressVisual(button, true);
+        window.setTimeout(() => pressVisual(button, false), 110);
+      };
+      button.addEventListener("pointerdown", fire);
+    });
+
+    controls.querySelectorAll("[data-screen-hold]").forEach((button) => {
+      const action = button.dataset.screenHold;
+      this._hudButtons[action] = button;
+      const down = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.game?.paused) return;
+        this._virtualHeld.add(action);
+        pressVisual(button, true);
+        try { button.setPointerCapture(e.pointerId); } catch (_) {}
+      };
+      const up = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._virtualHeld.delete(action);
+        pressVisual(button, false);
+      };
+      button.addEventListener("pointerdown", down);
+      button.addEventListener("pointerup", up);
+      button.addEventListener("pointercancel", up);
+      button.addEventListener("lostpointercapture", () => {
+        this._virtualHeld.delete(action);
+        pressVisual(button, false);
+      });
+    });
+
+    this._soundButton.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._setSoundEnabled(!this._soundEnabled);
+    });
+
+    const togglePause = (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (this.game) this.game.setPaused(!this.game.paused);
+    };
+    this._pauseButton.addEventListener("click", togglePause);
+    pauseOverlay.querySelector("[data-resume-button]")?.addEventListener("click", togglePause);
+
+    // Game already owns ESC pause. Wrap (rather than replace) its pause hook so
+    // keyboard pause and the on-screen button drive the same overlay/audio state.
+    if (this.game) {
+      this._previousOnPaused = this.game.onPaused;
+      this._pauseHook = (paused) => {
+        this._syncPauseUI(paused);
+        if (this._previousOnPaused) this._previousOnPaused(paused);
+      };
+      this.game.onPaused = this._pauseHook;
+      this._syncPauseUI(!!this.game.paused);
+    }
+    this._setSoundEnabled(this._soundEnabled);
+  }
+
+  _consumeVirtual(action) {
+    if (!this._virtualPressed[action]) return false;
+    this._virtualPressed[action] = false;
+    return true;
+  }
+
+  _virtualDown(action) {
+    return this._virtualHeld.has(action);
+  }
+
+  _setSoundEnabled(enabled) {
+    this._soundEnabled = !!enabled;
+    if (this._soundButton) {
+      this._soundButton.textContent = this._soundEnabled ? "🔊" : "🔇";
+      this._soundButton.title = this._soundEnabled ? "Sound on — click to mute" : "Sound off — click to unmute";
+      this._soundButton.setAttribute("aria-label", this._soundEnabled ? "mute sound" : "unmute sound");
+      this._soundButton.style.color = this._soundEnabled ? "#f5ffe6" : "#879184";
+      this._soundButton.style.opacity = this._soundEnabled ? "1" : ".48";
+      this._soundButton.style.borderColor = this._soundEnabled ? "rgba(217,239,201,.35)" : "rgba(150,160,150,.22)";
+    }
+    this._applyAudioMuteState();
+  }
+
+  _applyAudioMuteState(paused = !!this.game?.paused) {
+    // Master-volume muting is deliberately used in addition to AudioContext
+    // suspension. Some browsers keep already-playing WebAudio nodes audible for
+    // a short moment while suspend() resolves asynchronously; master volume 0
+    // makes pause/mute immediate for ambience, footsteps, hazards and pursuer
+    // sounds alike.
+    const listener = this._audio?.listener;
+    if (!listener) return;
+    const muted = paused || !this._soundEnabled;
+    if (typeof listener.setMasterVolume === "function") {
+      listener.setMasterVolume(muted ? 0 : 1);
+    } else if (listener.gain?.gain) {
+      listener.gain.gain.value = muted ? 0 : 1;
+    }
+  }
+
+  _syncPauseUI(paused) {
+    this._virtualHeld.clear();
+    this._virtualPressed = Object.create(null);
+    if (this._pauseOverlay) this._pauseOverlay.style.display = paused ? "flex" : "none";
+    if (this._pauseButton) {
+      this._pauseButton.textContent = paused ? "▶" : "Ⅱ";
+      this._pauseButton.title = paused ? "Resume" : "Pause";
+      this._pauseButton.setAttribute("aria-label", paused ? "resume game" : "pause game");
+    }
+
+    // Pause ALL game audio immediately. Master-volume muting is synchronous;
+    // AudioContext suspension is a second layer that also stops WebAudio work.
+    this._applyAudioMuteState(paused);
+    const context = this._audio?.listener?.context;
+    if (context) {
+      if (paused && context.state === "running") {
+        context.suspend().catch(() => {});
+      } else if (!paused && context.state === "suspended") {
+        context.resume().then(() => this._applyAudioMuteState(false)).catch(() => {});
+      }
+    }
+  }
+
+  _updateTempleRunHUD() {
+    if (!this._templeHud) return;
+
+    const progress = THREE.MathUtils.clamp((-this.z) / FINISH_DISTANCE, 0, 1);
+    const left = Math.max(0, FINISH_DISTANCE + this.z);
+
+    if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
+    if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
+    if (this._hudProgressFill) this._hudProgressFill.style.width = `${(progress * 100).toFixed(2)}%`;
+    if (this._hudProgressDot) this._hudProgressDot.style.left = `${(progress * 100).toFixed(2)}%`;
+    if (this._hudDistanceLeft) this._hudDistanceLeft.textContent = `${Math.ceil(left)} m LEFT`;
+    if (this._hudProgressPercent) this._hudProgressPercent.textContent = `${Math.floor(progress * 100)}%`;
+
+    if (this._hudJetpack) {
+      if (this._jetpackActive) {
+        this._hudJetpack.textContent = `JETPACK — ${this._jetpackT.toFixed(1)} s`;
+        this._hudJetpack.style.opacity = "1";
+      } else if (this._flightLift > 0.2) {
+        this._hudJetpack.textContent = "JETPACK — LANDING";
+        this._hudJetpack.style.opacity = ".88";
+      } else {
+        this._hudJetpack.textContent = "JETPACK — FIND A BOOSTER";
+        this._hudJetpack.style.opacity = ".55";
+      }
+    }
+
+    // Physical keyboard presses light the matching on-screen arrows too. Touch
+    // presses already animate themselves immediately through pointer events.
+    const physical = {
+      left: this.input?.isDown("left"),
+      right: this.input?.isDown("right"),
+      jump: this.input?.isDown("jump"),
+      slide: this.input?.isDown("slide"),
+    };
+    for (const [name, down] of Object.entries(physical)) {
+      const button = this._hudButtons[name];
+      if (!button) continue;
+      button.style.background = down ? "rgba(216,246,154,.20)" : "rgba(255,255,255,.08)";
+      button.style.borderColor = down ? "rgba(216,246,154,.72)" : "rgba(244,255,219,.34)";
+    }
+
+    if (this._hudCamera) {
+      this._hudCamera.textContent = this._jetpackActive || this._flightLift > 1
+        ? "CAMERA: FLIGHT CHASE"
+        : this._lookBack > 0.55
+          ? "CAMERA: LOOK-BACK"
+          : "CAMERA: THIRD-PERSON CHASE";
+    }
+  }
+
+  _removeTempleRunHUD() {
+    if (this.game && this._pauseHook && this.game.onPaused === this._pauseHook) {
+      this.game.onPaused = this._previousOnPaused;
+    }
+    this._pauseHook = null;
+    this._previousOnPaused = null;
+    this._virtualHeld.clear();
+    this._virtualPressed = Object.create(null);
+    if (this._templeHud?.parentNode) this._templeHud.parentNode.removeChild(this._templeHud);
+    this._templeHud = null;
+    this._hudControls = {};
+    this._hudButtons = {};
+    this._soundButton = null;
+    this._pauseButton = null;
+    this._pauseOverlay = null;
+  }
+
   _showTransientBanner(text, seconds = 1.8) {
     if (typeof document === "undefined") return;
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
@@ -1513,7 +2275,7 @@ export class Level01 extends Level {
     const card = document.createElement("div");
     card.innerHTML = `<div style="font-size:11px;opacity:.62;letter-spacing:.16em;margin-bottom:7px">DEAD DROP</div><div>${text}</div>`;
     Object.assign(card.style, {
-      position: "fixed", right: "24px", top: "20%", width: "min(360px, calc(100vw - 48px))",
+      position: "fixed", left: "24px", top: "20%", width: "min(360px, calc(100vw - 48px))",
       zIndex: "8999", padding: "14px 16px", color: "#eafff8", background: "rgba(5,18,15,.88)",
       borderLeft: "3px solid #54ffd0", font: "600 14px/1.45 system-ui, sans-serif",
       boxShadow: "0 12px 40px rgba(0,0,0,.36)", pointerEvents: "none",
@@ -1529,102 +2291,59 @@ export class Level01 extends Level {
   _showCaughtOverlay(title = "THE HANDLER CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
 
-    const overlay = document.createElement("div");
-    overlay.dataset.level01Caught = "true";
-    Object.assign(overlay.style, {
-      position: "fixed",
-      inset: "0",
-      display: "grid",
-      placeItems: "center",
-      background: "rgba(3, 8, 5, 0.72)",
-      backdropFilter: "blur(5px)",
-      zIndex: "9999",
-      fontFamily: "system-ui, sans-serif",
-      color: "#f5f1df",
+    // the team's shared end card (ui/theme.js), same as levels 02 and 03
+    this._caughtOverlay = showEndCard({
+      kind: "lose",
+      title: "CAUGHT",
+      sub: title,
+      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
+      action: {
+        label: "RESTART LEVEL",
+        key: "R",
+        bindKey: false, // R already restarts the level globally (Game._frame)
+        onClick: async () => {
+          this._removeCaughtOverlay();
+          if (!this.game) return;
+          this.game.setPaused(false);
+          try {
+            await this.game.restart();
+          } catch (err) {
+            console.error("[level01] restart failed", err);
+          }
+        },
+      },
+      extra: [{ label: "RELOAD GAME", onClick: () => window.location.reload() }],
     });
+  }
 
-    const panel = document.createElement("div");
-    Object.assign(panel.style, {
-      width: "min(520px, calc(100vw - 36px))",
-      padding: "30px",
-      border: "1px solid rgba(178, 220, 126, 0.7)",
-      background: "rgba(11, 20, 13, 0.94)",
-      boxShadow: "0 22px 80px rgba(0,0,0,.55)",
-      textAlign: "center",
+  /** Kai reached the vehicle: the win card, and CONTINUE starts level 02. */
+  _showEscapedCard() {
+    if (this._escapedCard || typeof document === "undefined") return;
+    const distance = Math.round(this.state?.distance ?? 0);
+    const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
+    this._escapedCard = showEndCard({
+      kind: "win",
+      title: "ESCAPED",
+      sub: "You made it out of the jungle. He's still coming.",
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M` }],
+      action: {
+        label: "CONTINUE",
+        key: "SPACE",
+        onClick: () => {
+          this._removeEscapedCard();
+          this._startLevel02();
+        },
+      },
     });
+  }
 
-    const h = document.createElement("h1");
-    h.textContent = "CAUGHT";
-    Object.assign(h.style, {
-      margin: "0 0 10px",
-      fontSize: "clamp(42px, 8vw, 72px)",
-      letterSpacing: "0.08em",
-      color: "#c9e88c",
-    });
-
-    const p = document.createElement("p");
-    p.textContent = title;
-    Object.assign(p.style, {
-      margin: "0 0 24px",
-      opacity: "0.86",
-      fontSize: "16px",
-    });
-
-    const buttons = document.createElement("div");
-    Object.assign(buttons.style, {
-      display: "flex",
-      gap: "12px",
-      justifyContent: "center",
-      flexWrap: "wrap",
-    });
-
-    const makeButton = (label, primary, action) => {
-      const btn = document.createElement("button");
-      btn.textContent = label;
-      Object.assign(btn.style, {
-        cursor: "pointer",
-        border: primary ? "0" : "1px solid rgba(245,241,223,.4)",
-        padding: "12px 18px",
-        fontWeight: "800",
-        letterSpacing: "0.06em",
-        background: primary ? "#b9df76" : "transparent",
-        color: primary ? "#0b140d" : "#f5f1df",
-      });
-      btn.addEventListener("click", action);
-      return btn;
-    };
-
-    buttons.append(
-      makeButton("RESTART LEVEL", true, async () => {
-        this._removeCaughtOverlay();
-        if (!this.game) return;
-        this.game.setPaused(false);
-        try {
-          await this.game.restart();
-        } catch (err) {
-          console.error("[level01] restart failed", err);
-        }
-      }),
-      makeButton("RELOAD GAME", false, () => window.location.reload()),
-    );
-
-    const hint = document.createElement("div");
-    hint.textContent = "R also restarts the level";
-    Object.assign(hint.style, {
-      marginTop: "18px",
-      fontSize: "12px",
-      opacity: "0.52",
-      letterSpacing: "0.08em",
-    });
-
-    panel.append(h, p, buttons, hint);
-    overlay.append(panel);
-    document.body.append(overlay);
-    this._caughtOverlay = overlay;
+  _removeEscapedCard() {
+    this._escapedCard?.destroy();
+    this._escapedCard = null;
   }
 
   _removeCaughtOverlay() {
-    if (this._caughtOverlay?.parentNode) this._caughtOverlay.parentNode.removeChild(this._caughtOverlay);
+    this._caughtOverlay?.destroy();
     this._caughtOverlay = null;
   }
 
@@ -1707,7 +2426,7 @@ export class Level01 extends Level {
     if (Math.abs(x - this._trainCenterX) >= TRAIN_HALF_X + pad) return false; // in the clear lane
     // stated rather than assumed: nothing in the level lifts his feet to 3.6,
     // so this never saves him, but the test belongs here not in a comment
-    const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+    const feet = this._flightLift + this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
     if (feet >= TRAIN_TOP_Y) return false;
 
     return true;
@@ -2009,7 +2728,7 @@ export class Level01 extends Level {
       playerMaxZ + GUARDIAN_HALF_Z >= beastMinZ;
     const xOverlap = Math.abs(x - this._guardianLaneX) <= GUARDIAN_HALF_X + 0.34;
 
-    if (zOverlap && xOverlap) {
+    if (zOverlap && xOverlap && this._flightLift < JETPACK_SAFE_LIFT) {
       this.caught = true;
       this.failCause = "guardian";
       this.finished = true;
@@ -2036,8 +2755,8 @@ export class Level01 extends Level {
   }
 
   _clipObstacles(x, prevZ) {
-    const feet = this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
-    const head = this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
+    const feet = this._flightLift + this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
+    const head = this._flightLift + this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
 
     for (let i = this._obsCursor; i < this.obstacles.length; i++) {
       const o = this.obstacles[i];
@@ -2148,6 +2867,7 @@ export class Level01 extends Level {
     }
 
     state.handlerGap = this.gap;
+    this._closest = Math.min(this._closest ?? Infinity, this.gap);
     this.handler.position.z = this.z + this.gap;
     this.handler.position.y = jungleCourseHeight(this.handler.position.z) + this._handlerVaultOffset(this.handler.position.z);
     const handlerRouteX = this._routeOffsetAt(this.handler.position.z, this._routeSide);
@@ -2205,6 +2925,7 @@ export class Level01 extends Level {
 
     this._audio = new AudioSystem(camera);
     this._audioReady = true;
+    this._applyAudioMuteState(!!this.game?.paused);
     const ctx = this._audio.listener.context;
 
     const makeBuffer = (seconds, sampleFn) => {
@@ -2292,6 +3013,20 @@ export class Level01 extends Level {
         Math.sin(t * Math.PI * 2 * 52) * 0.34
       ) * e;
     });
+    const rewardChime = makeBuffer(0.34, (t) => {
+      const e = Math.exp(-t * 8.5);
+      return (
+        Math.sin(t * Math.PI * 2 * 660) * 0.22 +
+        Math.sin(t * Math.PI * 2 * 990) * 0.16
+      ) * e;
+    });
+    const jetpackIgnite = makeBuffer(0.72, (t) => {
+      const rise = Math.min(1, t * 7);
+      const fall = Math.exp(-t * 2.9);
+      const roar = Math.sin(t * Math.PI * 2 * (86 + t * 90)) * 0.20;
+      const air = (Math.random() * 2 - 1) * 0.18;
+      return (roar + air) * rise * fall;
+    });
     const tension = makeBuffer(4.0, (t) => {
       const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2 * 1.0)), 10);
       const sub = Math.sin(t * Math.PI * 2 * 44) * 0.065;
@@ -2339,10 +3074,16 @@ export class Level01 extends Level {
     this._audio.buffers.set("stoneGrind", stoneGrind);
     this._audio.buffers.set("shrinePulse", shrinePulse);
     this._audio.buffers.set("bridgeCrack", bridgeCrack);
+    this._audio.buffers.set("rewardChime", rewardChime);
+    this._audio.buffers.set("jetpackIgnite", jetpackIgnite);
     this._audio.buffers.set("tension", tension);
     this._audio.buffers.set("jungleMusic", music);
 
-    const resume = () => ctx.resume();
+    const resume = () => {
+      if (!this.game?.paused) {
+        ctx.resume().then(() => this._applyAudioMuteState(false)).catch(() => {});
+      }
+    };
     this._resumeAudio = resume;
     window.addEventListener("pointerdown", resume, { once: true });
     window.addEventListener("keydown", resume, { once: true });
@@ -2382,7 +3123,7 @@ export class Level01 extends Level {
     this.baseSpeed = speedForDistance(-this.z);
 
     // boost burns the shared stamina pool so 3B's HUD reads it for free
-    const wantsBoost = input.isDown("boost");
+    const wantsBoost = !this._jetpackActive && (input.isDown("boost") || this._virtualDown("boost"));
     if (this._boostLocked && state.stamina >= state.maxStamina * BOOST_UNLOCK) {
       this._boostLocked = false;
     }
@@ -2391,7 +3132,9 @@ export class Level01 extends Level {
     if (wantsBoost && !this.boosting && !this._boostLocked) this._boostLocked = true;
     if (!this.boosting) state.regenStamina(BOOST_REGEN, dt);
 
-    const boostTarget = this.boosting ? BOOST_TOP : 0;
+    const boostTarget = this._jetpackActive
+      ? JETPACK_SPEED_BONUS
+      : (this.boosting ? BOOST_TOP : 0);
     // attack faster than release, so boost feels responsive but bleeds off
     const boostRate = this.boosting ? 3.4 : 2.0;
     this.boostSpeed += (boostTarget - this.boostSpeed) * (1 - Math.exp(-boostRate * dt));
@@ -2428,13 +3171,13 @@ export class Level01 extends Level {
     this._floorY = jungleCourseHeight(this.z);
 
     // lanes
-    if (input.pressed("left") && this.lane > 0) {
+    if ((input.pressed("left") || this._consumeVirtual("left")) && this.lane > 0) {
       this._lastRouteIntent = -1;
       this.laneFrom = this.lane;
       this.lane--;
       this.laneT = 0;
     }
-    if (input.pressed("right") && this.lane < 2) {
+    if ((input.pressed("right") || this._consumeVirtual("right")) && this.lane < 2) {
       this._lastRouteIntent = 1;
       this.laneFrom = this.lane;
       this.lane++;
@@ -2450,8 +3193,12 @@ export class Level01 extends Level {
     const x = localX + this._routeOffsetAt(this.z);
     this._worldX = x;
 
+    this._updateJetpackPickups(dt, x, prevZ);
+    this._updateJetpack(dt);
+
     // jump
-    if (input.pressed("jump") && !this.airborne) {
+    const jumpPressed = input.pressed("jump") || this._consumeVirtual("jump");
+    if (!this._jetpackActive && this._flightLift < 0.35 && jumpPressed && !this.airborne) {
       this.airborne = true;
       this.vy = 9.2;
     }
@@ -2469,7 +3216,8 @@ export class Level01 extends Level {
     // @1A: input.slide was already bound but nothing read it, and the ceiling
     // ducts are impossible without it. Runs after the jump so airborne is
     // current: jumping out of a slide cancels it, which is what players expect.
-    if (input.pressed("slide") && !this.airborne && !this.sliding) {
+    const slidePressed = input.pressed("slide") || this._consumeVirtual("slide");
+    if (this._flightLift < 0.35 && slidePressed && !this.airborne && !this.sliding) {
       this.sliding = true;
       this._slideT = SLIDE_TIME;
     }
@@ -2535,7 +3283,10 @@ export class Level01 extends Level {
 
     state.distance = -this.z;
     state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
-    this.player.position.set(x, this._floorY + this.y, this.z);
+    this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
+    this._updateKai(dt);
+    this._updateTempleRewards(dt, x, prevZ, state);
+    this._updateTempleRunHUD();
 
     // --- the way out ---
     // Reaching the vehicle is not an ending, it is the handoff: level 02 is the
@@ -2555,7 +3306,7 @@ export class Level01 extends Level {
       this._handOff -= dt;
       if (this._handOff <= 0) {
         this._handedOff = true;
-        this._startLevel02();
+        this._showEscapedCard();
       }
     }
 
@@ -2584,18 +3335,34 @@ export class Level01 extends Level {
     // the Handler at all. It deliberately costs the view ahead, so looking back
     // with a southbound inbound is a real decision rather than a free look.
     if (this._autoLook > 0) this._autoLook = Math.max(0, this._autoLook - dt);
-    const wantLook = this._autoLook > 0 || input.isDown("lookBack") ? 1 : 0;
+    const wantLook = this._autoLook > 0 || input.isDown("lookBack") || this._virtualDown("lookBack") ? 1 : 0;
     this._lookBack += (wantLook - this._lookBack) * (1 - Math.exp(-LOOK_SWING_RATE * dt));
     if (this._lookBack < 0.002) this._lookBack = 0;
 
     // smoothstepped so the swing starts and ends soft; the orbit passes through
     // the side of him, which reads as a whip pan rather than a cut
     const swing = THREE.MathUtils.smoothstep(this._lookBack, 0, 1);
-    const radius = THREE.MathUtils.lerp(CAM_RADIUS, CAM_RADIUS_BACK, swing);
+
+    // Terrain-aware camera angle: on steep climbs the chase camera lifts and
+    // backs out so upcoming obstacles stay visible instead of disappearing
+    // behind the slope. Jetpack flight gets an even higher chase angle. The
+    // normal third-person and look-back camera modes remain intact.
+    const aheadY = jungleCourseHeight(this.z - 13);
+    const slope = THREE.MathUtils.clamp((aheadY - this._floorY) / 13, -0.72, 0.72);
+    const climb = Math.max(0, slope);
+    const flightFactor = THREE.MathUtils.clamp(this._flightLift / JETPACK_HEIGHT, 0, 1);
+    const radius =
+      THREE.MathUtils.lerp(CAM_RADIUS, CAM_RADIUS_BACK, swing) +
+      climb * 4.2 +
+      flightFactor * 2.0;
+    const camHeight =
+      THREE.MathUtils.lerp(CAM_HEIGHT, CAM_HEIGHT_BACK, swing) +
+      climb * 4.8 +
+      flightFactor * 3.2;
     const angle = swing * Math.PI; // 0 behind him, PI in front of him looking back
     this.camPivot.position.set(
       Math.sin(angle) * radius,
-      THREE.MathUtils.lerp(CAM_HEIGHT, CAM_HEIGHT_BACK, swing),
+      camHeight,
       Math.cos(angle) * radius,
     );
 
@@ -2607,7 +3374,7 @@ export class Level01 extends Level {
     cam.position.lerp(this._tmp, 1 - Math.exp(-(9 + swing * 9) * dt));
 
     // aim down-tunnel normally, and at whatever is behind him when swung round
-    this._tmpAim.set(x * 0.7, this._floorY + 1.5, this.z - 9);
+    this._tmpAim.set(x * 0.7, this._floorY + this._flightLift + 1.5, this.z - 9);
     if (swing > 0) {
       this._tmpBack.set(
         this.handler ? this.handler.position.x : 0,
@@ -2622,7 +3389,7 @@ export class Level01 extends Level {
 
     // boost widens the FOV — cheapest honest way to sell acceleration.
     // Restored in teardown() since the camera belongs to Game, not the level.
-    const fovTarget = this._baseFov + (this.boostSpeed / 10) * 7;
+    const fovTarget = this._baseFov + (this.boostSpeed / 10) * 7 + (this._jetpackActive ? 5 : 0);
     if (Math.abs(cam.fov - fovTarget) > 0.01) {
       cam.fov += (fovTarget - cam.fov) * (1 - Math.exp(-5 * dt));
       cam.updateProjectionMatrix();
@@ -2654,34 +3421,78 @@ export class Level01 extends Level {
     if (this._musicTrack) {
       const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.025 : 0.045;
       const chaseLift = this._handlerRageT > 0 ? 0.035 : 0;
-      this._musicTrack.setVolume(0.15 + phaseLift + chaseLift);
+      this._musicTrack.setVolume(this._soundEnabled ? 0.15 + phaseLift + chaseLift : 0);
     }
     if (this._tensionTrack) {
       const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.012 : 0.025;
       const guardianLift = this._guardianActive ? 0.045 : 0;
-      this._tensionTrack.setVolume(0.008 + phaseLift + this._darkFactor * 0.03 + guardianLift);
+      this._tensionTrack.setVolume(this._soundEnabled ? 0.008 + phaseLift + this._darkFactor * 0.03 + guardianLift : 0);
     }
 
     // --- footsteps: trigger on stride distance, only while grounded ---
-    if (!this.airborne && !this.sliding && !this.caught && this._audio) {
+    if (!this.airborne && !this.sliding && this._flightLift < 0.2 && !this.caught && this._audio) {
       this._strideDistance += this.speed * dt;
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
       }
     }
+  }
 
-    // last line of update(), so the HUD reads every state write this frame —
-    // including gap writes from the handler update further up
-    if (this.hud) this.hud.update(state);
+  /**
+   * Kai himself — the same rig, colours and Key as the Level 1 intro
+   * (intros/cast.js). The capsule stays as the invisible gameplay body:
+   * jumps, slides, lane changes and collisions still move and squash it
+   * exactly as before, and _updateKai() mirrors that onto the model.
+   * If the character fails to load, the capsule simply stays visible.
+   */
+  async _buildKai() {
+    const { kai } = await loadCast(this.assets);
+    if (!kai) return;
+    this.kai = makeKai(this.player, kai);
+    this.kai.root.rotation.y = Math.PI; // facing down the trail (-z), as in the intro
+    this.kai.root.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    this.body.visible = false;
+    this._kaiWasAirborne = false;
+  }
+
+  _updateKai(dt) {
+    const kai = this.kai;
+    if (!kai) return;
+
+    if (this.caught) {
+      if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
+    } else if (this.airborne) {
+      // the rig's running jump (1.25 s), sped up to fit the 0.77 s hop
+      if (!this._kaiWasAirborne) kai.playOnce(kai.actions.runningjump ? "runningjump" : "jump", { fade: 0.08, speed: 1.6 });
+    } else if (this.speed < 0.5) {
+      kai.play("idle", { fade: 0.3 });
+    } else {
+      kai.play("run", { fade: 0.15 });
+      // stride rate follows his speed, from a jog at the start to a sprint
+      kai.current.timeScale = 0.8 + 0.6 * THREE.MathUtils.clamp(this.speed / SPEED_TOP, 0, 1);
+    }
+    this._kaiWasAirborne = this.airborne;
+
+    // the capsule's squash is the slide: lean him back and drop him with it
+    const slide = THREE.MathUtils.clamp((1 - this._bodySquash) / 0.58, 0, 1);
+    kai.visual.position.y = -0.55 * slide;
+    // capsule tilts (jetpack pitch, side-on hits) carry over; Kai's root is
+    // turned 180 degrees, so both flip sign in his frame
+    kai.visual.rotation.set(-this.body.rotation.x - 1.1 * slide, 0, -this.body.rotation.z);
+
+    kai.update(dt);
   }
 
   teardown() {
-    if (this.hud) {
-      this.hud.unmount();
-      this.hud = null;
-    }
+    this.kai?.root.traverse((o) => {
+      if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
+    });
     this._removeCaughtOverlay();
+    this._removeEscapedCard();
+    this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
