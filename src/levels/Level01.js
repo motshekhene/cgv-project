@@ -3,6 +3,7 @@ import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
 import { showEndCard } from "../ui/EndCard.js";
+import { Hud } from "../core/Hud.js";
 import { loadCast, makeKai } from "../intros/cast.js";
 import {
   loadJungleKit,
@@ -610,6 +611,13 @@ export class Level01 extends Level {
     this._buildJetpackFx();
     this._buildTempleRunHUD();
     this._ensureAudio();
+
+    // The shared readout, so the chase shows its numbers like every other
+    // level. Level 1 has no damage model — the comment in GameState holds:
+    // the pursuit gap IS the health bar, and the state line under it (CLOSING
+    // / LOSING GROUND / CAUGHT) is the health status. The letter ids here are
+    // "level01-N", not the preset's "l1-N" guess, so pass the prefix through.
+    this.hud = Hud.forLevel("level01", { lettersIn: "level01-" }).mount();
   }
 
   _buildTunnel(mats) {
@@ -3437,6 +3445,10 @@ export class Level01 extends Level {
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
       }
     }
+
+    // last line of update(), so the HUD reads every state write this frame —
+    // including gap writes from the handler update further up
+    if (this.hud) this.hud.update(state);
   }
 
   /**
@@ -3487,6 +3499,10 @@ export class Level01 extends Level {
   }
 
   teardown() {
+    if (this.hud) {
+      this.hud.unmount();
+      this.hud = null;
+    }
     this.kai?.root.traverse((o) => {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
     });
