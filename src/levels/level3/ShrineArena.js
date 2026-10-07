@@ -739,6 +739,17 @@ export class ShrineArena {
     if (moved) pos.needsUpdate = true;
   }
 
+  /** How deep the pool is at (x, z): 0 outside it, or where its bed is above the surface. */
+  waterDepth(x, z) {
+    if ((x - POOL.x) ** 2 + (z - POOL.z) ** 2 >= POOL.r * POOL.r) return 0;
+    return Math.max(0, POOL.y - this.groundHeight(x, z));
+  }
+
+  /** What a falling drop lands on: the pool's surface, or the floor a fighter stands on. */
+  surfaceY(x, z) {
+    return this.waterDepth(x, z) > 0 ? POOL.y : this.fighterY(x, z);
+  }
+
   /** Height a fighter stands at: the tiles in the courtyard, the real ground (hills, pool bed) outside. */
   fighterY(x, z) {
     const k = smooth(12.4, 13.6, Math.hypot(x, z));
