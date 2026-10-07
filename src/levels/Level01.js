@@ -2898,7 +2898,10 @@ export class Level01 extends Level {
    */
   _startLevel02() {
     const game = this.game;
-    if (!game || !game.levels || !game.levels.has("level02")) {
+    // the drive-out scene (Kai takes the car out onto the River Road) when
+    // it's registered, straight into level 02 when it isn't
+    const next = game?.levels?.has("level02-intro") ? "level02-intro" : "level02";
+    if (!game || !game.levels || !game.levels.has(next)) {
       // running level 01 on its own, e.g. from a test page. Stay put rather
       // than throwing out of a rAF callback.
       console.warn("[level01] reached the vehicle, but no level02 is registered");
@@ -2908,9 +2911,9 @@ export class Level01 extends Level {
     game.setPaused(true);
     Promise.resolve().then(async () => {
       try {
-        await game.setLevel("level02");
+        await game.setLevel(next);
       } catch (err) {
-        console.error("[level01] handoff to level02 failed", err);
+        console.error(`[level01] handoff to ${next} failed`, err);
       } finally {
         game.setPaused(false);
       }

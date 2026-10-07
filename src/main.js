@@ -4,15 +4,17 @@ import { Level01 } from "./levels/Level01.js";
 import { Level02 } from "./levels/Level02.js";
 import { Level03 } from "./levels/Level03.js";
 import { TrailIntro } from "./intros/level1/TrailIntro.js";
+import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
 
 /**
  * The full run, in order:
  *
- *   level01-intro → level01 → level02 → level03
+ *   level01-intro → level01 → level02-intro → level02 → level03
  *
- * The intro cutscene hands off here; the levels hand off forward themselves
- * (Level01 → level02, Level02 → level03).
+ * The cutscenes hand off here; the levels hand off forward themselves
+ * (Level01 → level02-intro, Level02 → level03). level02-intro is Kai driving
+ * out of the jungle onto the River Road, so Level 2 picks up already driving.
  * Any piece can be opened on its own with ?level=<name>, e.g. ?level=level03.
  */
 const game = new Game();
@@ -36,7 +38,15 @@ function goTo(name) {
 
 game.registerLevel("level01-intro", () => new TrailIntro({ onDone: () => goTo("level01") }));
 game.registerLevel("level01", () => new Level01());
-game.registerLevel("level02", () => new Level02());
+game.registerLevel("level02-intro", () => new DriveOutIntro({ onDone: () => { level02FromIntro = true; goTo("level02"); } }));
+// straight from the drive-out scene: no car picker, you're already driving
+// (the picker is still on V / the CAR button). A restart shows it as usual.
+let level02FromIntro = false;
+game.registerLevel("level02", () => {
+  const level = new Level02({ fromIntro: level02FromIntro });
+  level02FromIntro = false;
+  return level;
+});
 game.registerLevel("level03", () => new Level03());
 
 /**

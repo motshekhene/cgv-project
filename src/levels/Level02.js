@@ -22,6 +22,7 @@ import { DriveControls } from './level2/controls.js';
 import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
+import { Obstacles } from './level2/obstacles.js';
 
 /**
  * Level 02 — Redline.
@@ -32,7 +33,9 @@ import { Level2Sound } from './level2/sound.js';
  *
  * The River Road is a journey: Level 1's jungle and mud trail, ~4 km long,
  * rewards along the way (pickups.js), and at the end the road goes over a
- * waterfall (course.js). The car goes with it — a short fall cinematic and
+ * waterfall (course.js). It's a gravel road, so there's little traffic: the
+ * jungle is what's in the way — fallen trees, rockfalls, branches and animals
+ * crossing (obstacles.js). The car goes with it — a short fall cinematic and
  * the splash in the pool, where Level 2 ends (Level 3 opens in that pool).
  *
  * What each member contributed:
@@ -41,8 +44,10 @@ import { Level2Sound } from './level2/sound.js';
  *   2B — RoadSystem, secondary camera support in Game.js, rearview + minimap
  */
 export class Level02 extends Level {
-  constructor() {
+  /** opts.fromIntro: arriving from the drive-out scene, so skip the car picker and drive. */
+  constructor({ fromIntro = false } = {}) {
     super('level02');
+    this.fromIntro = fromIntro;
     // the shape VehicleController already expects — filled from shared Input each frame
     this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
   }
@@ -96,6 +101,8 @@ export class Level02 extends Level {
     this.course = new Course(this.root, { endZ: COURSE_END, roadWidth: this.road.roadWidth });
     this.pickups = new Pickups(this.root, { start: 150, end: COURSE_END - 300 });
     this._rewards = 0;
+    // most of the traffic is gone: the jungle gets in the way instead
+    this.obstacles = new Obstacles(this.root, { start: 220, end: COURSE_END - 420, avoid: this.pickups.items });
     this._jungleReady = this._buildJungle(assets);
 
     // ---- 2A's vehicle + handler ----
@@ -154,8 +161,12 @@ export class Level02 extends Level {
     this.policeLights = new PoliceLights(this.handler.mesh);
     this.skids = new Skids(this.root);
     this.smoke = new Smoke(this.root);
-    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END });
-    this.handler.traffic = this.traffic;          // so he steers round it
+    // only a few cars here and there: it's a gravel road, not a motorway
+    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 3, spawnMin: 250, spawnMax: 650, despawnAhead: 900 });
+    this.traffic.obstacles = this.obstacles;      // they pull round fallen trees
+    // he steers round traffic and the solid obstacles alike
+    this._roadUsers = { pool: [] };
+    this.handler.traffic = this._roadUsers;
 
     // ---- chase camera helpers ----
     this._camOffset = new THREE.Vector3();
@@ -211,7 +222,24 @@ export class Level02 extends Level {
       onMute: () => this.sound.setMuted(!this.sound.muted),
     });
     this._buildShield();
-    this._openCarPicker();
+    if (this.fromIntro) this._startDriving();
+    else this._openCarPicker();
+  }
+
+  /**
+   * Picks up from the drive-out scene: the car you saw is already at speed,
+   * the chase camera is where the scene left it, and the HUD comes up.
+   */
+  _startDriving() {
+    this.car.speed = Math.min(this.car.maxSpeed, 27);
+    this.handler.speed = this.car.speed;
+    this._hud?.setVisible(true);
+    this._hud?.setCar(CARS[this._carIndex].name);
+    this._controls?.setVisible(true);
+    const cam = this.game.camera;
+    const p = this.car.mesh.position;
+    cam.position.set(p.x, p.y + 3.7, p.z - 8.9);
+    cam.lookAt(p.x, p.y + 1.1, p.z + 10);
   }
 
   /** The SHIELD reward's bubble round the car. */
@@ -257,6 +285,7 @@ export class Level02 extends Level {
       { ground: tile(mats.forest, 80, L / 5) },
     );
     this.course.build(kit, mats);
+    this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null));
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -432,12 +461,24 @@ export class Level02 extends Level {
     this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
     this.policeLights.update(dt, handlerState);
 
+    this._roadUsers.pool.length = 0;
+    this._roadUsers.pool.push(...this.traffic.pool, ...this.obstacles.pool);
     this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
+    this.obstacles.collideBody(this.handler);     // and has to brake for a fallen tree like you do
     for (const hit of this.traffic.update(dt, this.car)) {
       this._impact(hit.impact, this._mid.copy(this.car.mesh.position).setY(0.6));
       this.sound.crash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
+    }
+
+    // fallen trees, rockfalls, branches, animals crossing
+    for (const hit of this.obstacles.update(dt, this.car)) {
+      this._impact(hit.impact, hit.at);
+      if (hit.impact > 0.5) this.sound.crash(hit.impact); else this.sound.thump(hit.impact + 0.3);
+      this.car.takeDamage(hit.damage);
+      this.shake = Math.max(this.shake, 0.25 + hit.impact * 0.8);
+      this._flash(`${hit.label}  -${hit.damage}`, '#f2934f');
     }
 
     this.road.update(this.car.mesh.position);
