@@ -22,10 +22,12 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
  * handlerHelmetOff, letters, timeScale).
  *
  * Beats (docs/JUNGLE_SHRINE_IMPLEMENTATION.md, section 6):
- *   INTRO     Kai wakes in the pool, wades out and shakes the water off, runs
- *             through the gate dripping; the Handler drops off the arch behind
- *             him. Skippable; skipped on restarts. He stays soaked into the
- *             fight and dries over ~40 s (level3/Wetness.js).
+ *   INTRO     Kai wakes in the pool among his car's wreckage (level3/Wreck.js),
+ *             wades out and gets the water off (level3/DustOff.js), runs
+ *             through the gate dripping; the Handler jumps down off the arch
+ *             behind him, and they trade a few lines, typed out on screen,
+ *             before it starts. Skippable; skipped on restarts. He stays soaked
+ *             into the fight and dries over ~40 s (level3/Wetness.js).
  *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
  *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
  *             sky to dusk, lights the torches and runs the pool red. The fight
@@ -96,6 +98,19 @@ const SHAKE_BEAT = A_END - 5.6; // how much longer that made the intro (shot A u
 const C_AT = 9.7;
 const LEAP_FROM = 0.3;
 const LEAP_G = 13; // m/s²: a touch more than gravity, or a man falling 9 m reads as floating on screen
+// intro shot D: face to face before the fight, each line typed out on screen. pose: what the speaker does with it
+const WHO = {
+  handler: { name: 'THE HANDLER', color: '#f2934f' },
+  kai: { name: 'KAI', color: '#6fe3ff' },
+};
+const TALK = [
+  { who: 'handler', text: 'Twelve kilometres. A river. A waterfall. And you’re still holding it.' },
+  { who: 'kai', text: 'You ran me off a bridge. What did you think would happen?' },
+  { who: 'handler', text: 'Give me the Key, Kai. You don’t even know what it opens.', pose: 'angry' },
+  { who: 'kai', text: 'Then I guess I’ll find out.' },
+  { who: 'handler', text: 'Not today.' },
+];
+const TALK_AFTER = 1.6; // shot D starts this long after he lands
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -408,7 +423,10 @@ export class Level03 extends Level {
     this.beatT += real;
     const input = this.input;
 
-    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) this._skip();
+    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) {
+      if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
+      else this._skip();
+    }
 
     if (this.mode === 'INTRO') this._updateIntro(dt);
     else if (this.mode === 'EPILOGUE' || this.mode === 'END') this._updateEpilogue(dt);
@@ -624,10 +642,11 @@ export class Level03 extends Level {
   }
 
   /**
-   * ~14.5 s, four shots: (A) Kai sits up in the pool, seen from inside the gate,
-   * wades out and shakes the water off as the camera backs through the arch;
-   * (B) cut to the courtyard as he runs through the arch toward camera;
-   * (C) the Handler drops off the arch behind him, Kai turns; (D) settle into
+   * Five shots, ~30 s if you let the talk play out: (A) Kai sits up in the
+   * pool, seen from inside the gate, wades out and gets the water off as the
+   * camera backs through the arch; (B) cut to the courtyard as he runs through
+   * the arch toward camera; (C) the Handler leaps off the arch behind him, Kai
+   * turns; (D) face to face, the dialogue (Space moves it on a line); then
    * the fight camera.
    */
   _updateIntro(dt) {
@@ -691,7 +710,7 @@ export class Level03 extends Level {
       this.cine.pos.lerp(this._tmp.set(kp.x, this.cine.pos.y, kp.z), smooth(5.8, 7.6, t) * 0.3);
       this.cine.look.set(kp.x, kp.y + 0.55 + smooth(2.2, 3.6, t) * 0.75, kp.z);
       this.cine.rate = 4;
-    } else if (t < 9.7) {
+    } else if (t < C_AT) {
       // ---- B: through the gate and down the path, running toward camera
       if (this._shot !== 'B') {
         this._shot = 'B';
@@ -704,6 +723,9 @@ export class Level03 extends Level {
       this._tmp.set(kp.x, 1.5, kp.z);
       this.cine.look.set(-2.6, 1.6, -12).lerp(this._tmp, 0.55);
       this.cine.rate = 5;
+    } else if (this._shot === 'D') {
+      // ---- D: face to face, a few words before it starts
+      this._updateTalk(dt);
     } else {
       // ---- C: he jumps down off the arch and lands behind Kai
       const b = this.boss;
@@ -766,10 +788,85 @@ export class Level03 extends Level {
       bf.update(dt);
       // lowered after the pose is applied: the clip's ledge, faded out as it hands over to idle
       if (lp) bf.visual.position.y = -lp.lower(bf.actions.jump.time) * bf.actions.jump.getEffectiveWeight();
-      if (t > L.land + 1.85) this._startFight();
+      if (t > L.land + TALK_AFTER) this._startTalk();
     }
     k.root.rotation.y = k.heading;
     kf.update(dt);
+  }
+
+  /** Shot D: the two of them face to face, a few lines each, typed out on screen as they're said. */
+  _startTalk() {
+    this._shot = 'D';
+    this.story.hideCard();
+    this.story.setSkipLabel('SPACE: NEXT LINE · CLICK HERE: SKIP');
+    const b = this.boss;
+    b.fighter.visual.position.y = 0; // well off the leap clip by now
+    b.root.position.copy(BOSS_LAND);
+    b.root.position.y = this._leapAt.landY;
+    this._line = -1;
+    this._nextLine();
+  }
+
+  /** On to the next line (the player pressing on while one is still typing just finishes it); after the last, fight. */
+  _nextLine(player = false) {
+    if (player && !this.story.lineDone) {
+      this.story.finishLine();
+      return;
+    }
+    this._line++;
+    const line = TALK[this._line];
+    if (!line) {
+      this._startFight();
+      return;
+    }
+    this._lineT = 0;
+    this._lineHold = 0;
+    const who = WHO[line.who];
+    this.story.showLine(who.name, line.text, who.color);
+    const bf = this.boss.fighter;
+    if (line.pose && bf.actions[line.pose]) bf.playOnce(line.pose, { fade: 0.25 });
+    const prev = TALK[this._line - 1];
+    this._talkShot(line.who, !prev || prev.who !== line.who);
+  }
+
+  _updateTalk(dt) {
+    const line = TALK[this._line];
+    const k = this.combat;
+    const kp = k.root.position;
+    const bp = this.boss.root.position;
+    const bf = this.boss.fighter;
+    k.heading += shortestAngle(k.heading, Math.atan2(bp.x - kp.x, bp.z - kp.z)) * (1 - Math.exp(-6 * dt));
+    const b = this.boss;
+    b.heading += shortestAngle(b.heading, Math.atan2(kp.x - bp.x, kp.z - bp.z)) * (1 - Math.exp(-6 * dt));
+    b.root.rotation.y = b.heading;
+    if (bf.currentName !== 'idle' && !bf.current?.isRunning()) bf.play('idle', { fade: 0.35 }); // the point done: back in his stance
+    // his mask's eyes smoulder brighter while he talks
+    b._glowMask(0xff5a1a, line?.who === 'handler' ? 1.3 : 0.6);
+    bf.update(dt);
+    if (!line) return;
+    // the shot creeps in over the line
+    this._lineT += dt;
+    this.cine.fov = 14 - Math.min(1, this._lineT / 4) * 1.6;
+    if (this.story.updateLine(dt)) {
+      this._lineHold += dt;
+      if (this._lineHold > 0.9 + line.text.length * 0.028) this._nextLine();
+    }
+  }
+
+  /**
+   * Over the listener's shoulder onto whoever's talking, on a long lens (they
+   * stand ~11 m apart). Both set-ups sit on the same side of the line between
+   * them, so they stay screen left and right as it cuts back and forth.
+   */
+  _talkShot(who, cut) {
+    const kp = this.combat.root.position;
+    const bp = this.boss.root.position;
+    const d = new THREE.Vector3(bp.x - kp.x, 0, bp.z - kp.z).normalize(); // Kai -> Handler
+    const right = new THREE.Vector3(-d.z, 0, d.x);
+    const [near, far, back] = who === 'handler' ? [kp, bp, -1.8] : [bp, kp, 1.8];
+    const pos = near.clone().addScaledVector(d, back).addScaledVector(right, 0.8);
+    pos.y = near.y + 1.78;
+    this._setCine(pos, new THREE.Vector3(far.x, far.y + 1.52, far.z), { fov: 14, rate: 6, cut });
   }
 
   /** Put Kai at fraction s along a polyline, facing along it. */
@@ -802,6 +899,8 @@ export class Level03 extends Level {
     this.cine = null;
     this.story.setCinematic(false);
     this.story.hideCard();
+    this.story.hideLine();
+    this.story.setSkipLabel();
     this.hud.setVisible(true);
     this.touch.setVisible(true);
 
