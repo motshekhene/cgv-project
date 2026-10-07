@@ -13,6 +13,9 @@ import { Fighter } from './Fighter.js';
  * the monk it's only his mask's eye slits, burning up to the colour as he
  * winds up (no body flash: his wind-up clip is the tell, and once the mask is
  * off, that's all you get). A well-timed parry staggers him and opens a damage window.
+ * He won't soak a flurry, though: land three or four hits in a row while he
+ * isn't attacking and he counters at once, with barely any wind-up, so
+ * button-mashing gets you hit. Hit, back off, wait for his move.
  *
  * Two Handlers: the old Quaternius one in his helmet (punch / swordslash clips,
  * leans posed by hand), and the Mixamo shrine monk from tools/build-character.py
@@ -23,32 +26,39 @@ import { Fighter } from './Fighter.js';
  * He never touches the player: when a strike connects he calls onStrike() and
  * Level03 answers 'hit' | 'blocked' | 'parried' | 'dodged'.
  */
+// difficulty lives in these numbers (+ MAX_HEALTH and COUNTER_AFTER below)
 const PHASES = [
-  { name: 'PURSUIT', speed: 4.2, attacks: ['lunge'], pace: 1.0, rest: [0.5, 0.9] },
-  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.35, 0.7] },
-  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge'], pace: 0.64, rest: [0.2, 0.45] },
+  { name: 'PURSUIT', speed: 4.4, attacks: ['lunge'], pace: 1.0, rest: [0.3, 0.7] },
+  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.2, 0.5] },
+  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge'], pace: 0.64, rest: [0.1, 0.3] },
 ];
 
 const ATTACKS = {
   lunge: {
-    tell: 0xff7a1a, telegraph: 0.85, recover: 0.95, engage: 5.2, clip: 'punch', clipSpeed: 2.6,
-    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 14 }],
+    tell: 0xff7a1a, telegraph: 0.75, recover: 0.95, engage: 5.2, clip: 'punch', clipSpeed: 2.6,
+    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 17 }],
   },
   sweep: {
-    tell: 0xff1133, telegraph: 1.0, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
-    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 18 }],
+    tell: 0xff1133, telegraph: 0.9, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
+    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 22 }],
   },
   combo: {
-    tell: 0xb04dff, telegraph: 0.7, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
+    tell: 0xb04dff, telegraph: 0.62, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
     hits: [
-      { dur: 0.26, move: 9, reach: 2.0, damage: 11 },
-      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 11 },
+      { dur: 0.26, move: 9, reach: 2.0, damage: 13 },
+      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 13 },
     ],
   },
 };
 
+const MAX_HEALTH = 420;
 const STAGGER_TIME = 1.7;
 const TRANSITION_TIME = 1.5;
+// he won't stand there and soak a flurry: this many hits in quick succession (per phase) while he isn't
+// attacking, and he hits straight back, with a much shorter wind-up (COUNTER_TELL of the usual)
+const COUNTER_AFTER = [4, 3, 3];
+const COUNTER_GAP = 1.4; // seconds: hits further apart than this don't count toward it
+const COUNTER_TELL = 0.4;
 
 /**
  * The shrine mask's look, painted on canvases: weathered stone with carved
@@ -203,8 +213,11 @@ export class HandlerBoss {
     this.root.position.set(0, 0, -4.5);
     this.root.rotation.y = 0;
 
-    this.maxHealth = 320;
+    this.maxHealth = MAX_HEALTH;
     this.health = this.maxHealth;
+    this.flurry = 0; // Kai's hits in quick succession (COUNTER_AFTER)
+    this.flurryT = 0;
+    this.countering = false;
     this.phaseIndex = 0;
     this.helmetOff = false;
 
@@ -222,6 +235,7 @@ export class HandlerBoss {
     this.arenaLimit = 13.4; // he follows Kai anywhere inside this radius
 
     this.onStrike = null;
+    this.onCounter = null;
     this.onHelmetOff = null;
     this.onPhaseChange = null;
     this.onDefeated = null;
@@ -358,6 +372,8 @@ export class HandlerBoss {
     if (wanted > this.phaseIndex) {
       this.phaseIndex = wanted;
       this._enter('TRANSITION');
+      this.countering = false;
+      this.flurry = 0;
       if (this.meta) this.fighter.playOnce('angry', { speed: 1.2, fade: 0.15 }); // he rounds on Kai and points
       this.attackName = null;
       this._pickAttack();
@@ -367,8 +383,25 @@ export class HandlerBoss {
         if (this.onHelmetOff) this.onHelmetOff();
       }
       if (this.onPhaseChange) this.onPhaseChange(wanted + 1);
+      return dealt;
     }
+
+    this.flurry = this.flurryT > 0 ? this.flurry + 1 : 1;
+    this.flurryT = COUNTER_GAP;
+    if (this.flurry >= COUNTER_AFTER[this.phaseIndex] && (this.state === 'APPROACH' || this.state === 'RECOVER')) this._counter();
     return dealt;
+  }
+
+  /** Enough: straight back at Kai with a quick lunge (a combo once he's desperate). */
+  _counter() {
+    this.flurry = 0;
+    this.countering = true;
+    this.attackName = this.phaseIndex >= 2 ? 'combo' : 'lunge';
+    this.restFor = 0;
+    this.hurtT = 0;
+    this._enter('TELEGRAPH');
+    this.clipStarted = false;
+    if (this.onCounter) this.onCounter();
   }
 
   /** Kai landed one: a real recoil if he isn't mid-attack (the hit clip), else the old flinch. */
@@ -387,6 +420,7 @@ export class HandlerBoss {
   /** Called by Level03 when a strike was parried. */
   stagger() {
     this._enter('STAGGER');
+    this.countering = false;
     this.hitIndex = 0;
     this.fighter.setGlow(0xffd23a, this.meta ? 0.18 : 1.4);
     this.fighter.setLean(this.meta ? 0 : 0.35);
@@ -397,6 +431,7 @@ export class HandlerBoss {
     const f = this.fighter;
     this._updateHelmet(dt);
     if (this.hurtT > 0) this.hurtT -= dt;
+    if (this.flurryT > 0) this.flurryT -= dt;
     const lean = (v) => f.setLean(this.meta ? 0 : v); // real clips carry their own weight shifts
     const glow = (hex, k) => f.setGlow(hex, k);
     if (this.state === 'DOWN') {
@@ -450,7 +485,7 @@ export class HandlerBoss {
         break;
       }
       case 'TELEGRAPH': {
-        const dur = atk.telegraph * p.pace;
+        const dur = atk.telegraph * p.pace * (this.countering ? COUNTER_TELL : 1);
         if (this.t < dur * 0.75) face(6);
         const cl = this.clips?.[this.attackName];
         if (cl) {
@@ -494,6 +529,7 @@ export class HandlerBoss {
               this._beginHit(atk);
             } else {
               this._enter('RECOVER');
+              this.countering = false;
             }
           }
         }

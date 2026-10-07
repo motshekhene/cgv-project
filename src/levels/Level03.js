@@ -342,6 +342,10 @@ export class Level03 extends Level {
       return 'hit';
     };
 
+    this.boss.onCounter = () => {
+      hud().popup('COUNTER!', '#ff5a3a');
+      this._addShake(0.15);
+    };
     this.boss.onHelmetOff = () => {
       this._hitStop(0.12);
       this._addShake(0.5);

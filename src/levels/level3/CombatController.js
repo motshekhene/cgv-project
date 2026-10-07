@@ -69,7 +69,7 @@ function clipMoves(meta) {
     ],
   };
 }
-const PARRY_WINDOW = 0.28;
+const PARRY_WINDOW = 0.22; // the Strategy gift widens it x1.5
 const ARENA_LIMIT = 12.6;
 const TURN_SPEED = 2.8; // rad/s while steering: a quarter turn in ~0.55 s
 const AIM_ASSIST = 1.1; // rad: how far off-centre a swing will still snap onto the target
