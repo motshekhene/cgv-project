@@ -95,6 +95,14 @@ const LOOK = 0.0022;
 const WIDE_POS = new THREE.Vector3(12.2, 5.8, 5.2);
 const WIDE_LOOK = new THREE.Vector3(-1.8, 0.8, -8.8);
 
+// the conversation two-shot: behind Kai's right shoulder at the log — him
+// lower-centre, Ingram across the flames, the fire between. The title, the
+// whole conversation and Ingram's exit play on this one locked-off camera,
+// then rise cuts into Kai's eyes exactly when control comes back.
+const SHOT_POS = new THREE.Vector3(0.9, 1.55, 13.4);
+const SHOT_LOOK = new THREE.Vector3(-1.0, 1.25, 6.3);
+const RISE_CUT = 1.0;  // rise holds the two-shot until here, then cuts
+
 const HORN_CYAN = 0x4fd6e0;  // the horn — matches how the level 01 pickup glows
 const HORN_HEX = '#4fd6e0';
 const INGRAM_AMBER = '#ffb03a';  // the fire, then the lamp
@@ -405,6 +413,9 @@ export class Prologue extends Level {
 
     this.says = [];
     this.sayT = 0;
+    this._shotT = 0;              // the two-shot's own clock, for the drift
+    this._kaiSeated = false;      // told the rig to sit to the fire
+    this._kaiRose = false;        // told the rig to stand at the cut
 
     this.blockers = [];
     this.sfx = new Sfx();
@@ -857,8 +868,8 @@ export class Prologue extends Level {
     this.lamp.visible = false;
     this.root.add(this.lamp);
 
-    // ---- Kai himself. Only on screen once the camera pulls back, so the
-    //      player can see where they are standing relative to the mouth. ----
+    // ---- Kai himself. On screen in the fire two-shot and in the wide
+    //      pull-back; hidden whenever the camera is his own eyes. ----
     this.matKai = new THREE.MeshStandardMaterial({ color: 0x45566e, roughness: 0.7 });
     this.kai = new THREE.Group();
     const kTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.82, 4, 10), this.matKai);
@@ -876,8 +887,14 @@ export class Prologue extends Level {
     this.kai.visible = false;
     this.root.add(this.kai);
 
-    // Same swap-in pattern as Ingram: blocky Kai until the rig lands.
-    this.kaiModel = attachCharacter(this.assets, 'kai', this.kai);
+    // Same swap-in pattern as Ingram: blocky Kai until the rig lands. Once
+    // it does he sits to the fire — the two-shot holds on him for the whole
+    // conversation, so the sitting pose matters the moment it arrives.
+    this.kaiModel = attachCharacter(this.assets, 'kai', this.kai, {
+      onReady: () => {
+        if (this._inFireShot() && this.kaiModel) this.kaiModel.play('sitting');
+      },
+    });
 
     // the log Kai sits on, and one stump for his heels
     const log = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.5, 8), this.matWood);
@@ -935,12 +952,12 @@ export class Prologue extends Level {
       'CLICK TO BEGIN</div>`,
     );
 
-    // the conversation. The text stands next to whoever is speaking —
-    // Ingram's lines float at his post across the fire, Kai's stay low where
-    // the player is — so the speaker is never in doubt. The name is in that
-    // character's colour; the line in cream serif; no box, just shadows.
+    // the conversation. The text stands on whoever is speaking — in the
+    // two-shot, Ingram's lines float at his head across the fire, Kai's sit
+    // on him at the log — so the speaker is never in doubt. The name is in
+    // that character's colour; the line in cream serif; no box, just shadows.
     this.hud.sub = mk(
-      base + ';left:30%;top:30%;transform:translate(-50%,-50%);width:min(560px,80vw);' +
+      base + ';left:50%;top:33%;transform:translate(-50%,-50%);width:min(560px,80vw);' +
       'text-align:center;opacity:0;transition:left .45s ease, top .45s ease, opacity .3s',
     );
     this.hud.subName = document.createElement('div');
@@ -1007,14 +1024,15 @@ export class Prologue extends Level {
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
     if (line.who === 'INGRAM') {
-      // his words, at his post — up in the frame where he stands
-      this.hud.sub.style.left = '30%';
-      this.hud.sub.style.top = '30%';
+      // his words, at his head across the fire
+      this.hud.sub.style.left = '50%';
+      this.hud.sub.style.top = '33%';
       this.hud.shade.style.opacity = '0';   // no bottom band needed up there
     } else {
-      // Kai's words stay low — they are yours
-      this.hud.sub.style.left = '50%';
-      this.hud.sub.style.top = '76%';
+      // Kai's words, on Kai — measured on his chest in the two-shot, where
+      // he sits at the left of frame (his head stays clear above the text)
+      this.hud.sub.style.left = '30%';
+      this.hud.sub.style.top = '63%';
       this.hud.shade.style.opacity = '1';
     }
     this.hud.sub.style.opacity = '1';
@@ -1238,6 +1256,12 @@ export class Prologue extends Level {
     setTimeout(() => this.game.setLevel('level01'), 1250);
   }
 
+  /** The conversation two-shot: title, talk, leave, and rise up to the cut. */
+  _inFireShot() {
+    return this.phase === 'title' || this.phase === 'talk' || this.phase === 'leave' ||
+      (this.phase === 'rise' && this.t <= RISE_CUT);
+  }
+
   _updateCamera() {
     const cam = this.game.camera;
     this._fp.set(this.px, this.eye, this.pz);
@@ -1247,12 +1271,20 @@ export class Prologue extends Level {
     this._dir.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
     this._look3.copy(this._fp).addScaledVector(this._dir, 6);
 
-    // Kai is only drawn once the camera is far enough out that it is not
-    // sitting inside his head.
-    this.kai.visible = this.cine > 0.34;
+    // Kai is drawn whenever the camera is outside his head: the fire
+    // two-shot at the start, the wide pull-back at the stone. First person
+    // hides him — the camera is his eyes.
+    const shot = this._inFireShot();
+    this.kai.visible = shot || this.cine > 0.34;
     if (this.kai.visible) {
-      this.kai.position.set(this.px, 0, this.pz);
-      this.kai.rotation.y = this.yaw;
+      if (shot) {
+        // seated at the log, feet to the flames
+        this.kai.position.set(SEAT.x, 0.12, SEAT.z + 0.3);
+        this.kai.rotation.y = 0;
+      } else {
+        this.kai.position.set(this.px, 0, this.pz);
+        this.kai.rotation.y = this.yaw;
+      }
     }
 
     if (this.cine > 0) {
@@ -1262,14 +1294,30 @@ export class Prologue extends Level {
       cam.lookAt(this._look3);
       const want = 58 + 10 * k;
       if (Math.abs(cam.fov - want) > 0.05) { cam.fov = want; cam.updateProjectionMatrix(); }
+    } else if (shot) {
+      // THE TWO-SHOT — one camera, two people. Locked off on its sticks,
+      // breathing so slightly it reads as wind on the lens.
+      cam.position.set(
+        SHOT_POS.x + Math.sin(this._shotT * 0.11) * 0.05,
+        SHOT_POS.y + Math.sin(this._shotT * 0.07) * 0.028,
+        SHOT_POS.z,
+      );
+      this._look3.copy(SHOT_LOOK);
+      if (this.phase === 'leave' && this.t > 1.4) {
+        // let the camera follow Ingram a little way into the dark
+        this._look3.lerp(this.ingram.position, 0.25);
+      }
+      cam.lookAt(this._look3);
+      const want = 46;
+      if (Math.abs(cam.fov - want) > 0.05) {
+        cam.fov += (want - cam.fov) * 0.08;
+        cam.updateProjectionMatrix();
+      }
     } else {
       cam.position.copy(this._fp);
       cam.rotation.order = 'YXZ';
       cam.rotation.set(this.pitch, this.yaw, 0);
-
-      // tighter while he listens at the fire, wide once he is on his feet
-      const intimate = ['title', 'talk', 'leave', 'rise'].includes(this.phase);
-      const want = intimate ? 44 : 58;
+      const want = 58;
       if (Math.abs(cam.fov - want) > 0.05) {
         cam.fov += (want - cam.fov) * 0.06;
         cam.updateProjectionMatrix();
@@ -1283,11 +1331,12 @@ export class Prologue extends Level {
   /* ==================================================== update */
   update(dt, state) {
     this.t += dt;
+    if (this._inFireShot()) this._shotT += dt;
 
     if (this.input.pressed('mute')) this.sfx.setMuted(!this.sfx.muted);
     if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
-    if (this.phase !== 'title' && this.phase !== 'talk' && this.cine <= 0) this._look();
+    if (!this._inFireShot() && this.cine <= 0) this._look();
     this._tickSay(dt);
     if (this.standing && this.phase !== 'done') this._move(dt);
 
@@ -1328,19 +1377,20 @@ export class Prologue extends Level {
     }
 
     switch (this.phase) {
-      // The scene plays itself: fire, mist, the camera breathing. One click
+      // The scene plays itself: fire, mist, the two-shot breathing. One click
       // starts the forest and hands the scene to Ingram.
       case 'title': {
-        this.yaw = Math.sin(this.t * 0.11) * 0.05;
-        this.pitch = 0.06 + Math.sin(this.t * 0.07) * 0.012;
+        // the figures settle into the shot while the title holds
+        if (!this._ingramIdled) { this._ingramIdled = true; if (this.ingramModel) this.ingramModel.play('idle'); }
+        if (!this._kaiSeated) { this._kaiSeated = true; if (this.kaiModel) this.kaiModel.play('sitting'); }
         break;
       }
 
       // One camera, two people, click to advance — the card mechanic pointed
-      // at faces instead of text. The camera holds the two-shot: fire
-      // centre, Ingram left of it, barely breathing so it stays alive.
+      // at faces instead of text. The locked two-shot holds them both: fire
+      // centre, Kai at his log, Ingram across it, barely breathing so it
+      // stays alive.
       case 'talk': {
-        this.yaw = Math.sin(this.t * 0.09) * 0.02;
         // the fire is dying all through the conversation
         this.sfx.firePower = Math.max(0.45, 1 - this.t * 0.012);
         // Ingram is alive at the fire: breathing weight, the lamp swinging
@@ -1348,6 +1398,8 @@ export class Prologue extends Level {
           if (!this._ingramIdled) { this._ingramIdled = true; this.ingramModel.play('idle'); }
         }
         this.ingram.rotation.y = Math.PI + Math.sin(this.t * 0.4) * 0.03;
+        // ...and so is Kai, on his log across the flames
+        if (!this._kaiSeated) { this._kaiSeated = true; if (this.kaiModel) this.kaiModel.play('sitting'); }
         break;
       }
 
@@ -1382,12 +1434,14 @@ export class Prologue extends Level {
         break;
       }
 
-      // He gets to his feet — the camera rises, and control comes back.
+      // He gets to his feet — the two-shot holds on him standing up, then
+      // cuts into his eyes exactly when control comes back.
       case 'rise': {
-        const k = Math.min(1, this.t / 1.2);
+        const k = Math.min(1, this.t / RISE_CUT);
         this.eye = THREE.MathUtils.lerp(SEAT.eye, STAND_EYE, k);
         this.pz = THREE.MathUtils.lerp(SEAT.z, SEAT.z + 0.75, k);
-        if (this.t > 1.2) {
+        if (!this._kaiRose) { this._kaiRose = true; if (this.kaiModel) this.kaiModel.play('standing'); }
+        if (this.t > RISE_CUT) {
           this.phase = 'walk';
           this.t = 0;
           this.seated = false;        // off the log: he can turn freely
