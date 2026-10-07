@@ -50,6 +50,36 @@ const smooth = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
+/**
+ * The Handler's leap off the arch, read from his jump clip's foot track
+ * (Fighter.footTrack, sampled at 30 fps). Mixamo's Jumping Down starts on a
+ * ledge and the build keeps it, so the clip stands him ~1.1 m above his root:
+ * `lower(t)` is how far to drop the model at clip time t so a planted foot
+ * is on the ground (the arch before the leap, the courtyard after it); in the
+ * air it slides evenly from one to the other. off/on: when his feet leave
+ * and when they land.
+ */
+function leapProfile(feet, rest) {
+  const at = (t) => {
+    const i = Math.min(feet.length - 1, Math.max(0, t * 30));
+    const i0 = Math.floor(i), i1 = Math.min(feet.length - 1, i0 + 1);
+    return feet[i0] + (feet[i1] - feet[i0]) * (i - i0);
+  };
+  const lift = feet.findIndex((y) => y > feet[0] + 0.03);
+  if (lift < 0) return null;
+  let land = lift;
+  for (let i = lift; i < feet.length; i++) if (feet[i] < feet[land]) land = i;
+  const off = (lift - 1) / 30, on = land / 30;
+  return {
+    off, on,
+    lower(t) {
+      if (t <= off || t >= on) return at(t) - rest;
+      const k = (t - off) / (on - off);
+      return at(off) - rest + (at(on) - at(off)) * k;
+    },
+  };
+}
+
 /** What CombatController sees while a cutscene owns Kai. */
 const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
 
@@ -62,6 +92,10 @@ const SHAKE_AT = 5.75;
 const FLICK_AT = 6.8;
 const A_END = 7.7;
 const SHAKE_BEAT = A_END - 5.6; // how much longer that made the intro (shot A used to end at 5.6)
+// intro shot C: the Handler on the keystone from C_AT, his leap clip already under way (from LEAP_FROM s in, as he crouches)
+const C_AT = 9.7;
+const LEAP_FROM = 0.3;
+const LEAP_G = 13; // m/s²: a touch more than gravity, or a man falling 9 m reads as floating on screen
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -123,6 +157,11 @@ export class Level03 extends Level {
     this.water = new WaterFX(this.root, this.arena);
     this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
     this.bossWet = new Wetness(this.boss.fighter, this.water);
+    if (this.handlerMeta?.clips.jump) {
+      const bf = this.boss.fighter;
+      const feet = bf.footTrack('jump');
+      this.leap = feet && leapProfile(feet, Math.min(...bf.footTrack('idle')));
+    }
 
     this._baseMaxHealth = state.maxHealth;
     this._baseParry = this.combat.parryWindow;
@@ -664,54 +703,68 @@ export class Level03 extends Level {
       this.cine.look.set(-2.6, 1.6, -12).lerp(this._tmp, 0.55);
       this.cine.rate = 5;
     } else {
-      // ---- C: he lands
+      // ---- C: he jumps down off the arch and lands behind Kai
+      const b = this.boss;
+      const bf = b.fighter;
+      const lp = this.leap;
       if (this._shot !== 'C') {
         this._shot = 'C';
         kp.copy(KAI_START);
         kf.play('idle', { fade: 0.3 });
-        const b = this.boss;
         b.root.visible = true;
         b.root.position.copy(a.gateTop);
         b.heading = Math.atan2(KAI_START.x - a.gateTop.x, KAI_START.z - a.gateTop.z);
         b.root.rotation.y = b.heading;
-        b.fighter.play('idle', { fade: 0 });
+        // the leap clip, scrubbed by hand below; no clip to read, the old Handler stands and plays his jump on take-off
+        if (lp) bf.hold('jump', LEAP_FROM, 0);
+        else bf.play('idle', { fade: 0 });
         this._landed = false;
+        const landY = this.arena.fighterY(BOSS_LAND.x, BOSS_LAND.z);
+        const fall = Math.sqrt((2 * (a.gateTop.y - landY)) / LEAP_G);
+        const takeoff = C_AT + (lp ? lp.off - LEAP_FROM : 0.3);
+        this._leapAt = { takeoff, fall, land: takeoff + fall, landY };
       }
-      const b = this.boss;
-      const drop = smooth(10.0, 10.75, t);
-      const leap = this.handlerMeta?.clips.jump;
-      if (leap && t >= 9.75 && !this._jumped) {
-        // the real leap: stretched so he leaves the arch at 10.0 and his landing crouch hits the ground at 10.75
+      const L = this._leapAt;
+      // in the air: carried forward evenly, falling from a standstill (y = top - g t²/2)
+      const air = Math.min(1, Math.max(0, (t - L.takeoff) / L.fall));
+      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, air);
+      b.root.position.y = a.gateTop.y + (L.landY - a.gateTop.y) * air * air;
+      if (lp) {
+        // the clip's own crouch and spring play at their speed; its time in the air is stretched over the fall
+        const s = t - C_AT;
+        const pre = lp.off - LEAP_FROM;
+        const clipT = s < pre ? LEAP_FROM + s
+          : s < pre + L.fall ? lp.off + ((s - pre) / L.fall) * (lp.on - lp.off)
+          : lp.on + (s - pre - L.fall);
+        const act = bf.actions.jump;
+        act.time = Math.min(clipT, act.getClip().duration);
+        if (clipT > act.getClip().duration - 0.4 && bf.current === act) bf.play('idle', { fade: 0.4 }); // up out of the crouch: into his stance
+      } else if (t >= L.takeoff && !this._jumped) {
         this._jumped = true;
-        const speed = (leap.land - leap.takeoff) / 0.75;
-        b.fighter.playOnce('jump', { from: Math.max(0, leap.takeoff - 0.25 * speed), speed, fade: 0.1 });
-      } else if (!leap && t >= 10.0 && !this._jumped) {
-        this._jumped = true;
-        b.fighter.playOnce('jump', { speed: 1.3 });
+        bf.playOnce('jump', { speed: 1.3 });
       }
-      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, drop);
-      b.root.position.y = (1 - drop) * a.gateTop.y + Math.sin(drop * Math.PI) * 1.2;
-      if (drop >= 1 && !this._landed) {
+      if (air >= 1 && !this._landed) {
         this._landed = true;
-        b.root.position.y = 0;
-        if (!leap) b.fighter.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
+        if (!lp) bf.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
         this._addShake(0.75);
         this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
         this.story.showCard('THE HANDLER', 'He never slows down.');
       }
-      // Kai hears it and turns round
-      if (t > 10.5) {
+      // Kai hears him land and turns round
+      if (t > L.land - 0.25) {
         const want = Math.atan2(BOSS_LAND.x - kp.x, BOSS_LAND.z - kp.z);
         k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-6 * dt));
-        kf.setGuard(t > 10.9, 0.8);
+        kf.setGuard(t > L.land + 0.15, 0.8);
       }
-      // the camera, already behind Kai's stop point, re-aims at the gate
+      // the camera, already behind Kai's stop point, re-aims at the gate and follows him down
       this.cine.pos.set(2.6, 2.1, 7.4);
-      this.cine.look.set(-1.4, 1.6 + (1 - drop) * 3.5, -6.5);
+      this.cine.look.set(-1.4, 1.6 + (1 - air * air) * 3.5, -6.5);
       this.cine.fov = 55;
       this.cine.rate = 2.6;
-      b.fighter.update(dt);
-      if (t > 12.6) this._startFight();
+      bf.update(dt);
+      // lowered after the pose is applied: the clip's ledge, faded out as it hands over to idle
+      if (lp) bf.visual.position.y = -lp.lower(bf.actions.jump.time) * bf.actions.jump.getEffectiveWeight();
+      if (t > L.land + 1.85) this._startFight();
     }
     k.root.rotation.y = k.heading;
     kf.update(dt);
@@ -756,6 +809,8 @@ export class Level03 extends Level {
     k.fighter.setGuard(false);
     b.root.visible = true;
     b.root.position.copy(BOSS_LAND);
+    b.fighter.visual.position.y = 0; // off the leap clip's ledge (a skipped intro can catch him mid-leap)
+    if (b.fighter.currentName === 'jump') b.fighter.play('idle', { fade: 0 });
     k.heading = Math.atan2(BOSS_LAND.x - KAI_START.x, BOSS_LAND.z - KAI_START.z);
     k.root.rotation.y = k.heading;
     b.heading = k.heading + Math.PI;

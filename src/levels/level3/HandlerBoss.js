@@ -9,8 +9,10 @@ import { Fighter } from './Fighter.js';
  *   STAND        lunge + sweep (helmet comes off on entry)
  *   DESPERATION  sweep + 2-hit combo + lunge, faster
  * Every attack telegraphs with its own colour: orange = lunge (dodge or block),
- * red = sweep (dodge — block only half-works), purple = combo (two hits).
- * A well-timed parry staggers him and opens a damage window.
+ * red = sweep (dodge — block only half-works), purple = combo (two hits). On
+ * the monk it's only his mask's eye slits, burning up to the colour as he
+ * winds up (no body flash: his wind-up clip is the tell, and once the mask is
+ * off, that's all you get). A well-timed parry staggers him and opens a damage window.
  *
  * Two Handlers: the old Quaternius one in his helmet (punch / swordslash clips,
  * leans posed by hand), and the Mixamo shrine monk from tools/build-character.py
@@ -396,7 +398,7 @@ export class HandlerBoss {
     this._updateHelmet(dt);
     if (this.hurtT > 0) this.hurtT -= dt;
     const lean = (v) => f.setLean(this.meta ? 0 : v); // real clips carry their own weight shifts
-    const glow = (hex, k) => f.setGlow(hex, this.meta ? k * 0.12 : k); // a full glow flattens the monk's textures: a tint, his mask's eyes carry the tell
+    const glow = (hex, k) => f.setGlow(hex, k);
     if (this.state === 'DOWN') {
       f.update(dt);
       return { dist: 0, state: 'DOWN', phase: this.phase.name };
@@ -460,9 +462,11 @@ export class HandlerBoss {
           f.play('idle', { speed: 1.5 });
         }
         lean(-0.3);
-        const pulse = 1.1 + Math.sin(this.t * 18) * 0.5;
-        glow(atk.tell, pulse);
-        this._glowMask(atk.tell, 2 + pulse * 1.5);
+        // the old Handler has no wind-up clip to read, so he flashes the tell colour all over; the monk's
+        // mask eyes just burn up to it as he winds up (no flashing: the clip itself is the tell)
+        if (!this.meta) glow(atk.tell, 1.1 + Math.sin(this.t * 18) * 0.5);
+        const k = Math.min(1, this.t / dur);
+        this._glowMask(atk.tell, 0.6 + 3.4 * k * k);
         if (this.t >= dur) {
           this.strikeDir.copy(dir);
           this.hitIndex = 0;
@@ -521,7 +525,7 @@ export class HandlerBoss {
       case 'TRANSITION': {
         if (!this.meta) f.play('idle'); // the Mixamo Handler is pointing at Kai (the angry clip)
         lean(-0.2);
-        glow(0xff9a55, 0.8 + Math.sin(this.t * 14) * 0.3);
+        if (!this.meta) glow(0xff9a55, 0.8 + Math.sin(this.t * 14) * 0.3);
         if (this.t >= TRANSITION_TIME) {
           f.setGlow(0, 0);
           this.restFor = 0.4;

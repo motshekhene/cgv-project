@@ -257,6 +257,30 @@ export class Fighter {
     return this.actions[name] ? this.actions[name].getClip().duration : 0;
   }
 
+  /**
+   * How high the lower foot sits above `root` through a clip, every 1/fps s:
+   * where a move stands, leaves the ground and lands. Plays the clip on its own
+   * to measure it, so call it before the fight starts; leaves idle playing.
+   */
+  footTrack(name, fps = 30) {
+    const act = this.actions[name];
+    const fl = this.bone('FootL'), fr = this.bone('FootR');
+    if (!act || !fl || !fr) return null;
+    const out = [];
+    this.mixer.stopAllAction();
+    act.reset().play();
+    for (let i = 0, n = Math.floor(act.getClip().duration * fps); i <= n; i++) {
+      act.time = i / fps;
+      this.mixer.update(0);
+      this.root.updateMatrixWorld(true);
+      out.push(Math.min(fl.getWorldPosition(_p0).y, fr.getWorldPosition(_p1).y) - this.root.position.y);
+    }
+    act.stop();
+    this.current = null;
+    this.play('idle', { fade: 0 });
+    return out;
+  }
+
   roll(duration) {
     this.rollT = 0;
     this.rollDur = duration;

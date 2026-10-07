@@ -139,7 +139,7 @@ export class ShrineArena {
     this.anchors = {
       wake: new THREE.Vector3(-4.6, 0, -21.2), // where the current left Kai (in the pool)
       gate: GATE.clone(),
-      gateTop: new THREE.Vector3(GATE.x, 9.0, GATE.z + 0.2), // top of the arch: the Handler drops from here
+      gateTop: new THREE.Vector3(GATE.x, 9.04, GATE.z - 0.2), // on the arch's keystone: the Handler drops from here
       box: new THREE.Vector3(1.45, 1.25, -16.45), // junction box beside the gate's right column
     };
   }
