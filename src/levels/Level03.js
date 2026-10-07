@@ -6,6 +6,7 @@ import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
+import { Wreck } from './level3/Wreck.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -107,7 +108,8 @@ const TELLS = {
 };
 const CREDITS =
   'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
-  'Props: Poly by Google (CC0) · Built with three.js';
+  'Props: Poly by Google (CC0) · Car parts: Kenney (CC0) · ' +
+  'Steering wheel: Poly by Google (CC-BY 3.0, via Poly Pizza) · Built with three.js';
 
 let introSeen = false; // restarts skip straight to the fight
 
@@ -138,10 +140,12 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
+    this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
       this._loadFighter(assets, 'kai-bryce', 'kai.fbx'),
       this._loadFighter(assets, 'handler-monk', 'handler.fbx'),
       this.arena.build(assets),
+      this.wreck.build(assets),
     ]);
     if (!this.scene) return; // level was torn down while loading
 
@@ -414,6 +418,7 @@ export class Level03 extends Level {
     const idle = this.mode === 'FIGHT' && !this._ended ? this.combat.still : null;
     this.kaiWet.update(dt, { still: idle });
     if (this.boss.root.visible) this.bossWet.update(dt);
+    this.wreck.update(dt, this.time, this.water);
     this.water.update(dt);
 
     this._updateCamera(real);
