@@ -1,0 +1,110 @@
+{
+  "fps": 30,
+  "clips": {
+    "idle": {
+      "duration": 2.367,
+      "loop": true
+    },
+    "walkback": {
+      "duration": 1.2,
+      "loop": true,
+      "speed": 1.07
+    },
+    "run": {
+      "duration": 0.633,
+      "loop": true,
+      "speed": 5.18
+    },
+    "jab": {
+      "duration": 0.5,
+      "loop": false,
+      "start": 0.2,
+      "hit": 0.4,
+      "settle": 0.5,
+      "limb": "LeftHand"
+    },
+    "jabcross2": {
+      "duration": 1.467,
+      "loop": false,
+      "start": 0.0,
+      "hit": 0.167,
+      "settle": 1.467,
+      "limb": "RightHand"
+    },
+    "jabcross": {
+      "duration": 1.967,
+      "loop": false
+    },
+    "cross": {
+      "duration": 2.0,
+      "loop": false,
+      "start": 0.9,
+      "hit": 1.133,
+      "settle": 2.0,
+      "limb": "RightHand"
+    },
+    "hook": {
+      "duration": 2.167,
+      "loop": false,
+      "start": 0.3,
+      "hit": 1.033,
+      "settle": 1.733,
+      "limb": "RightHand"
+    },
+    "kick": {
+      "duration": 1.667,
+      "loop": false,
+      "start": 0.233,
+      "hit": 0.833,
+      "settle": 0.967,
+      "limb": "RightFoot"
+    },
+    "roundhouse": {
+      "duration": 2.5,
+      "loop": false,
+      "start": 0.133,
+      "hit": 1.067,
+      "settle": 1.3,
+      "limb": "RightFoot"
+    },
+    "block": {
+      "duration": 1.6,
+      "loop": false,
+      "hold": 0.467
+    },
+    "dodge": {
+      "duration": 2.333,
+      "loop": false,
+      "peak": 0.9,
+      "settle": 1.833,
+      "lean": 0.519
+    },
+    "hit": {
+      "duration": 2.733,
+      "loop": false,
+      "peak": 1.133,
+      "settle": 1.8,
+      "lean": 0.343
+    },
+    "death": {
+      "duration": 4.4,
+      "loop": false
+    },
+    "sitting": {
+      "duration": 4.3,
+      "loop": true,
+      "hips0": 0.534,
+      "hips1": 0.534
+    },
+    "standing": {
+      "duration": 2.7,
+      "loop": false,
+      "hips0": 0.121,
+      "hips1": 0.908,
+      "up": 1.5
+    }
+  },
+  "ankle": 0.128,
+  "hips": 0.85,
+  "height": 1.801
+}
