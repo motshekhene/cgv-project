@@ -12,6 +12,8 @@ import { KeyVision } from './level3/KeyVision.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
+import { PauseMenu } from '../ui/PauseMenu.js';
+import { StyleMeter } from './level3/StyleMeter.js';
 
 /**
  * Level 03 — FIGHT, "Site 7".
@@ -120,6 +122,24 @@ const FOCUS_TIME = 1.6;
 const FOCUS_SCALE = 0.25;
 const FOCUS_KAI = 0.9;
 const FOCUS_DAMAGE = 1.5;
+// lost to him before (state.deaths)? he starts each new attempt this much weaker, down to EASE_MIN of his health
+const EASE_PER_LOSS = 0.12;
+const EASE_MIN = 0.64;
+const VS_TIME = 1.75; // the VS splash, then FIGHT
+/** Esc: the pause menu's list of controls. */
+const CONTROLS = [
+  ['W S', 'walk forward / back'],
+  ['A D', 'turn (follow view) \u00b7 strafe (lock-on)'],
+  ['ENTER', 'punch, three in a chain (or left click)'],
+  ['K', 'kick, three in a chain'],
+  ['B', 'block (or right click) \u00b7 tap it just before a hit to parry'],
+  ['C', 'dodge (hold a direction to pick the side)'],
+  ['V', 'the Key: slow time down'],
+  ['TAB', 'camera: follow \u00b7 lock-on \u00b7 360\u00b0 view'],
+  ['R', 'restart the fight'],
+  ['ESC', 'pause / resume'],
+];
+const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -179,6 +199,9 @@ export class Level03 extends Level {
     this.combat = new CombatController(this.root, kai.source, kai.meta);
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
+    // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
+    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * state.deaths);
+    this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
     // Kai comes out of the pool soaked; either of them gets soaked again wading back in
@@ -204,6 +227,13 @@ export class Level03 extends Level {
     });
 
     this.hud = new FightHUD();
+    this.style = new StyleMeter(this.hud);
+    this.pause = new PauseMenu({
+      controls: CONTROLS,
+      tip: PAUSE_TIP,
+      onResume: () => this.game.setPaused(false),
+      onRestart: () => this.game.restart(),
+    });
     this.touch = new TouchControls(input, {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
@@ -323,7 +353,10 @@ export class Level03 extends Level {
       if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
       if (c.dodging) {
         if (c.dodgeDuration - c.dodgeT <= PERFECT_DODGE) this._perfectDodge(state);
-        else hud().popup('DODGE', '#8fe8ff');
+        else {
+          hud().popup('DODGE', '#8fe8ff');
+          this.style.add('dodge');
+        }
         return 'dodged';
       }
       if (c.parryReady()) {
@@ -331,6 +364,7 @@ export class Level03 extends Level {
         this._hitStop(0.09);
         this._addShake(0.4);
         hud().popup('PARRY!', '#ffe066');
+        this.style.add('parry');
         return 'parried';
       }
       if (c.blocking) {
@@ -349,6 +383,7 @@ export class Level03 extends Level {
       }
       state.damage(info.damage);
       c.onHurt();
+      this.style.hurt();
       this._hitStop(0.035);
       this._addShake(0.32);
       hud().damageFlash();
@@ -418,11 +453,25 @@ export class Level03 extends Level {
     this.hud.setPointer(Math.abs(a) < halfFov ? null : a);
   }
 
+  /** A damage number off the Handler's head, wherever that is on screen. */
+  _damageNumber(amount, kind) {
+    const bp = this.boss.root.position;
+    const v = (this._dmgV ||= new THREE.Vector3()).set(bp.x, bp.y + 1.8, bp.z).project(this.game.camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) return; // behind the camera or off screen
+    this.hud.damageNumber((v.x * 0.5 + 0.5) * window.innerWidth, (-v.y * 0.5 + 0.5) * window.innerHeight, amount, kind);
+  }
+
+  /** Game.setPaused: Esc brings up the pause menu. */
+  onPause(on) {
+    if (this.pause) this.pause.show(on);
+  }
+
   /** Dodged at the last instant: time bends round Kai. The world slows right down; he barely does. */
   _perfectDodge(state) {
     this._focusT = FOCUS_TIME;
     state.stamina = Math.min(state.maxStamina, state.stamina + 20);
     this.hud.popup('PERFECT DODGE', '#7fe8ff');
+    this.style.add('perfect');
     this._addShake(0.12);
   }
 
@@ -543,7 +592,11 @@ export class Level03 extends Level {
           }
           this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
-          if (this.boss.vulnerable) this.hud.popup('CRITICAL', '#ffd23a');
+          const crit = this.boss.vulnerable;
+          if (crit) this.hud.popup('CRITICAL', '#ffd23a');
+          this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '');
+          this.style.add(fin ? 'finisher' : 'hit');
+          if (crit) this.style.add('crit');
         }
       }
     }
@@ -563,6 +616,14 @@ export class Level03 extends Level {
         m.emissiveIntensity = 1;
       }
     }
+
+    // the VS splash clears, then FIGHT
+    if (this._fightCall > 0 && (this._fightCall -= real) <= 0) {
+      this.hud.popup('FIGHT', '#ffd9a8');
+      for (const t of this._fightToasts) this.hud.toast(...t, { queue: true });
+    }
+    this.style.update(real);
+    this.touch.setKey(1 - this.combat.abilityCD / this.combat.abilityRecharge);
 
     // the Key: popup on activation
     if (this.combat.abilityActive && !this._abilityWas) this.hud.popup('THE KEY', '#7fd8ff');
@@ -959,12 +1020,19 @@ export class Level03 extends Level {
     k.root.rotation.y = k.heading;
     b.heading = k.heading + Math.PI;
     b.root.rotation.y = b.heading;
-    b.restFor = 0.9;
+    b.restFor = VS_TIME + 0.5; // he waits out the splash
     this.camYaw = k.heading;
-    this.hud.popup('FIGHT', '#ffd9a8');
+    this.hud.versus(WHO.kai.name, WHO.handler.name);
+    this._fightCall = VS_TIME;
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
+    // notes for the player, once FIGHT has been called
+    this._fightToasts = [];
     const left = this.gifts.remaining;
-    if (left > 0) this.hud.toast('SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5);
+    if (left > 0) this._fightToasts.push(['SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5]);
+    if (this._eased < 1) {
+      const pct = Math.round((1 - this._eased) * 100);
+      this._fightToasts.push(['WEAKENED', `he still feels the last fight \u00b7 ${pct}% less health this time`, 4.5]);
+    }
   }
 
   /** Phase II: the helmet comes off. A slow-mo look at his face over Kai's shoulder. */
@@ -1167,6 +1235,7 @@ export class Level03 extends Level {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
     });
     if (this.hud) this.hud.dispose();
+    if (this.pause) this.pause.dispose();
     if (this.story) this.story.dispose();
     if (this.letters) this.letters.dispose();
     if (this.gifts) this.gifts.dispose();

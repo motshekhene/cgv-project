@@ -135,6 +135,7 @@ export class CombatController {
     this.arenaLimit = ARENA_LIMIT;
 
     this.abilityCD = 0;
+    this.abilityRecharge = 9; // seconds before the Key can be used again
     this.abilityT = 0;
     this.abilityActive = false;
 
@@ -285,7 +286,7 @@ export class CombatController {
     // ---- the Key: slow-mo pulse ----
     if (this.abilityCD > 0) this.abilityCD -= dt;
     if (input.pressed('ability') && this.abilityCD <= 0) {
-      this.abilityCD = 9;
+      this.abilityCD = this.abilityRecharge;
       this.abilityT = 1.1;
     }
     this.abilityActive = this.abilityT > 0;

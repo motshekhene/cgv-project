@@ -18,7 +18,7 @@ const CSS = THEME_CSS + END_CSS + `
 .fh * { box-sizing:border-box; }
 .fh-top { position:absolute; top:12px; left:12px; right:12px; display:grid; column-gap:14px; row-gap:6px; align-items:start;
   grid-template-columns:minmax(150px, 1fr) minmax(200px, 420px) minmax(150px, 1fr); transition:opacity .6s ease, transform .6s ease; }
-.fh.ended .fh-top, .fh.ended .fh-tell { opacity:0; transform:translateY(-10px); }
+.fh.ended .fh-top, .fh.ended .fh-tell, .fh.ended .fh-style { opacity:0; transform:translateY(-10px); }
 
 .fh-player { position:relative; grid-column:1; justify-self:start; width:calc(180px * var(--hpw, 1)); max-width:100%; padding:4px 10px 6px;
   transition:width .9s cubic-bezier(.2,.8,.2,1), border-color .3s; }
@@ -76,7 +76,50 @@ const CSS = THEME_CSS + END_CSS + `
 .fh-bolt { position:absolute; inset:0; pointer-events:none; opacity:0; mix-blend-mode:screen;
   background:linear-gradient(180deg, rgba(228,236,255,.9), rgba(205,218,255,.45) 55%, rgba(205,218,255,.2)); }
 
+/* VS splash as the fight starts: the names slam in either side of a gold VS, then clear for FIGHT */
+.fh-vs { position:absolute; left:0; right:0; top:36%; height:130px; margin-top:-65px; display:flex; align-items:center; justify-content:center;
+  gap:clamp(18px, 4vw, 60px); pointer-events:none; opacity:0; }
+.fh-vs.go { opacity:1; animation:fhVsOut .45s ease-in 1.6s forwards; }
+.fh-vs::before { content:''; position:absolute; inset:22px -4%; transform:skewY(-2.5deg) scaleX(0); border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg, transparent, rgba(8,10,6,.84) 16%, rgba(8,10,6,.84) 84%, transparent); }
+.fh-vs.go::before { animation:fhVsBand .42s cubic-bezier(.2,.8,.2,1) forwards; }
+.fh-vs b { position:relative; font-family:var(--serif); font-weight:700; font-size:clamp(26px, 4.4vw, 56px); letter-spacing:.18em; white-space:nowrap;
+  color:var(--ink); opacity:0; text-shadow:0 3px 0 rgba(0,0,0,.6), 0 0 24px var(--c); }
+.fh-vs b::after { content:''; display:block; height:2px; margin-top:5px; background:linear-gradient(90deg, transparent, var(--c), transparent); }
+.fh-vs .l { --c:var(--key); } .fh-vs .r { --c:var(--ember-hi); }
+.fh-vs.go .l { animation:fhVsL .5s cubic-bezier(.2,.9,.25,1) .12s forwards; }
+.fh-vs.go .r { animation:fhVsR .5s cubic-bezier(.2,.9,.25,1) .12s forwards; }
+.fh-vs i { position:relative; font-style:normal; font-family:var(--serif); font-weight:700; font-size:clamp(18px, 2.6vw, 32px); letter-spacing:.08em;
+  color:var(--gold); opacity:0; text-shadow:0 0 18px rgba(227,187,98,.85), 0 2px 0 #000; }
+.fh-vs.go i { animation:fhVsMid .5s cubic-bezier(.3,1.6,.5,1) .45s forwards; }
+
+/* damage numbers off the Handler */
+.fh-dmg { position:absolute; pointer-events:none; font-family:var(--serif); font-weight:700; font-size:21px; color:var(--ink); white-space:nowrap;
+  -webkit-text-stroke:1px rgba(0,0,0,.35); text-shadow:0 2px 0 rgba(0,0,0,.75), 0 0 10px rgba(0,0,0,.5); animation:fhDmg .95s cubic-bezier(.2,.7,.3,1) forwards; }
+.fh-dmg.big { font-size:30px; }
+.fh-dmg.crit { color:#ffd23a; font-size:30px; text-shadow:0 2px 0 rgba(0,0,0,.75), 0 0 16px rgba(255,210,58,.75); }
+.fh-dmg.key { color:var(--key); font-size:28px; text-shadow:0 2px 0 rgba(0,0,0,.75), 0 0 16px rgba(111,227,255,.85); }
+
+/* style rank: clean play builds it, getting hit breaks it */
+.fh-style { position:absolute; right:22px; top:max(26%, 120px); width:160px; text-align:right; pointer-events:none; opacity:0;
+  transform:translateX(18px); transition:opacity .3s ease, transform .3s ease; }
+.fh-style.show { opacity:1; transform:none; }
+.fh-style b { display:block; font-family:var(--serif); font-weight:700; font-size:58px; line-height:.9; color:var(--c);
+  text-shadow:0 3px 0 rgba(0,0,0,.6), 0 0 20px var(--c); transform-origin:right center; }
+.fh-style span { display:block; margin-top:3px; font-size:10px; font-weight:700; letter-spacing:.36em; color:var(--c); text-shadow:0 1px 2px #000; }
+.fh-style i { display:block; height:3px; margin:7px 0 0 auto; width:100%; background:rgba(0,0,0,.55); border-radius:2px; overflow:hidden; }
+.fh-style i::after { content:''; display:block; height:100%; width:calc(var(--p, 0) * 100%); margin-left:auto; background:var(--c); box-shadow:0 0 6px var(--c);
+  transition:width .2s ease; }
+.fh-style.up b { animation:fhRank .45s cubic-bezier(.3,1.6,.5,1); }
+.fh-style.broke { animation:fhBroke .6s ease-out forwards; }
+
+/* low health: the edges of the frame pulse like a heartbeat */
+.fh-low { position:absolute; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, transparent 52%, rgba(124,22,16,.6) 100%); }
+.fh.lowhp .fh-low { animation:fhBeat 1.05s ease-in-out infinite; }
+
 @media (max-width: 640px) {
+  .fh-style { top:auto; bottom:300px; right:14px; }
+  .fh-style b { font-size:44px; }
   .fh-top { grid-template-columns:minmax(0, 1fr) 44px; }
   .fh-boss { grid-column:1; grid-row:1; }
   .fh-player { grid-column:1; grid-row:2; }
@@ -91,6 +134,17 @@ const CSS = THEME_CSS + END_CSS + `
 @keyframes fhFlash { 0% { box-shadow:0 0 0 1px var(--ember-hi), 0 0 30px rgba(242,147,79,.8); } 100% { box-shadow:0 4px 14px rgba(0,0,0,.45); } }
 @keyframes fhPtr { 50% { opacity:.55; } }
 @keyframes fhGot { 0% { transform:scale(2.6); } 60% { transform:scale(.9); } 100% { transform:scale(1); } }
+@keyframes fhVsBand { to { transform:skewY(-2.5deg) scaleX(1); } }
+@keyframes fhVsL { from { opacity:0; transform:translateX(-32vw); filter:blur(6px); } to { opacity:1; transform:none; filter:none; } }
+@keyframes fhVsR { from { opacity:0; transform:translateX(32vw); filter:blur(6px); } to { opacity:1; transform:none; filter:none; } }
+@keyframes fhVsMid { from { opacity:0; transform:scale(2.6) rotate(-10deg); } to { opacity:1; transform:none; } }
+@keyframes fhVsOut { to { opacity:0; transform:scale(1.04); } }
+@keyframes fhDmg { 0% { opacity:0; transform:translate(-50%, -50%) translateY(8px) scale(.6); }
+  14% { opacity:1; transform:translate(-50%, -50%) translateY(-8px) scale(1.18); }
+  100% { opacity:0; transform:translate(-50%, -50%) translate(var(--dx), -58px) scale(.95); } }
+@keyframes fhRank { from { transform:scale(1.9); filter:brightness(2.2); } to { transform:none; filter:none; } }
+@keyframes fhBroke { 0% { opacity:1; transform:none; } 100% { opacity:0; transform:translateX(12px) skewX(-14deg); filter:blur(3px); } }
+@keyframes fhBeat { 0%, 100% { opacity:.2; } 12% { opacity:.85; } 24% { opacity:.35; } 36% { opacity:.7; } 60% { opacity:.25; } }
 `;
 
 /** Icon + colour per forest gift (ids match level3/Awards.js). */
@@ -110,6 +164,7 @@ export class FightHUD {
     this.el.className = 'fh';
     this.el.innerHTML = `
       <div class="fh-bolt"></div>
+      <div class="fh-low"></div>
       <div class="fh-flash"></div>
       <div class="fh-top">
         <div class="fh-player plaque">
@@ -127,6 +182,8 @@ export class FightHUD {
       <div class="fh-ptr" title="The Handler">▲</div>
       <div class="fh-toast plaque"></div>
       <div class="fh-pop"></div>
+      <div class="fh-vs"><b class="l"></b><i>VS</i><b class="r"></b></div>
+      <div class="fh-style"><b></b><span></span><i></i></div>
       <div class="end"></div>`;
     host.appendChild(this.el);
 
@@ -143,6 +200,10 @@ export class FightHUD {
     this.flashEl = q('.fh-flash');
     this.boltEl = q('.fh-bolt');
     this._bolt = 0;
+    this.vsEl = q('.fh-vs');
+    this.styleEl = q('.fh-style');
+    this._styleRank = null;
+    this._toastQueue = [];
     this.tell = q('.fh-tell');
     this.toastEl = q('.fh-toast');
     this.ptr = q('.fh-ptr');
@@ -171,7 +232,9 @@ export class FightHUD {
     this.hp.style.width = w;
     this.hpLag.style.width = w;
     this.st.style.width = `${Math.max(0, stFrac) * 100}%`;
-    this.player.classList.toggle('low', hpFrac > 0 && hpFrac < 0.25);
+    const low = hpFrac > 0 && hpFrac < 0.25;
+    this.player.classList.toggle('low', low);
+    this.el.classList.toggle('lowhp', low);
     if (maxScale !== this._hpw) {
       this._hpw = maxScale;
       this.player.style.setProperty('--hpw', String(maxScale));
@@ -243,15 +306,76 @@ export class FightHUD {
     this.ptr.style.transform = `rotate(${angle}rad)`;
   }
 
-  /** Small plaque low in the middle of the screen: a gold label and a line of help. */
-  toast(label, text, seconds = 2.4) {
+  /**
+   * Small plaque low in the middle of the screen: a gold label and a line of help.
+   * queue: wait for the one showing to finish instead of replacing it.
+   */
+  toast(label, text, seconds = 2.4, { queue = false } = {}) {
+    if (queue && this.toastEl.classList.contains('show')) {
+      this._toastQueue.push([label, text, seconds]);
+      return;
+    }
     this.toastEl.innerHTML = '';
     const b = document.createElement('b');
     b.textContent = label;
     this.toastEl.append(b, document.createTextNode(text));
     this.toastEl.classList.add('show');
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), seconds * 1000);
+    this._toastTimer = setTimeout(() => {
+      this.toastEl.classList.remove('show');
+      const next = this._toastQueue.shift();
+      if (next) this._toastTimer = setTimeout(() => this.toast(...next), 350);
+    }, seconds * 1000);
+  }
+
+  /** Fighting-game style: the two names slam in either side of a gold VS, then clear (about 2 s). */
+  versus(left, right) {
+    this.vsEl.querySelector('.l').textContent = left;
+    this.vsEl.querySelector('.r').textContent = right;
+    this._replay(this.vsEl, 'go');
+  }
+
+  /** A number popping off a hit at screen point (x, y), px. kind: '' | 'big' | 'crit' | 'key'. */
+  damageNumber(x, y, amount, kind = '') {
+    const el = document.createElement('div');
+    el.className = `fh-dmg ${kind}`;
+    el.textContent = String(Math.round(amount));
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.setProperty('--dx', `${Math.round((Math.random() - 0.5) * 44)}px`);
+    el.addEventListener('animationend', () => el.remove());
+    this.el.appendChild(el);
+    const all = this.el.querySelectorAll('.fh-dmg');
+    if (all.length > 12) all[0].remove();
+  }
+
+  /**
+   * The style rank: rank = { letter, word, color } or null (hidden), frac = the
+   * way to the next one. up: it just went up a rank; broke: Kai got hit.
+   */
+  setStyle(rank, frac = 0, { up = false, broke = false } = {}) {
+    const el = this.styleEl;
+    el.style.setProperty('--p', frac.toFixed(3));
+    if (broke) {
+      this._replay(el, 'broke');
+      el.classList.remove('show');
+      this._styleRank = null;
+      return;
+    }
+    if (!rank) {
+      el.classList.remove('show');
+      this._styleRank = null;
+      return;
+    }
+    el.classList.remove('broke');
+    if (rank !== this._styleRank) {
+      this._styleRank = rank;
+      el.style.setProperty('--c', rank.color);
+      el.querySelector('b').textContent = rank.letter;
+      el.querySelector('span').textContent = rank.word;
+      if (up) this._replay(el, 'up');
+    }
+    el.classList.add('show');
   }
 
   popup(text, color = '#ffffff') {
@@ -294,6 +418,7 @@ export class FightHUD {
 
   dispose() {
     clearTimeout(this._toastTimer);
+    this._toastQueue.length = 0;
     this.el.remove();
     this.style.remove();
   }

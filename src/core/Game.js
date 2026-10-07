@@ -94,6 +94,7 @@ export class Game {
 
   /** Same level, fresh state, no page reload. */
   restart() {
+    if (this.paused) this.setPaused(false); // or the fresh level would start frozen
     return this.setLevel(this.levelName);
   }
 
@@ -111,6 +112,7 @@ export class Game {
   setPaused(v) {
     this.paused = v;
     this.state.paused = v;
+    if (this.level && this.level.onPause) this.level.onPause(v); // e.g. show a pause menu
     if (this.onPaused) this.onPaused(v);
   }
 
