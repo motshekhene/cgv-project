@@ -86,11 +86,10 @@ const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
 const FIGHT_FOV = 62;
 const KAI_START = new THREE.Vector3(-0.4, 0, -0.6); // where the intro leaves Kai
 const BOSS_LAND = new THREE.Vector3(-3.0, 0, -11.2); // where the Handler lands off the arch
-// intro shot A: Kai is out of the water and up on the path at WADE_OUT, shakes off, flicks his hands dry
+// intro shot A: Kai is out of the water and up on the path at WADE_OUT, stands easy, and gets the water off (DustOff, ~2.45 s)
 const WADE_OUT = 5.55;
-const SHAKE_AT = 5.75;
-const FLICK_AT = 6.8;
-const A_END = 7.7;
+const SHAKE_AT = 5.8;
+const A_END = 8.5;
 const SHAKE_BEAT = A_END - 5.6; // how much longer that made the intro (shot A used to end at 5.6)
 // intro shot C: the Handler on the keystone from C_AT, his leap clip already under way (from LEAP_FROM s in, as he crouches)
 const C_AT = 9.7;
@@ -665,17 +664,15 @@ export class Level03 extends Level {
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
         kp.y = this.arena.groundHeight(kp.x, kp.z);
-      } else if (t < FLICK_AT) {
-        // out on the path: stop, and shake the water off like a dog
+      } else {
+        // out on the path: stop, stand easy (not in his fighting stance), and get the water off:
+        // shake the head, wipe the face and hair back, shake the hands out
         if (this._pose !== 'shake') {
           this._pose = 'shake';
-          kf.play('idle', { fade: 0.3 });
+          if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, 0.35);
+          else kf.play('idle', { fade: 0.3 });
         }
-        if (t >= SHAKE_AT && !this._shook) this._shook = this.kaiWet.shakeOff();
-      } else if (this._pose !== 'flick') {
-        // ...and flick it off his hands
-        this._pose = 'flick';
-        this.kaiWet.flickHands();
+        if (t >= SHAKE_AT && !this._shook) this._shook = this.kaiWet.shakeOff('full');
       }
       if (t > 3.6) this.story.hideCard();
       // slow push-in, lift to follow him up, then back out through the arch as he comes out of the water

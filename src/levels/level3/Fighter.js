@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { DustOff } from './DustOff.js';
 
 /**
  * Fighter — visual + animation layer shared by Kai and the Handler.
@@ -147,6 +148,7 @@ export class Fighter {
     model.traverse((o) => { if (o.isBone) byName[o.name] = o; });
     this.rig = byName.mixamorigHips ? 'mixamo' : 'quaternius';
     this.headBone = this.bone('Head');
+    this.dust = this.rig === 'mixamo' ? DustOff.for(this) : null;
     if (byName.FootR && byName.UpperLegR && byName.LowerLegR && byName.LowerLegR_end) {
       this.kickRig = {};
       for (const side of ['R', 'L']) {
@@ -291,18 +293,28 @@ export class Fighter {
     this.flash(0xffffff, 0.12);
   }
 
-  /** Shake off water like a dog: the body twists side to side, the head whips a beat behind. */
-  shake(duration) {
+  /**
+   * Get the water off. The Mixamo rig does it like a person (DustOff: shakes
+   * the head, wipes the face and hair, shakes the hands out; 'quick' skips the
+   * wipe); the Quaternius one, with no arms to pose, twists side to side like a
+   * dog, the head whipping a beat behind.
+   */
+  shake(duration, kind = 'full') {
+    if (this.dust) {
+      this.dust.start(kind);
+      return;
+    }
     this.shakeT = 0;
     this.shakeDur = duration;
   }
 
   stopShake() {
     this.shakeDur = 0;
+    if (this.dust) this.dust.stop();
   }
 
   get shaking() {
-    return this.shakeDur > 0;
+    return this.shakeDur > 0 || !!this.dust?.active;
   }
 
   flash(hex, seconds = 0.12) {
@@ -371,7 +383,9 @@ export class Fighter {
   }
 
   update(dt) {
-    for (const m of this._modified) {
+    // newest first: a bone posed by two layers was stashed twice, and the first stash is the clip's own pose
+    for (let i = this._modified.length - 1; i >= 0; i--) {
+      const m = this._modified[i];
       m.bone.position.copy(m.p);
       m.bone.quaternion.copy(m.q);
     }
@@ -390,6 +404,7 @@ export class Fighter {
         }
       }
     }
+    if (this.dust) this.dust.apply(dt);
 
     this.lean += (this.leanTarget - this.lean) * (1 - Math.exp(-14 * dt));
     let pitch = this.lean;
@@ -408,7 +423,7 @@ export class Fighter {
     this.pivot.rotation.x = pitch;
     this.pivot.position.y = py;
 
-    // shake-off: no clip for it on the rig, so it's procedural like the roll
+    // the Quaternius rig's shake-off: no clip for it, so it's procedural like the roll
     if (this.shakeDur > 0) {
       this.shakeT += dt;
       if (this.shakeT >= this.shakeDur) this.shakeDur = 0;

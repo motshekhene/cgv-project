@@ -11,10 +11,12 @@ import { POOL } from './ShrineArena.js';
  * Wetness is one fighter's state. `wet` (0..1) darkens and glosses their
  * clothes, sets how fast they drip and whether their steps leave prints.
  * Standing in the pool soaks them (with splashes underfoot and rings round
- * their legs); out of it they dry in ~40 s. shakeOff() is the dog-style
- * shake (Fighter.shake) that throws a spray of water; with autoShake, a
- * soaked fighter left standing still does it on their own, and any movement
- * cancels it, so it never costs the player control.
+ * their legs); out of it they dry in ~40 s. shakeOff() gets the water off
+ * (Fighter.shake: on the Mixamo rig a person's head shake, face-and-hair
+ * wipe and hand shake-out, see DustOff.js) and throws it where each move
+ * flings it; with autoShake, a soaked fighter left standing still does a
+ * quick one on their own, and any movement cancels it, so it never costs the
+ * player control.
  *
  *   const fx = new WaterFX(root, arena);
  *   const wet = new Wetness(fighter, fx, { autoShake: true });
@@ -28,8 +30,7 @@ const PRINTS = 64;
 const RIPPLES = 20;
 const DRY_TIME = 40; // seconds from soaked to dry
 const PRINT_LIFE = 14; // seconds a fresh print takes to fade (less as the feet dry)
-const SHAKE_TIME = 0.95;
-const FLICK_BEAT = 0.15; // up, snap, up, snap
+const SHAKE_TIME = 0.95; // the Quaternius rig's dog shake
 
 // what each of the rig's materials looks like soaked: colour multiplier, roughness
 const WET_LOOK = {
@@ -356,6 +357,7 @@ export class Wetness {
       fighter.root.updateMatrixWorld(true);
       this.ankle = Math.max(0, this.bones.FootL.getWorldPosition(_a).y - fighter.root.position.y);
     }
+    if (fighter.dust) fighter.dust.onSpray = (kind, pos, side, k) => this._dustSpray(kind, pos, side, k);
   }
 
   get shaking() {
@@ -371,42 +373,38 @@ export class Wetness {
     this.streamT = seconds;
   }
 
-  /** Shake the water off: a whole-body shimmy and a spray that catches the sun. */
-  shakeOff() {
+  /** Get the water off (kind 'full' or 'quick', see DustOff), throwing a spray that catches the sun. */
+  shakeOff(kind = 'full') {
     if (this.wet < 0.05 || this.f.shaking) return false;
-    this.f.shake(SHAKE_TIME);
+    this.f.shake(SHAKE_TIME, kind);
     this._sprayFrom = this.wet;
     return true;
   }
 
   /**
-   * Flick the water off his hands: fists up to the chest and snapped down,
-   * twice, a spatter off the fingers on each snap. Uses the guard pose (the
-   * rig has no clip for it), so only call it when nothing else is posing the guard.
+   * The water each DustOff move throws: off the hair sideways as the head
+   * shakes (k: how far it turned this frame), running down the back as the
+   * hair is wrung out, and spattering off the fingertips as each hand snaps down.
    */
-  flickHands() {
-    this.flickT = 0;
-  }
-
-  _flick(dt) {
-    if (this.flickT === undefined || this.flickT < 0) return;
-    const was = Math.floor(this.flickT / FLICK_BEAT);
-    this.flickT += dt;
-    const beat = Math.floor(this.flickT / FLICK_BEAT);
-    if (beat >= 4) {
-      this.flickT = -1;
-      this.f.setGuard(false);
-      return;
-    }
-    this.f.setGuard(beat % 2 === 0, 0.8);
-    if (beat !== was && beat % 2 === 1) {
-      // the snap down: water comes off the fingertips
-      for (const n of ['FingersL', 'FingersR']) {
-        this._bonePos(this.bones[n], _a);
-        for (let k = 0; k < 16; k++) {
-          const a = Math.random() * Math.PI * 2, s = rand(0.6, 1.8);
-          this.fx.drop(_a.x, _a.y, _a.z, Math.cos(a) * s, rand(-2.5, -0.6), Math.sin(a) * s, Math.random() < 0.25 ? 'glint' : 'spray');
-        }
+  _dustSpray(kind, pos, side, k) {
+    const wet = Math.max(0.25, this._sprayFrom || this.wet);
+    if (kind === 'head') {
+      this._owed += k * 70 * wet;
+      while (this._owed >= 1) {
+        this._owed -= 1;
+        // off the hair round the sides and top, flung along the way the head is turning
+        const a = Math.random() * Math.PI * 2, up = rand(-0.2, 0.9);
+        const ox = Math.cos(a) * 0.1, oz = Math.sin(a) * 0.1, s = rand(1.6, 3.6) * side;
+        this.fx.drop(pos.x + ox, pos.y + up * 0.09, pos.z + oz, oz * 10 * s, rand(0.4, 1.8), -ox * 10 * s, Math.random() < 0.3 ? 'glint' : 'spray');
+      }
+    } else if (kind === 'wring') {
+      for (let n = 0; n < 3 * wet; n++) {
+        this.fx.drop(pos.x + rand(-0.07, 0.07), pos.y + rand(-0.05, 0.05), pos.z + rand(-0.07, 0.07), rand(-0.15, 0.15), rand(-0.4, 0), rand(-0.15, 0.15));
+      }
+    } else if (kind === 'flick') {
+      for (let n = 0; n < 14 * wet * k; n++) {
+        const a = Math.random() * Math.PI * 2, s = rand(0.5, 1.6);
+        this.fx.drop(pos.x, pos.y, pos.z, Math.cos(a) * s, rand(-2.6, -0.8), Math.sin(a) * s, Math.random() < 0.25 ? 'glint' : 'spray');
       }
     }
   }
@@ -434,14 +432,16 @@ export class Wetness {
       }
     }
 
-    if (this.f.shaking) this._spray(dt);
-    this._flick(dt);
+    if (this.f.shaking) {
+      if (this.f.dust) this.wet = Math.max(0.15, this.wet - dt * 0.25); // DustOff throws its own water (_dustSpray)
+      else this._spray(dt);
+    }
 
     if (this.autoShake && still !== null) {
       this.shakeCD -= dt;
       if (this.f.shaking && !still) this.f.stopShake();
       this.stillT = still && !this.inWater ? this.stillT + dt : 0;
-      if (this.stillT > 1.3 && this.wet > 0.3 && this.shakeCD <= 0 && this.shakeOff()) this.shakeCD = 7;
+      if (this.stillT > 1.3 && this.wet > 0.3 && this.shakeCD <= 0 && this.shakeOff('quick')) this.shakeCD = 7;
     }
   }
 

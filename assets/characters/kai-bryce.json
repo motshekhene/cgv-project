@@ -132,6 +132,10 @@
       "hips1": 0.908,
       "up": 1.5
     },
+    "relax": {
+      "duration": 1.067,
+      "loop": false
+    },
     "kickl": {
       "duration": 1.667,
       "loop": false,

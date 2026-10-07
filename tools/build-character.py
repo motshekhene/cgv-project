@@ -63,6 +63,7 @@ CONFIGS = {
             'death': ('Dying.fbx', 'once'),
             'sitting': ('Sitting Idle.fbx', 'pose'),
             'standing': ('Getting Up.fbx', 'standing'),
+            'relax': ('Fight Idle To Standing Idle.fbx', 'once'),  # out of his stance; its last frame is a relaxed stand
         },
         # lower case: the game lower-cases clip names
         'mirror': {'kickl': 'kick', 'dodgel': 'dodge'},
