@@ -41,6 +41,7 @@ const _qp = new THREE.Quaternion();
 const _p0 = new THREE.Vector3();
 const _p1 = new THREE.Vector3();
 const _pf = new THREE.Vector3();
+const _Y = new THREE.Vector3(0, 1, 0);
 
 export class Fighter {
   constructor(parent, { source = null, height = 1.8, capsuleColor = 0xdfe8ee, darken = 1, palette = {} } = {}) {
@@ -70,6 +71,10 @@ export class Fighter {
     this._modified = []; // bones we posed last frame, restored before the mixer runs
     this.kickSide = 'R';
     this.kickWeight = 0;
+    this.shakeT = 0;
+    this.shakeDur = 0;
+    this.shakeAmp = 0; // eased 0..1, so a cancelled shake settles instead of snapping
+    this.headBone = null;
 
     if (source) this._buildFromModel(source, height, darken, palette);
     else this._buildCapsule(height, capsuleColor);
@@ -113,6 +118,7 @@ export class Fighter {
 
     const byName = {};
     model.traverse((o) => { if (o.isBone) byName[o.name] = o; });
+    this.headBone = byName.Head || null;
     if (byName.FootR && byName.UpperLegR && byName.LowerLegR && byName.LowerLegR_end) {
       this.kickRig = {};
       for (const side of ['R', 'L']) {
@@ -185,6 +191,20 @@ export class Fighter {
   flinch() {
     this.flinchT = 0.25;
     this.flash(0xffffff, 0.12);
+  }
+
+  /** Shake off water like a dog: the body twists side to side, the head whips a beat behind. */
+  shake(duration) {
+    this.shakeT = 0;
+    this.shakeDur = duration;
+  }
+
+  stopShake() {
+    this.shakeDur = 0;
+  }
+
+  get shaking() {
+    return this.shakeDur > 0;
   }
 
   flash(hex, seconds = 0.12) {
@@ -285,6 +305,27 @@ export class Fighter {
     }
     this.pivot.rotation.x = pitch;
     this.pivot.position.y = py;
+
+    // shake-off: no clip for it on the rig, so it's procedural like the roll
+    if (this.shakeDur > 0) {
+      this.shakeT += dt;
+      if (this.shakeT >= this.shakeDur) this.shakeDur = 0;
+    }
+    const env = this.shakeDur > 0 ? Math.sin((this.shakeT / this.shakeDur) * Math.PI) ** 0.6 : 0;
+    this.shakeAmp += (env - this.shakeAmp) * (1 - Math.exp(-25 * dt));
+    if (this.shakeAmp > 0.002) {
+      const w = this.shakeT * Math.PI * 2 * 5.5;
+      this.pivot.rotation.y = Math.sin(w) * 0.32 * this.shakeAmp;
+      this.pivot.rotation.z = Math.sin(w + 1.3) * 0.06 * this.shakeAmp;
+      if (this.headBone) {
+        this._stash(this.headBone);
+        _q.setFromAxisAngle(_Y, -Math.sin(w - 0.7) * 0.45 * this.shakeAmp);
+        this.headBone.quaternion.multiply(_q);
+      }
+    } else {
+      this.shakeAmp = 0;
+      this.pivot.rotation.y = this.pivot.rotation.z = 0;
+    }
 
     if (this.flashT > 0) this.flashT -= dt;
     const flashing = this.flashT > 0;

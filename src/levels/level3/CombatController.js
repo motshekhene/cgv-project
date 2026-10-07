@@ -59,6 +59,7 @@ export class CombatController {
     this.moveSpeed = 5.6;
 
     this.dead = false;
+    this.still = false;
     this.dodging = false;
     this.dodgeT = 0;
     this.dodgeCD = 0;
@@ -103,6 +104,7 @@ export class CombatController {
 
   update(dt, input, state, { camYaw, lockOn, targetPos, steer = false }) {
     const f = this.fighter;
+    this.still = false; // standing idle this frame: no move, turn, swing, roll or block
     if (this.dead) {
       f.update(dt);
       return;
@@ -252,6 +254,7 @@ export class CombatController {
       else if (turning) f.play('walk', { speed: 0.7 }); // stepping round on the spot
       else f.play('idle');
     }
+    this.still = !moving && !turning && !this.attacking && !this.dodging && !this.blocking;
     f.update(dt);
   }
 
