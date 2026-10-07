@@ -33,6 +33,11 @@ const FALL = { x: -7, z: -33.5, w: 7, h: 19 };
 const WALL_Z = -17.2;
 const GATE_S = RU * 1.6;
 export const WALK_R = 34; // how far into the jungle Kai (and the Handler after him) can go
+const KEEP_R = 2.4; // trees this close to Kai stay solid on screen (never shrink for the camera)
+
+const _mat = new THREE.Matrix4();
+const _rot = new THREE.Matrix4();
+const _axis = new THREE.Vector3();
 
 /** Clearings in the jungle ring where the shrine gifts stand (level3/Awards.js). */
 export const GIFT_SPOTS = {
@@ -45,6 +50,47 @@ const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+
+const BARK = /bark|trunk|^tree$/i;
+
+/**
+ * A tree model's trunk, measured from its bark between knee and hip height (in
+ * the model's own units, so it scales with each copy): centre and radius. The
+ * five jungle trees range from ~17 to ~32 units, i.e. 0.5 m to 1.2 m once placed,
+ * which one fixed collision circle can't cover. Null if the model has no bark.
+ */
+function trunkOf(prop) {
+  prop.updateMatrixWorld(true);
+  const inv = prop.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const pts = [];
+  prop.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = [].concat(o.material);
+    const pos = o.geometry.attributes.position;
+    const idx = o.geometry.index;
+    const groups = o.geometry.groups.length ? o.geometry.groups : [{ start: 0, count: idx ? idx.count : pos.count, materialIndex: 0 }];
+    m.multiplyMatrices(inv, o.matrixWorld);
+    for (const g of groups) {
+      if (!BARK.test(mats[g.materialIndex]?.name || '')) continue;
+      for (let i = g.start; i < g.start + g.count; i++) {
+        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m);
+        if (v.y > 12 && v.y < 50) pts.push(v.x, v.z);
+      }
+    }
+  });
+  if (!pts.length) return null;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]);
+    z0 = Math.min(z0, pts[i + 1]); z1 = Math.max(z1, pts[i + 1]);
+  }
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  let r = 0;
+  for (let i = 0; i < pts.length; i += 2) r = Math.max(r, Math.hypot(pts[i] - cx, pts[i + 1] - cz));
+  return { cx, cz, r: r * 0.92 }; // the furthest vertices are the polygon's corners: sit just inside them
+}
 
 function dotTexture() {
   const c = document.createElement('canvas');
@@ -72,7 +118,10 @@ export class ShrineArena {
     this._c = new THREE.Color();
     this.bursts = [];
     this.obstacles = []; // { x, z, r } circles: trunks, columns, statues, cliff rocks, altars
+    this.trees = []; // the trunk obstacles, also linked to their instance (occ, i) so a bump can shake it
     this.occluders = []; // instanced trees/bushes that shrink out of the camera's way
+    this.swaying = new Set(); // trees still rocking from a bump
+    this.leaves = null; // falling-leaf particles, built on the first bump
     this.walls = [ // the gate wall line, open under the arch
       { ax: -22.4, bx: -5.1, z: WALL_Z - 0.25, r: 0.5 },
       { ax: -0.9, bx: 13.2, z: WALL_Z - 0.25, r: 0.5 },
@@ -202,8 +251,12 @@ export class ShrineArena {
     this._buildWater();
 
     // ---- jungle ring (instanced: one draw call per model, not per tree)
+    // Trunks are solid like the columns: a collision circle the size of the bark
+    // (measured per model), and the camera never shrinks a tree Kai is next to.
     const treeSrc = [tree1, tree2, tree3, tree4, treeR];
+    const trunks = treeSrc.map((src) => src && trunkOf(src));
     const treeSpots = treeSrc.map(() => []);
+    const solid = [];
     for (let k = 0; k < 80; k++) {
       const a = r() * Math.PI * 2, d = 19 + r() * 42;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
@@ -212,10 +265,21 @@ export class ShrineArena {
       if (Object.values(GIFT_SPOTS).some((g) => Math.hypot(x - g.x, z - g.z) < 5)) continue; // shrine clearings
       const t = Math.floor(r() * treeSrc.length);
       const s = (t === 4 ? 0.03 : 0.028) * (0.8 + r() * 0.6);
-      treeSpots[t].push({ x, y: this.groundHeight(x, z) - 0.15, z, s, ry: r() * 6.28 });
-      if (d < WALK_R + 1) this.obstacles.push({ x, z, r: 0.55 });
+      const ry = r() * 6.28;
+      treeSpots[t].push({ x, y: this.groundHeight(x, z) - 0.15, z, s, ry });
+      if (d >= WALK_R + 1 || !treeSrc[t]) continue;
+      const tr = trunks[t];
+      const c = Math.cos(ry), sn = Math.sin(ry);
+      solid.push({
+        x: tr ? x + (tr.cx * c + tr.cz * sn) * s : x,
+        z: tr ? z + (-tr.cx * sn + tr.cz * c) * s : z,
+        r: tr ? tr.r * s : 0.55,
+        t, i: treeSpots[t].length - 1,
+      });
     }
-    treeSrc.forEach((src, t) => src && this._occluder(scatter(this.root, src, treeSpots[t]), treeSpots[t], () => 1.9));
+    const treeOcc = treeSrc.map((src, t) => src && this._occluder(scatter(this.root, src, treeSpots[t]), treeSpots[t], () => 1.9, true));
+    this.trees = solid.map((o) => ({ ...o, occ: treeOcc[o.t] || null }));
+    this.obstacles.push(...this.trees);
 
     const bushSpots = [[], []];
     const ringSpots = [[], []];
@@ -466,13 +530,37 @@ export class ShrineArena {
     this.sun.position.copy(this.sky.material.uniforms.uSunDir.value).multiplyScalar(60).add(t);
   }
 
-  _occluder(group, spots, radius) {
+  _occluder(group, spots, radius, solid = false) {
     const meshes = group.children.filter((m) => m.isInstancedMesh);
-    if (!meshes.length) return;
-    this.occluders.push({
-      meshes, spots, radius: spots.map(radius),
+    if (!meshes.length) return null;
+    const n = spots.length;
+    const o = {
+      meshes, spots, radius: spots.map(radius), solid,
       base: meshes.map((m) => m.instanceMatrix.array.slice()),
-      k: new Float32Array(spots.length).fill(1),
+      k: new Float32Array(n).fill(1),
+      // bump sway: tilt angle, its rate, and the (unit) direction the top leans
+      tilt: new Float32Array(n), spin: new Float32Array(n), dirX: new Float32Array(n), dirZ: new Float32Array(n),
+    };
+    this.occluders.push(o);
+    return o;
+  }
+
+  /** Write instance i of an occluder: its base matrix, shrunk by k and leaning by its tilt. */
+  _pose(o, i) {
+    const k = o.k[i], tilt = o.tilt[i], sp = o.spots[i];
+    if (tilt) _rot.makeRotationAxis(_axis.set(o.dirZ[i], 0, -o.dirX[i]), tilt);
+    o.meshes.forEach((m, mi) => {
+      const j = i * 16;
+      const e = _mat.fromArray(o.base[mi], j).elements;
+      for (const c of [0, 1, 2, 4, 5, 6, 8, 9, 10]) e[c] *= k;
+      if (tilt) {
+        // lean about the tree's root, not the world origin
+        e[12] -= sp.x; e[13] -= sp.y; e[14] -= sp.z;
+        _mat.premultiply(_rot);
+        e[12] += sp.x; e[13] += sp.y; e[14] += sp.z;
+      }
+      _mat.toArray(m.instanceMatrix.array, j);
+      m.instanceMatrix.needsUpdate = true;
     });
   }
 
@@ -481,31 +569,174 @@ export class ShrineArena {
    * looks at shrinks away (and grows back once the camera has passed), so the
    * fight stays visible when it spills into the jungle. Only the 3x3 part of
    * each instance matrix is scaled, so it shrinks about its own root.
+   *
+   * Trees within KEEP_R of `keep` (Kai) never shrink: those are the ones he can
+   * walk into, and a trunk that vanishes as he reaches it reads as walking
+   * through it. If one of them is behind him, pullCamera() brings the camera
+   * in front of it instead.
    */
-  updateOcclusion(dt, from, to) {
+  updateOcclusion(dt, from, to, keep = null) {
     const ax = from.x, az = from.z;
     const dx = to.x - ax, dz = to.z - az;
     const len2 = dx * dx + dz * dz || 1e-6;
     const len = Math.sqrt(len2);
     for (const o of this.occluders) {
-      let dirty = false;
       for (let i = 0; i < o.spots.length; i++) {
         const sp = o.spots[i];
         const t = Math.min(1, Math.max(0, ((sp.x - ax) * dx + (sp.z - az) * dz) / len2));
         const px = ax + dx * t - sp.x, pz = az + dz * t - sp.z;
-        const blocks = px * px + pz * pz < o.radius[i] * o.radius[i] && (1 - t) * len > 0.8;
+        const kept = o.solid && keep && (sp.x - keep.x) ** 2 + (sp.z - keep.z) ** 2 < KEEP_R * KEEP_R;
+        const blocks = !kept && px * px + pz * pz < o.radius[i] * o.radius[i] && (1 - t) * len > 0.8;
         const k = o.k[i];
         const nk = blocks ? Math.max(0.0001, k - dt * 6) : Math.min(1, k + dt * 3);
         if (nk === k) continue;
         o.k[i] = nk;
-        dirty = true;
-        o.meshes.forEach((m, mi) => {
-          const a = m.instanceMatrix.array, b = o.base[mi], j = i * 16;
-          for (const e of [0, 1, 2, 4, 5, 6, 8, 9, 10]) a[j + e] = b[j + e] * nk;
-        });
+        if (!o.tilt[i]) this._pose(o, i); // a swaying tree is re-posed every frame anyway
       }
-      if (dirty) for (const m of o.meshes) m.instanceMatrix.needsUpdate = true;
     }
+  }
+
+  /**
+   * Keep the camera (`cam`, moved in place) on Kai's side of any trunk standing
+   * between him (`from`) and it: the third-person-camera answer to a tree
+   * behind him, instead of hiding the tree. Only the trees updateOcclusion()
+   * keeps solid are checked; the rest get out of the way themselves.
+   */
+  pullCamera(from, cam, minDist = 1.2) {
+    const dx = cam.x - from.x, dz = cam.z - from.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) return;
+    const ux = dx / len, uz = dz / len;
+    let near = len;
+    for (const o of this.trees) {
+      const ox = o.x - from.x, oz = o.z - from.z;
+      if (ox * ox + oz * oz > KEEP_R * KEEP_R) continue;
+      const along = ox * ux + oz * uz;
+      if (along <= 0) continue;
+      const R = o.r + 0.35;
+      const perp2 = ox * ox + oz * oz - along * along;
+      if (perp2 > R * R) continue;
+      near = Math.min(near, along - Math.sqrt(R * R - perp2));
+    }
+    if (near >= len) return;
+    const f = Math.max(minDist, near) / len;
+    cam.x = from.x + dx * f;
+    cam.z = from.z + dz * f;
+    cam.y = from.y + 1.9 + (cam.y - from.y - 1.9) * f; // drop a little as it comes in, so it isn't looking straight down
+  }
+
+  /**
+   * Something ran into a trunk: the tree rocks away from (fromX, fromZ) on a
+   * damped spring and drops a few leaves. strength 0..~1.6 (a roll hits hardest).
+   */
+  shakeTree(tree, fromX, fromZ, strength = 1) {
+    const o = tree.occ;
+    if (!o) return;
+    const i = tree.i;
+    let dx = tree.x - fromX, dz = tree.z - fromZ;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d; dz /= d;
+    // add the kick along the new direction to whatever sway is still going
+    const vx = o.dirX[i] * o.spin[i] + dx * 0.65 * strength;
+    const vz = o.dirZ[i] * o.spin[i] + dz * 0.65 * strength;
+    const tx = o.dirX[i] * o.tilt[i], tz = o.dirZ[i] * o.tilt[i];
+    const v = Math.hypot(vx, vz) || 1;
+    o.dirX[i] = vx / v; o.dirZ[i] = vz / v;
+    o.spin[i] = Math.min(1.1, v);
+    o.tilt[i] = tx * o.dirX[i] + tz * o.dirZ[i];
+    this.swaying.add(tree);
+    this._dropLeaves(tree, Math.round(8 + 10 * Math.min(1.5, strength)));
+  }
+
+  _updateSway(dt) {
+    const w = 10, zeta = 0.17; // ~1.6 Hz, rings for a second or two
+    const h = Math.min(dt, 1 / 30);
+    for (const tree of this.swaying) {
+      const o = tree.occ, i = tree.i;
+      o.spin[i] += (-w * w * o.tilt[i] - 2 * zeta * w * o.spin[i]) * h;
+      o.tilt[i] += o.spin[i] * h;
+      if (Math.abs(o.tilt[i]) < 2e-4 && Math.abs(o.spin[i]) < 2e-3) {
+        o.tilt[i] = o.spin[i] = 0;
+        this.swaying.delete(tree);
+      }
+      this._pose(o, i);
+    }
+  }
+
+  _buildLeaves() {
+    const n = 220;
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.ellipse(16, 16, 6, 13, 0.6, 0, Math.PI * 2);
+    g.fill();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3).fill(-999), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: tex, size: 0.16, vertexColors: true, transparent: true, alphaTest: 0.4, depthWrite: true,
+    }));
+    pts.frustumCulled = false;
+    this.root.add(pts);
+    this.leaves = {
+      pts, tex, n, next: 0,
+      life: new Float32Array(n), vel: new Float32Array(n * 3), phase: new Float32Array(n),
+      floor: new Float32Array(n),
+    };
+  }
+
+  _dropLeaves(tree, count) {
+    if (!this.leaves) this._buildLeaves();
+    const L = this.leaves;
+    const pos = L.pts.geometry.attributes.position;
+    const col = L.pts.geometry.attributes.color;
+    const greens = [0x5f8a2a, 0x7da03a, 0x4a6e22, 0x9a8f3c, 0x86a843];
+    for (let k = 0; k < count; k++) {
+      const i = L.next;
+      L.next = (L.next + 1) % L.n;
+      const a = Math.random() * Math.PI * 2, d = tree.r + 0.3 + Math.random() * 1.8;
+      const x = tree.x + Math.cos(a) * d, z = tree.z + Math.sin(a) * d;
+      pos.setXYZ(i, x, 2.6 + Math.random() * 2.4 + this.groundHeight(x, z), z);
+      this._c.setHex(greens[Math.floor(Math.random() * greens.length)]);
+      col.setXYZ(i, this._c.r, this._c.g, this._c.b);
+      L.vel.set([(Math.random() - 0.5) * 0.6, -(0.55 + Math.random() * 0.5), (Math.random() - 0.5) * 0.6], i * 3);
+      L.phase[i] = Math.random() * 10;
+      L.life[i] = 7;
+      L.floor[i] = this.groundHeight(x, z) + 0.03;
+    }
+    col.needsUpdate = true;
+  }
+
+  _updateLeaves(dt, time) {
+    const L = this.leaves;
+    if (!L) return;
+    const pos = L.pts.geometry.attributes.position;
+    let moved = false;
+    for (let i = 0; i < L.n; i++) {
+      if (L.life[i] <= 0) continue;
+      moved = true;
+      L.life[i] -= dt;
+      let y = pos.getY(i);
+      if (y <= L.floor[i]) {
+        // settled: lie on the ground a moment, then go
+        if (L.life[i] > 1.2) L.life[i] = 1.2;
+        if (L.life[i] <= 0) pos.setY(i, -999);
+        continue;
+      }
+      // flutter: side to side as they fall, a little faster on the down-swing
+      const p = L.phase[i];
+      const sway = Math.sin(time * 3.1 + p);
+      pos.setX(i, pos.getX(i) + (L.vel[i * 3] + sway * 0.9) * dt);
+      pos.setZ(i, pos.getZ(i) + (L.vel[i * 3 + 2] + Math.cos(time * 2.3 + p) * 0.6) * dt);
+      y += L.vel[i * 3 + 1] * (1 + Math.abs(sway) * 0.5) * dt;
+      pos.setY(i, Math.max(L.floor[i], y));
+      if (L.life[i] <= 0) pos.setY(i, -999);
+    }
+    if (moved) pos.needsUpdate = true;
   }
 
   /** Height a fighter stands at: the tiles in the courtyard, the real ground (hills, pool bed) outside. */
@@ -514,8 +745,12 @@ export class ShrineArena {
     return k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0;
   }
 
-  /** Push a fighter at `pos` (radius `rad`) out of every obstacle and back inside the walkable ring. */
+  /**
+   * Push a fighter at `pos` (radius `rad`) out of every obstacle and back inside
+   * the walkable ring. Returns the tree it was pushed off, if any (for shakeTree()).
+   */
   collide(pos, rad = 0.4) {
+    let tree = null;
     for (const o of this.obstacles) {
       const dx = pos.x - o.x, dz = pos.z - o.z;
       const min = o.r + rad;
@@ -524,6 +759,7 @@ export class ShrineArena {
       const d = Math.sqrt(d2) || 0.0001;
       pos.x = o.x + (dx / d) * min;
       pos.z = o.z + (dz / d) * min;
+      if (o.occ !== undefined) tree = o;
     }
     for (const w of this.walls) {
       const cx = Math.min(w.bx, Math.max(w.ax, pos.x));
@@ -540,6 +776,7 @@ export class ShrineArena {
       pos.x *= WALK_R / r;
       pos.z *= WALK_R / r;
     }
+    return tree;
   }
 
   _updateBursts(dt) {
@@ -665,11 +902,14 @@ export class ShrineArena {
     mp.needsUpdate = true;
 
     this._updateBursts(dt);
+    this._updateSway(dt);
+    this._updateLeaves(dt, time);
     this.led.visible = Math.sin(time * 5) > -0.6;
   }
 
   dispose() {
     if (this.scene) this.scene.fog = null;
     this.dot.dispose();
+    if (this.leaves) this.leaves.tex.dispose();
   }
 }

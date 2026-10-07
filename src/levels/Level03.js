@@ -133,6 +133,8 @@ export class Level03 extends Level {
     this._camLook = new THREE.Vector3(0, 1.4, 0);
     this._tmp = new THREE.Vector3();
     this._toBoss = new THREE.Vector3();
+    this._kaiBody = { prev: null, tree: null }; // last position + the trunk each fighter is touching
+    this._bossBody = { prev: null, tree: null };
 
     if (introSeen) this._startFight();
     else this._startIntro();
@@ -330,7 +332,7 @@ export class Level03 extends Level {
 
     this._updateCamera(real);
     this._updatePointer();
-    this.arena.updateOcclusion(real, this.game.camera.position, this._camLook);
+    this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
@@ -400,8 +402,8 @@ export class Level03 extends Level {
     const b = this.boss.update(dt);
     this._separate();
     // out in the jungle: trees, statues and walls are solid, and the ground isn't flat
-    this.arena.collide(cp, 0.4);
-    this.arena.collide(bp, 0.45);
+    this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
+    this._collide(this._bossBody, bp, 0.45, dt, false);
     cp.y = this.arena.fighterY(cp.x, cp.z);
     bp.y = this.arena.fighterY(bp.x, bp.z);
     // HandlerBoss glows orange through his phase transition; for the reveal close-up
@@ -437,6 +439,22 @@ export class Level03 extends Level {
       this._endTimer -= real;
       if (this._endTimer < 0) this._finish(state);
     }
+  }
+
+  /**
+   * Keep one fighter out of the scenery. Running into a trunk (a fresh contact,
+   * not leaning on it) rocks the tree and shakes leaves loose; Kai rolling into
+   * one also thumps the camera.
+   */
+  _collide(body, pos, rad, dt, rolling) {
+    const speed = body.prev ? Math.hypot(pos.x - body.prev.x, pos.z - body.prev.z) / Math.max(dt, 1e-4) : 0;
+    const tree = this.arena.collide(pos, rad);
+    if (tree && tree !== body.tree && speed > 1.5) {
+      this.arena.shakeTree(tree, pos.x, pos.z, Math.min(1, speed / 6) * (rolling ? 1.5 : 1));
+      if (rolling) this._addShake(0.22);
+    }
+    body.tree = tree;
+    (body.prev ||= new THREE.Vector3()).copy(pos);
   }
 
   /** Fighters are solid: never let them stand inside each other. */
@@ -791,6 +809,7 @@ export class Level03 extends Level {
       // slowed with the game during hit-stop, so impacts freeze the camera too
       const gameDt = dt * Math.max(this.state.timeScale, 0.05);
       this._tmp.set(fx - Math.sin(this.camYaw) * dist, height + fy, fz - Math.cos(this.camYaw) * dist);
+      this.arena.pullCamera(cp, this._tmp); // a trunk right behind Kai: come in front of it rather than hide it
       cam.position.lerp(this._tmp, 1 - Math.exp(-15 * gameDt));
       this._tmp.set(fx, 1.4 + fy, fz);
       this._camLook.lerp(this._tmp, 1 - Math.exp(-10 * gameDt));
