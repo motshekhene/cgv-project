@@ -66,9 +66,10 @@ export class Game {
 
     // hooks the UI layer can set — Game does not touch the DOM itself
     this.onLevelChanged = null;
-    this.onLevelLoading = null; // (name) — a level has started building
+    this.onLevelLoading = null; // (name) — a level has started building       
     this.onLoadProgress = null;
     this.onPaused = null;
+    this.onControlsToggle = null; // () — the player asked for the controls panel
 
     // secondary cameras rendered as picture-in-picture overlays each frame.
     // key: name string, value: { camera, viewport: { x, y, w, h } }
@@ -147,6 +148,7 @@ export class Game {
     }
 
     if (this.input.pressed("pause")) this.setPaused(!this.paused);
+    if (this.input.pressed("controls") && this.onControlsToggle) this.onControlsToggle();
     if (this.input.pressed("restart")) {
       this.restart();
       this.input.endFrame();

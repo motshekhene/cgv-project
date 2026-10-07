@@ -41,6 +41,7 @@ export const DEFAULT_BINDINGS = {
   skipScene: ["x"], // jump a whole intro — only polled by scenes that have one
   decline: ["q"], // the "no" half of a two-way choice (prologue)
   mute: ["m"],
+  controls: ["h"], // the controls overlay — what everything else does
   changeCar: ["v"], // level 02: open the car picker
 };
 

@@ -6,6 +6,7 @@ import { Level02 } from "./levels/Level02.js";
 import { Level03 } from "./levels/Level03.js";
 import { TrailIntro } from "./intros/level1/TrailIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
+import { mountControlsOverlay } from "./ui/ControlsOverlay.js";
 
 /**
  * The full run, in order:
@@ -60,6 +61,9 @@ cover.querySelector("i").style.cssText = "display:block;width:min(260px,60vw);he
 bar.style.cssText = "display:block;height:100%;width:0;background:#e3bb62;transition:width .2s";
 document.body.appendChild(cover);
 
+// the "H · CONTROLS" pill — what every input does, per level, one press away
+const controlsOverlay = mountControlsOverlay(game);
+
 game.onLevelLoading = () => {
   bar.style.width = "0";
   cover.style.opacity = "1";
@@ -69,9 +73,11 @@ game.onLoadProgress = (p) => {
 };
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
+  controlsOverlay.setLevel(name);
   cover.style.opacity = "0";
 };
 game.onPaused = (v) => console.log("[game]", v ? "paused" : "resumed");
+game.onControlsToggle = () => controlsOverlay.toggle();
 
 const wanted = new URLSearchParams(location.search).get("level");
 const first = game.levels.has(wanted) ? wanted : "prologue";
