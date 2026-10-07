@@ -5,103 +5,106 @@ import {
   loadJungleKit,
   createJungleMaterials,
   createJungleSky,
-  createSign,
   createLightShaft,
   cloneProp,
   placeProp,
 } from './level1/jungleWorld.js';
 
 /**
- * PROLOGUE — NOCTIS FIELD STATION, the survey camp on Site 7's perimeter. 05:12,
- * the last night of the dig season.
+ * PROLOGUE — THE FIRE, THE STONE, THE HORN.
  *
- * JUNGLE SHRINE THEME, the whole way through. There is no interior here and
- * there never was: the game is a jungle, so the first thing the player sees is
- * the jungle — a canvas work tent, a generator, crate stacks, and Rack 14
- * lashed under a tarp against a ruin wall. Night, mist and fireflies; the
- * moment Kai runs, dawn breaks into level 01's exact morning palette. That
- * cut is the whole point of the scene.
+ * A completely different intro to the server-vault one this branch replaces.
+ * There is no technology anywhere in this scene: no laptop, no rack, no key
+ * card. Kai is not an engineer here. He is a forest guide, and the story is
+ * the valley's own.
  *
- * THE BACKSTORY THIS SCENE HAS TO DELIVER — Kai runs with the Key through all
- * of level 01, and none of it is explained anywhere else, so every beat below
- * exists to earn that run:
+ * THE STORY THIS SCENE HAS TO DELIVER — Kai runs with the horn through all of
+ * level 01, and none of it is explained anywhere else:
  *
- *   1. He is the night watch here. The company that runs the dig ordered him,
- *      on his last shift, to sign off "the decommission of Rack 14".
- *   2. Signing off is typing a check. The check comes back wrong: a rack that
- *      was pulled from service in March is still drawing power, and it is not
- *      on the asset register. Inside it: PROJECT BLACKOUT.
- *   3. BLACKOUT is a contracted kill switch for every network on the continent,
- *      nine days from going live. Site 7 — this basin — is holding site 07.
- *   4. He copies the data to his own drive. But the protocol needs the PHYSICAL
- *      AUTHORIZATION KEY, and the key is in the rack. So he has to walk across
- *      an open clearing, in the dark, to the thing he was told to sign away.
- *   5. The moment the Key is lit in his hand, there is a man with a torch in
- *      the trail mouth — the only way out. He runs. Level 01 is that run.
+ *   1. Ingram taught Kai the forest and got him the company work. He is the
+ *      closest thing Kai has to family, and he is sitting at the fire when
+ *      the scene opens — lit properly, face showing, the one clear look the
+ *      player ever gets until the last two minutes of the game.
+ *   2. There is a horn on a stone deep in the forest. While it stays there,
+ *      nobody cuts the trees. Ingram pays Kai one night's pay to take it.
+ *   3. The moment Kai lifts it off the stone, every sound in the forest stops
+ *      at once. He understands what he has done, turns around, and runs it
+ *      back. Level 01 is that run.
  *
  * Shape:
- *   cards    clicked through — who he is, where he is, what he is doing
- *   seated   no walking. The laptop is the whole interface.
- *   check    the decommission check: pulled in March, still drawing power
- *   manifest the readout: PROJECT BLACKOUT, holding sites, nine days
- *   choice   copy it to the drive (Q refuses, and asks again — the scene
- *            does not move until he copies it)
- *   brief    the copy lands — and asks for the PHYSICAL AUTHORIZATION KEY
- *   stand    he gets up; control returns
- *   toRack   the walk across the clearing, marker lamps to Rack 14
- *   atRack   amber terminal on his face. E takes the key, and it goes cyan.
- *   wide     the pull-back, from the tree line: Kai, the lit Key, and the
- *            figure standing in the trail mouth. One frame, the whole problem.
- *   flee     back across the clearing, past him, out onto the trail — and the
- *            night breaks to dawn as he goes
+ *   title    the title fades up over the live scene. The click that starts
+ *            the conversation also starts the forest — browsers will not
+ *            play audio until a gesture, and the whole scene depends on
+ *            having sound to cut.
+ *   talk     the conversation at the fire. One camera, two people, click to
+ *            advance — the card mechanic pointed at faces instead of text.
+ *   leave    Ingram whistles two notes and walks off into the dark.
+ *   rise     Kai gets up; control returns.
+ *   walk     the stone is a few metres away across open ground. No obstacles.
+ *   choice   E takes the horn, Q gives him a moment of doubt and puts the
+ *            prompt back, so taking it is always deliberate.
+ *   taken    he lifts the horn. Every ambient sound cuts out at once. The
+ *            horn glows — the only cyan in the game.
+ *   wide     a lamp moves in the trees behind him. The pull-back holds the
+ *            lamp and the way out in the same frame, so the player works out
+ *            the problem by looking at it.
+ *   flee     control returns and he runs, straight into level 01's run.
  *
- * Colour is doing the narrative work, so nothing else may use these:
- *   amber  Rack 14 (and the camp lamps, dim)   cyan  the Key
+ * HOW THE TEXT LOOKS — the old screens were monospace on black, which was
+ * right for a server room and wrong for a forest:
+ *   no black screens   every word sits over the live scene
+ *   serif, not mono    one line from Google Fonts, Georgia behind it
+ *   warm palette       cream body text, firelight amber, jungle green
+ *   speaker names      above each line, in that character's colour —
+ *                      KAI in green, INGRAM in amber. Amber is the fire he
+ *                      sits at, then the lamp in the trees, then the lamp for
+ *                      three levels. The player connects it before they know.
+ *   no subtitle box    a soft dark gradient along the bottom, nothing more
  *
- * Pacing rule: the laptop finishes typing before Kai thinks anything, and he
- * finishes thinking before the laptop types again. Nothing here is on a timer
- * that can collide with something else the player is reading.
+ * THE ONE RULE — Ingram's face is lit by the fire here and NOWHERE ELSE. From
+ * the moment he walks off he is a long coat, a lamp and two whistled notes:
+ * silhouette material, backlit, never close. If the player gets one clear
+ * look at him during a chase, the ending stops working.
  *
  * Audio is synthesised with the Web Audio API — no sound files, so nothing to
- * download, credit or wait for. It is self-contained in this file on purpose,
- * so it does not collide with the game-wide audio work.
- *
- * TWO PLANTS THAT PAY OFF IN LEVEL 03 — do not change without telling the team:
- *   1. B. INGRAM, on the work-order card. The prologue NEVER says he is the man
- *      in the trail mouth — that is level 03's reveal, and naming him here
- *      kills it.
- *   2. SITE 7, in the holding-site list. Level 03 depends on the player having
- *      read it here and not understood it.
+ * download, credit or wait for. It is self-contained in this file on purpose.
+ * The forest is insects, frogs and wind; the silence is all of it cut at
+ * once, and the silence does not lift again inside this scene.
  */
 
-const HANDLER_NAME = 'B. INGRAM';
-
-// The camp. The clearing is a disc the player can walk; the trail mouth is the
-// gap in the tree line at the north edge, where level 01's trail begins.
-const SEAT = { x: 0, z: 9.3, eye: 1.15 };
-const BENCH = { x: 0, z: 8.6 };
-const RACK14 = { x: 7.6, z: -1.5 };
-const TRAIL = { x: 0, z: -16 };
+// The clearing. Same geography idea as before: the fire is the south anchor,
+// the stone sits off the line, and the trail mouth is the only way out.
+const SEAT = { x: 0, z: 10.8, eye: 1.14 };  // on the log, feet to the fire
+const FIRE = { x: 0, z: 7.9 };
+const INGRAM_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
+const WALKOFF = { x: -10.8, z: -4.5 };     // where Ingram leaves the fire
+const STONE = { x: 4.2, z: -2.6 };         // the low stone, horn on it
+const TRAIL = { x: 0, z: -16 };            // the way out; level 01 starts there
+const LAMP_SPOT = { x: -8.8, z: -10.8 };   // where the lamp shows in the trees
 const CLEARING_R = 15.5;  // walkable radius
 const CORRIDOR_X = 2.3;   // half-width of the trail mouth gap
 const STAND_EYE = 1.7;
 const WALK = 3.0;
-const RUN = 4.6;          // once he has the Key — he is not strolling out
+const RUN = 4.6;          // once he has the horn — he is not strolling out
 const LOOK = 0.0022;
 
-// the pull-back vantage: high in the south-east of the clearing, looking north
-// over the rack — Kai foreground with the Key lit, the whole clearing, and the
-// torch burning in the trail mouth at the far end. One frame, the whole problem.
-const WIDE_POS = new THREE.Vector3(11.4, 5.4, 4.4);
-const WIDE_LOOK = new THREE.Vector3(2.2, 0.9, -8.0);
+// the pull-back vantage: high in the south-east, looking north-west — Kai
+// foreground at the stone with the horn lit, the lamp burning in the tree
+// line at the left, and the trail mouth open behind it. One frame, the whole
+// problem.
+const WIDE_POS = new THREE.Vector3(12.2, 5.8, 5.2);
+const WIDE_LOOK = new THREE.Vector3(-1.8, 0.8, -8.8);
 
-const KEY_CYAN = 0x4fd6e0;  // the Key — matches how it glows in level 01
-const KEY_HEX = '#4fd6e0';  // the same colour, for the HUD
-const LAMP_AMBER = '#ffb03a';
+const HORN_CYAN = 0x4fd6e0;  // the horn — matches how the level 01 pickup glows
+const HORN_HEX = '#4fd6e0';
+const INGRAM_AMBER = '#ffb03a';  // the fire, then the lamp
+const KAI_GREEN = '#9ed36a';
+const CREAM = '#f2e8d5';
 
 // Night -> dawn. The dawn end of every pair below is level 01's exact morning
 // palette (Level01.init: fog 0xcfd6a8/0.014, hemi 0xbfdcff/0x4a5a26, sun
 // 0xffd29a), so the cut into the trail run is a continuation, not a jump.
+// "Bring it to me before morning" — he is racing the sun, and loses.
 const NIGHT = {
   fog: 0x0a1014, fogDensity: 0.026,
   top: 0x0a1526, horizon: 0x22303a, bottom: 0x090d08, sun: 0x9fb4cc,
@@ -116,17 +119,40 @@ const DAWN = {
 };
 const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 
+// The conversation, word for word. It has to carry everything the old four
+// cards carried: his name, the job, who is asking, and why he says yes.
+const SCRIPT = [
+  { who: 'INGRAM', text: 'Kai. Sit down.' },
+  { who: 'INGRAM', text: 'You know the stone up past the ridge?' },
+  { who: 'KAI', text: 'Everyone knows it.' },
+  { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
+  { who: 'KAI', text: 'That horn is the only reason this valley is still standing.' },
+  { who: 'INGRAM', text: 'I know what it is.' },
+  { who: 'INGRAM', text: "One night's pay. Enough that you never cut another line for them." },
+  { who: 'KAI', text: 'Why me?' },
+  { who: 'INGRAM', text: 'Because I picked you.' },
+  { who: 'INGRAM', text: "I've watched you walk that path since you were small." },
+  { who: 'INGRAM', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
+];
+const SPEAK_COLOR = { INGRAM: INGRAM_AMBER, KAI: KAI_GREEN };
+
 /* ==========================================================================
    Sfx — a very small synth. Every sound here is generated at runtime.
+
+   The scene is built on one trick: the forest is loud, and then it is not.
+   insects() and frog() are the valley alive; silence() cuts everything at
+   once and nothing in this file brings it back. The whistle is two notes.
    ========================================================================== */
 class Sfx {
   constructor() {
     this.ctx = null;
     this.master = null;
     this.muted = false;
-    this.started = false;
     this.chirpT = 1.2;
     this.frogT = 3.0;
+    this.popT = 0.2;
+    this.alive = true;      // is the forest still making sound?
+    this.firePower = 1;     // the fire is dying all scene, 1 -> 0.45
   }
 
   /** Must be called from a click — browsers block audio until a gesture. */
@@ -139,7 +165,7 @@ class Sfx {
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.85;
       this.master.connect(this.ctx.destination);
-      this.clickBuf = this._noise(0.05, 1);
+      this.forestTone();
       this.started = true;
     } catch (e) { this.ctx = null; }
   }
@@ -160,12 +186,10 @@ class Sfx {
 
   get t() { return this.ctx ? this.ctx.currentTime : 0; }
 
-  /** The camp at rest: wind through the trees, and the generator's hum. */
-  campTone() {
+  /** Wind through the trees, with a slow swell. The valley's breath. */
+  forestTone() {
     if (!this.ctx || this.tone) return;
     const ctx = this.ctx, t = this.t;
-
-    // wind — filtered noise with a slow swell
     const src = ctx.createBufferSource();
     src.buffer = this._noise(3, 0);
     src.loop = true;
@@ -180,17 +204,6 @@ class Sfx {
     src.start(); lfo.start();
     g.gain.linearRampToValueAtTime(0.05, t + 2.5);
     this.tone = g; this.toneSrc = src;
-
-    // the generator, two tenths of a beat off a perfect note, behind the tent
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth'; osc.frequency.value = 52;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 110;
-    const og = ctx.createGain(); og.gain.value = 0;
-    osc.connect(lp); lp.connect(og); og.connect(this.master);
-    osc.start();
-    og.gain.linearRampToValueAtTime(0.038, t + 2.5);
-    this.hum = og; this.humOsc = osc;
   }
 
   /** Night life, called from update(): one insect chirp. */
@@ -235,113 +248,81 @@ class Sfx {
 
   /** Called every frame from update() — schedules the night life. */
   tickNight(dt) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || this.muted || !this.alive) return;
     this.chirpT -= dt;
     if (this.chirpT <= 0) { this.chirpT = 0.4 + Math.random() * 1.9; this._insect(); }
     this.frogT -= dt;
     if (this.frogT <= 0) { this.frogT = 3.2 + Math.random() * 5.2; this._frog(); }
   }
 
-  /** One keystroke. */
-  click() {
+  /** One pop of the fire — a tiny filtered noise burst. */
+  _pop() {
     if (!this.ctx) return;
     const ctx = this.ctx, t = this.t;
     const src = ctx.createBufferSource();
-    src.buffer = this.clickBuf;
+    src.buffer = this._noise(0.03, 1);
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.frequency.value = 1500 + Math.random() * 1100;
-    bp.Q.value = 1.8;
+    bp.frequency.value = 700 + Math.random() * 1900;
+    bp.Q.value = 2.2;
     const g = ctx.createGain();
-    g.gain.setValueAtTime(0.035 + Math.random() * 0.02, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    const a = (0.006 + Math.random() * 0.014) * this.firePower;
+    g.gain.setValueAtTime(a, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
     src.connect(bp); bp.connect(g); g.connect(this.master);
-    src.start(t); src.stop(t + 0.07);
+    src.start(t); src.stop(t + 0.06);
   }
 
-  /** Two short blips — the check came back with something on it. */
-  alert() {
+  /** The fire bed, scheduled from update(). Slows and quiets as it dies. */
+  tickFire(dt) {
+    if (!this.ctx || this.muted || !this.alive || this.firePower <= 0) return;
+    this.popT -= dt;
+    if (this.popT <= 0) {
+      this.popT = (0.07 + Math.random() * 0.3) / this.firePower;
+      this._pop();
+    }
+  }
+
+  /** THE SILENCE. Everything cuts at once — wind, insects, frogs, fire. */
+  silence() {
+    if (!this.ctx) return;
+    this.alive = false;
+    const t = this.t;
+    if (this.tone) this.tone.gain.cancelScheduledValues(t);
+    if (this.tone) this.tone.gain.setValueAtTime(this.tone.gain.value, t);
+    if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.12);
+  }
+
+  /**
+   * Ingram's whistle — two notes, higher then lower, falling off at the end
+   * of each. A man calling across a valley at night. Two oscillators, no
+   * files, and it comes back in level 02 over the engine.
+   */
+  whistle() {
     if (!this.ctx) return;
     const ctx = this.ctx, t = this.t;
-    [[740, 0], [590, 0.14]].forEach(([f, d]) => {
+    [
+      [0.0, 1318, 0.34],
+      [0.52, 988, 0.46],
+    ].forEach(([d, f, dur]) => {
       const o = ctx.createOscillator();
-      o.type = 'square'; o.frequency.value = f;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f * 1.04, t + d);
+      o.frequency.exponentialRampToValueAtTime(f * 0.97, t + d + dur);
+      // a little vibrato so it reads as a mouth, not a dial tone
+      const vib = ctx.createOscillator();
+      vib.type = 'sine'; vib.frequency.value = 5.6;
+      const vibG = ctx.createGain(); vibG.gain.value = 9;
+      vib.connect(vibG); vibG.connect(o.frequency);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, t + d);
-      g.gain.linearRampToValueAtTime(0.045, t + d + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.13);
+      g.gain.linearRampToValueAtTime(0.075, t + d + 0.05);
+      g.gain.setValueAtTime(0.07, t + d + dur - 0.09);
+      g.gain.exponentialRampToValueAtTime(0.0004, t + d + dur);
       o.connect(g); g.connect(this.master);
-      o.start(t + d); o.stop(t + d + 0.16);
+      o.start(t + d); o.stop(t + d + dur + 0.05);
+      vib.start(t + d); vib.stop(t + d + dur + 0.05);
     });
-  }
-
-  /** The manifest. Two detuned lows beating against each other. */
-  sting() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    [[55, 3.2], [58.4, 3.2], [110, 2.0]].forEach(([f, dur]) => {
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth'; o.frequency.value = f;
-      const lp = ctx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 240;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.085, t + 0.8);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(lp); lp.connect(g); g.connect(this.master);
-      o.start(t); o.stop(t + dur + 0.1);
-    });
-  }
-
-  /** The drive takes the copy. */
-  confirm() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    [[880, 0], [1320, 0.12]].forEach(([f, d]) => {
-      const o = ctx.createOscillator();
-      o.type = 'sine'; o.frequency.value = f;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t + d);
-      g.gain.linearRampToValueAtTime(0.07, t + d + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.5);
-      o.connect(g); g.connect(this.master);
-      o.start(t + d); o.stop(t + d + 0.55);
-    });
-  }
-
-  /** Dawn. The night tone dies under it, which is most of the effect. */
-  dawnBreak() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    if (this.tone) this.tone.gain.linearRampToValueAtTime(0.012, t + 1.6);
-    if (this.hum) this.hum.gain.linearRampToValueAtTime(0.0, t + 1.2);
-    if (this.alarmGain) this.alarmGain.gain.linearRampToValueAtTime(0.0, t + 1.0);
-
-    // a low swell, the sun coming up over the trees
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(96, t);
-    o.frequency.exponentialRampToValueAtTime(190, t + 1.8);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.16, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.0);
-    o.connect(g); g.connect(this.master);
-    o.start(t); o.stop(t + 2.1);
-
-    // and the birds, taking over from the insects
-    [[0.35, 2500, 1900], [0.7, 3100, 2300], [1.25, 2800, 2050], [1.8, 3400, 2500]].forEach(
-      ([d, f0, f1]) => {
-        const b = ctx.createOscillator();
-        b.type = 'sine';
-        b.frequency.setValueAtTime(f0, t + d);
-        b.frequency.exponentialRampToValueAtTime(f1, t + d + 0.16);
-        const bg = ctx.createGain();
-        bg.gain.setValueAtTime(0, t + d);
-        bg.gain.linearRampToValueAtTime(0.024, t + d + 0.03);
-        bg.gain.exponentialRampToValueAtTime(0.0002, t + d + 0.18);
-        b.connect(bg); bg.connect(this.master);
-        b.start(t + d); b.stop(t + d + 0.2);
-      });
   }
 
   /** One heartbeat — two hits, not one. */
@@ -361,7 +342,7 @@ class Sfx {
     });
   }
 
-  /** A slow pulsing low tone while he is running. */
+  /** A slow pulsing low tone while he runs — dread, not music. */
   alarm() {
     if (!this.ctx || this.alarmGain) return;
     const ctx = this.ctx, t = this.t;
@@ -387,13 +368,12 @@ class Sfx {
     if (!this.ctx) return;
     try {
       if (this.toneSrc) this.toneSrc.stop();
-      if (this.humOsc) this.humOsc.stop();
       if (this.alarmOsc) this.alarmOsc.stop();
       if (this.alarmLfo) this.alarmLfo.stop();
       this.ctx.close();
     } catch (e) { /* already closed */ }
     this.ctx = null; this.master = null;
-    this.tone = this.hum = this.alarmGain = null;
+    this.tone = this.alarmGain = null;
   }
 }
 
@@ -405,64 +385,29 @@ export class Prologue extends Level {
     this.px = SEAT.x;
     this.pz = SEAT.z;
     this.eye = SEAT.eye;
-    this.yaw = 0;                 // yaw 0 looks down -Z, which faces the laptop
-    this.pitch = -0.24;           // looking down at the screen
+    this.yaw = 0;                 // yaw 0 looks down -Z, across the fire
+    this.pitch = 0.06;            // eyes up, on the man across the flames
     this.locked = false;
-    this.standing = false;   // may he walk?
-    this.seated = true;      // is he still on the crate? (clamps how far he can turn)
+    this.standing = false;        // may he walk?
+    this.seated = true;           // still on the log (clamps how far he turns)
     this.cine = 0;                // 0 = first person, 1 = the wide shot
 
-    this.phase = 'card';
+    this.phase = 'title';
     this.t = 0;
     this.leaving = false;
-    this.briefSaid = false;       // has he reacted to the RACK 14 readout yet?
-    this.introSaid = false;
+    this.scriptIndex = -1;        // which conversation line is up
+    this.doubted = false;         // said the doubt line yet?
     this.halfway = false;         // said the open-ground line yet?
-    this.fleeT = 0;
     this.beatT = 0;               // counts down to the next heartbeat
-    this._typeStarted = false;
+    this.dawnK = 0;               // 0 = night, 1 = level 01's morning
     this._dawnApplied = -1;
     this._dawnTmp = new THREE.Color();  // scratch colour for _applyDawn()
-    this.dawnK = 0;               // 0 = night, 1 = level 01's morning
 
     this.says = [];
     this.sayT = 0;
 
-    this.lines = [];
-    this.pending = null;
-    this.pendingChars = 0;
-    this.queue = [];
-
     this.blockers = [];
     this.sfx = new Sfx();
-
-    this.cards = [
-      '<div style="color:#9ed36a;font-size:13px;letter-spacing:.34em">' +
-        'SITE 7 PERIMETER</div>' +
-      '<div style="color:#8f9bb0;font-size:12px;letter-spacing:.28em;margin-top:10px">' +
-        'NOCTIS FIELD STATION &nbsp;&middot;&nbsp; 05:12</div>' +
-      // Where he is, in one line. The camp is open air, so this card also
-      // carries the one fact the player needs: the whole game happens out here.
-      '<div style="color:#3f4a56;font-size:11px;letter-spacing:.24em;margin-top:16px">' +
-        'THE SURVEY CAMP AT THE JUNGLE\'S EDGE</div>',
-
-      '<div style="color:#eef2fb;font-size:28px;letter-spacing:.18em">KAI NDLOVU</div>' +
-      '<div style="color:#8f9bb0;font-size:12.5px;letter-spacing:.26em;margin-top:12px">' +
-        'SYSTEMS ENGINEER &nbsp;&middot;&nbsp; NIGHT WATCH</div>',
-
-      '<div style="color:#5b6379;font-size:11.5px;letter-spacing:.3em">' +
-        "TONIGHT'S LAST JOB</div>" +
-      '<div style="color:#c6d2e4;font-size:18px;letter-spacing:.08em;margin-top:14px">' +
-        'Sign off the decommission of Rack 14</div>' +
-      '<div style="color:#8f9bb0;font-size:12.5px;letter-spacing:.2em;margin-top:16px">' +
-        'ORDERED BY &nbsp;<span style="color:#eef2fb">' + HANDLER_NAME + '</span></div>',
-
-      '<div style="color:#dfe7f5;font-size:21px;font-style:italic;line-height:1.7;' +
-        'font-family:ui-sans-serif,system-ui,sans-serif">' +
-        'Eleven hours into a twelve-hour shift.<br>One signature and he can sleep.</div>',
-    ];
-    this.cardIndex = 0;
-    this.cardT = 0;
   }
 
   /* ==================================================== build */
@@ -472,6 +417,7 @@ export class Prologue extends Level {
     scene.background = new THREE.Color(0x05070c);
     scene.fog = new THREE.FogExp2(NIGHT.fog, NIGHT.fogDensity);
 
+    this._ensureSerif();
     this._buildSky();
     const kit = await loadJungleKit(assets);
     if (!this.scene) return; // torn down while loading
@@ -480,14 +426,17 @@ export class Prologue extends Level {
     this.kit = kit;
     this.mats = mats;
     this._buildGround();
-    this._buildCamp();
+    this._buildFire();
+    this._buildStone();
     this._buildJungle();
     this._buildFigures();
     this._buildHud();
 
     this._onClick = () => {
       this.sfx.start();                       // audio needs a gesture
-      if (this.phase === 'card') { this._nextCard(); return; }
+      if (this.phase === 'title') { this._begin(); return; }
+      if (this.phase === 'talk') { this._nextLine(); return; }
+      if (!this.standing) return;
       const el = this.game.renderer.domElement;
       if (!this.locked && el.requestPointerLock) {
         // Sandboxed views (preview iframes) refuse pointer lock and would
@@ -504,8 +453,10 @@ export class Prologue extends Level {
     };
     this._onLockChange = () => {
       this.locked = document.pointerLockElement === this.game.renderer.domElement;
-      this.hud.lock.style.opacity =
-        (this.locked || this.phase === 'card' || this.cine > 0) ? '0' : '1';
+      if (this.hud.lock) {
+        this.hud.lock.style.opacity =
+          (this.locked || !this.standing || this.cine > 0) ? '0' : '1';
+      }
     };
     // Chrome reports some refusals through this event instead of the promise.
     this._onLockError = () => this._playUnlocked();
@@ -519,6 +470,17 @@ export class Prologue extends Level {
     this._fp = new THREE.Vector3();
     this._look3 = new THREE.Vector3();
     this._dir = new THREE.Vector3();
+  }
+
+  /** One line from Google Fonts; Georgia carries it if the network is gone. */
+  _ensureSerif() {
+    if (!document.getElementById('prologue-serif')) {
+      const link = document.createElement('link');
+      link.id = 'prologue-serif';
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,500;0,600;1,500&display=swap';
+      document.head.appendChild(link);
+    }
   }
 
   /* ---------------------------------------------------- sky and light */
@@ -535,15 +497,7 @@ export class Prologue extends Level {
     this.sun.position.copy(SUN_DIR).multiplyScalar(60);
     this.root.add(this.sun, this.sun.target);
 
-    // the work lantern — the one warm thing on the site until the Key lights
-    this.lantern = new THREE.PointLight(0xffc98a, 7.5, 7, 2);
-    this.lantern.position.set(BENCH.x - 0.72, 1.18, BENCH.z + 0.1);
-    this.lantern.castShadow = true;
-    this.lantern.shadow.mapSize.set(512, 512);
-    this.root.add(this.lantern);
-
-    // ground mist, five soft cards drifting round the clearing. Without them
-    // the torch beam in the wide shot has nothing to burn through.
+    // ground mist, five soft cards drifting round the clearing
     this.mist = [];
     const mistMat = () => new THREE.MeshBasicMaterial({
       color: 0x8fa4b4, transparent: true, opacity: 0.05, depthWrite: false,
@@ -560,8 +514,8 @@ export class Prologue extends Level {
       this.mist.push(m);
     }
 
-    // fireflies. Pollen's job, at night: green sparks that hold still until
-    // they don't. One Points cloud, opacity pulsing in update().
+    // fireflies. One Points cloud, opacity pulsing in update(). They keep
+    // going after the silence — the valley is not dead, it is holding still.
     const n = 220;
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
@@ -592,7 +546,7 @@ export class Prologue extends Level {
 
   /* ---------------------------------------------------- ground */
   _buildGround() {
-    // forest floor everywhere, and a dirt path worn from the tent to the
+    // forest floor everywhere, and a dirt path worn from the fire to the
     // trail mouth — the line every phase of this scene walks
     const ground = new THREE.Mesh(new THREE.CircleGeometry(CLEARING_R + 14, 40), this.mats.forest);
     ground.rotation.x = -Math.PI / 2;
@@ -602,294 +556,179 @@ export class Prologue extends Level {
 
     const path = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 28), this.mats.trail);
     path.rotation.x = -Math.PI / 2;
-    path.position.set(0, 0.01, -3.4); // tent (z 10) to trail mouth (z -17)
+    path.position.set(0, 0.01, -3.4); // fire (z 8) to trail mouth (z -17)
     path.receiveShadow = true;
     this.root.add(path);
 
-    // the clearing's worn centre — trampled earth where the crates are stacked
-    const apron = new THREE.Mesh(new THREE.CircleGeometry(4.4, 24), this.mats.trail);
+    // the trampled ground around the fire, where the ground is just earth
+    const apron = new THREE.Mesh(new THREE.CircleGeometry(3.4, 24), this.mats.trail);
     apron.rotation.x = -Math.PI / 2;
-    apron.position.set(0, 0.02, 2.6);
+    apron.position.set(FIRE.x, 0.02, FIRE.z);
     apron.receiveShadow = true;
     this.root.add(apron);
   }
 
-  /* ---------------------------------------------------- the camp */
-  _buildCamp() {
+  /* ---------------------------------------------------- the fire */
+  /**
+   * The fire is the scene's key light and its clock. It burns for Ingram,
+   * dies across the night while they talk, and is embers by the time Kai
+   * runs — which is why nobody at the camp below sees either of them.
+   */
+  _buildFire() {
     this.geoBox = new THREE.BoxGeometry(1, 1, 1);
-    const put = (mat, sx, sy, sz, x, y, z, ry = 0) => {
-      const m = new THREE.Mesh(this.geoBox, mat);
-      m.scale.set(sx, sy, sz);
-      m.position.set(x, y, z);
-      m.rotation.y = ry;
-      m.castShadow = true;
-      m.receiveShadow = true;
-      this.root.add(m);
-      return m;
-    };
-
-    this.matCanvas = new THREE.MeshStandardMaterial({ color: 0x44523f, roughness: 0.95 });
-    this.matCanvasDark = new THREE.MeshStandardMaterial({ color: 0x2c3629, roughness: 0.95 });
     this.matWood = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.9 });
-    this.matMetal = new THREE.MeshStandardMaterial({ color: 0x3a434f, roughness: 0.4, metalness: 0.6 });
+    this.matChar = new THREE.MeshStandardMaterial({ color: 0x191512, roughness: 0.95 });
+    this.matRock = new THREE.MeshStandardMaterial({ color: 0x565b52, roughness: 0.95 });
     this.matDark = new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.95 });
 
-    // ---- the work tent. Open at the front (north), so from the crate seat
-    //      the whole clearing and the tree line are in view. ----
-    const TX = BENCH.x, TZ = BENCH.z;
-    for (const side of [-1, 1]) {
-      const lean = put(this.matCanvas, 2.9, 0.06, 3.4, TX + side * 1.32, 1.62, TZ + 0.2);
-      lean.rotation.z = side * -0.62;
-      put(this.matCanvasDark, 0.08, 2.35, 0.08, TX + side * 2.35, 1.0, TZ + 1.75);
-      put(this.matCanvasDark, 0.08, 2.35, 0.08, TX + side * 2.35, 1.0, TZ - 1.35);
+    // stone ring
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.3;
+      const s = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14 + (i % 3) * 0.035, 0), this.matRock);
+      s.position.set(FIRE.x + Math.cos(a) * 0.55, 0.09, FIRE.z + Math.sin(a) * 0.55);
+      s.rotation.set(Math.random(), Math.random() * 3, Math.random());
+      s.castShadow = true;
+      this.root.add(s);
     }
-    put(this.matCanvas, 4.9, 0.06, 0.5, TX, 2.32, TZ - 1.6);          // ridge
-    put(this.matCanvasDark, 4.9, 2.3, 0.07, TX, 1.15, TZ - 1.72);     // back wall
 
-    // the bench: his desk for the last twelve hours
-    put(this.matWood, 1.7, 0.07, 0.62, BENCH.x, 0.76, BENCH.z);
-    for (const sx of [-0.72, 0.72]) {
-      put(this.matWood, 0.09, 0.74, 0.5, BENCH.x + sx, 0.37, BENCH.z);
+    // crossed logs
+    for (const [dx, dz, ry] of [[0.14, 0.05, 0.5], [-0.12, 0.02, 2.1], [0, -0.14, -0.9]]) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.85, 8), this.matChar);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = ry;
+      log.position.set(FIRE.x + dx, 0.14, FIRE.z + dz);
+      log.castShadow = true;
+      this.root.add(log);
     }
-    // the crate he sits on
-    put(this.matWood, 0.46, 0.44, 0.46, SEAT.x, 0.22, SEAT.z);
 
-    // ---- the laptop. The whole interface of the seated phases. ----
-    const lap = new THREE.Group();
-    lap.position.set(BENCH.x, 0.8, BENCH.z - 0.12);
-    this.root.add(lap);
-    const base = new THREE.Mesh(this.geoBox, this.matDark);
-    base.scale.set(0.36, 0.025, 0.25);
-    lap.add(base);
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = 512; this.canvas.height = 320;
-    this.ctx2d = this.canvas.getContext('2d');
-    this.screenTex = new THREE.CanvasTexture(this.canvas);
-    this.screenTex.colorSpace = THREE.SRGBColorSpace;
-    const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.36, 0.225),
-      new THREE.MeshBasicMaterial({ map: this.screenTex }),
+    // the ember bed — a warm disc under the flames
+    this.ember = new THREE.Mesh(
+      new THREE.CircleGeometry(0.42, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff7a26, transparent: true, opacity: 0.85 }),
     );
-    screen.position.set(0, 0.115, 0.105);
-    screen.rotation.x = -0.32;
-    lap.add(screen);
-    this.screenMesh = screen;
-    const lid = new THREE.Mesh(this.geoBox, this.matDark);
-    lid.scale.set(0.36, 0.24, 0.012);
-    lid.position.set(0, 0.12, 0.16);
-    lid.rotation.x = -0.32;
-    lap.add(lid);
+    this.ember.rotation.x = -Math.PI / 2;
+    this.ember.position.set(FIRE.x, 0.06, FIRE.z);
+    this.root.add(this.ember);
 
-    // the storm lantern — emissive body so it reads as the light source
-    const lampBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.07, 0.22, 10),
-      new THREE.MeshStandardMaterial({
-        color: 0x777c70, roughness: 0.6, metalness: 0.4,
-        emissive: 0xffc98a, emissiveIntensity: 0.55,
-      }),
-    );
-    lampBody.position.set(BENCH.x - 0.72, 0.9, BENCH.z + 0.1);
-    this.root.add(lampBody);
-
-    // ---- the generator, behind the tent. The hum in the dark. ----
-    put(this.matMetal, 1.1, 0.72, 0.6, TX + 3.4, 0.36, TZ + 0.9);
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.7, 10), this.matMetal);
-    tank.rotation.z = Math.PI / 2;
-    tank.position.set(TX + 3.4, 0.82, TZ + 0.9);
-    this.root.add(tank);
-
-    // ---- crate stacks and a barrel, west of the tent ----
-    placeProp(this.root, cloneProp(this.kit.crates), -5.6, 0, 6.8, { s: 1 });
-    placeProp(this.root, cloneProp(this.kit.barrel), -4.3, 0, 8.4, { s: 1 });
-    placeProp(this.root, cloneProp(this.kit.logs), 6.4, 0, 8.8, { s: 0.9, ry: 0.5 });
-
-    // ---- marker lamps: the line from the bench to Rack 14. Dim amber studs
-    //      now; they take the Key's green and strobe him a runway in the flee.
-    this.matMarker = new THREE.MeshStandardMaterial({
-      color: 0x2a2013, emissive: 0x8a6420, emissiveIntensity: 0.9, roughness: 0.6,
-    });
-    this.markers = [];
-    for (let i = 0; i < 6; i++) {
-      const k = i / 5;
-      const x = THREE.MathUtils.lerp(0.6, RACK14.x - 1.1, k);
-      const z = THREE.MathUtils.lerp(7.4, RACK14.z + 1.3, k);
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.5, 8), this.matDark);
-      post.position.set(x, 0.25, z);
-      this.root.add(post);
-      // one material per bulb: the flee strobes them individually, and a
-      // shared material would pulse them all as one
-      const bulb = new THREE.Mesh(
-        new THREE.SphereGeometry(0.055, 10, 8), this.matMarker.clone());
-      bulb.position.set(x, 0.54, z);
-      this.root.add(bulb);
-      this.markers.push(bulb);
+    // flames — two crossed additive cards with a soft canvas gradient, then a
+    // third behind for body. Scale and opacity flicker in update().
+    const flameCanvas = document.createElement('canvas');
+    flameCanvas.width = 64; flameCanvas.height = 96;
+    const fc = flameCanvas.getContext('2d');
+    const grad = fc.createLinearGradient(0, 96, 0, 0);
+    grad.addColorStop(0, 'rgba(255,236,170,0.95)');
+    grad.addColorStop(0.45, 'rgba(255,140,40,0.55)');
+    grad.addColorStop(1, 'rgba(255,60,10,0)');
+    fc.fillStyle = grad;
+    fc.beginPath();
+    fc.moveTo(32, 96); fc.quadraticCurveTo(2, 52, 32, 0); fc.quadraticCurveTo(62, 52, 32, 96);
+    fc.fill();
+    const flameTex = new THREE.CanvasTexture(flameCanvas);
+    this.flames = [];
+    for (const [dx, dz, w, h, ry] of [
+      [0, 0, 0.5, 0.85, 0], [0, 0, 0.5, 0.85, Math.PI / 2], [0.05, -0.05, 0.34, 0.6, 0.7],
+    ]) {
+      const f = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({
+          map: flameTex, transparent: true, depthWrite: false,
+          blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+        }),
+      );
+      f.position.set(FIRE.x + dx, 0.42 + h / 2, FIRE.z + dz);
+      f.rotation.y = ry;
+      this.root.add(f);
+      this.flames.push(f);
     }
 
-    this._buildRack14();
-    this._buildBlockers();
+    // the light itself. Flickers with its own noise so nothing loops.
+    this.fireLight = new THREE.PointLight(0xff9a3a, 7, 14, 2);
+    this.fireLight.position.set(FIRE.x, 0.85, FIRE.z);
+    this.fireLight.castShadow = true;
+    this.fireLight.shadow.mapSize.set(512, 512);
+    this.root.add(this.fireLight);
   }
 
+  /* ---------------------------------------------------- the stone */
   /**
-   * RACK 14 — the focal point, and deliberately not another cabinet.
-   *
-   * It stands in the open, under a ripped tarp, against a piece of ruin wall —
-   * the only machine on a site that is otherwise rope, canvas and stone, which
-   * is exactly why it is wrong to be here. Black military casing, a locked
-   * faceplate, and it is the only amber light in the camp. The player should
-   * be able to pick it out from the bench without being told which thing it is.
+   * THE STONE. Low, old, and the only worked thing in the clearing — one
+   * pale horn lying on it, the way a tool is laid down. From the fire it is
+   * picked out by the flames and nothing else, which is how the valley
+   * meant it to be found.
    */
-  _buildRack14() {
+  _buildStone() {
     const g = new THREE.Group();
-    g.position.set(RACK14.x, 0, RACK14.z);
-    g.rotation.y = -Math.PI / 2;       // faces back across the clearing
+    g.position.set(STONE.x, 0, STONE.z);
+    g.rotation.y = -0.5;                    // canted to the path, not square
     this.root.add(g);
-    this.rack14 = g;
+    this.stone = g;
 
-    this.matCase = new THREE.MeshStandardMaterial({
-      color: 0x0a0c0f, roughness: 0.62, metalness: 0.4,
+    const base = new THREE.Mesh(this.geoBox, this.matRock);
+    base.scale.set(1.5, 0.72, 1.05);
+    base.position.y = 0.36;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    g.add(base);
+
+    const cap = new THREE.Mesh(this.geoBox, this.matRock);
+    cap.scale.set(1.62, 0.16, 1.16);
+    cap.position.y = 0.78;
+    cap.rotation.y = 0.06;
+    cap.castShadow = true;
+    g.add(cap);
+
+    // a second slab fallen behind it, so it reads as old rather than placed
+    const fallen = new THREE.Mesh(this.geoBox, this.matRock);
+    fallen.scale.set(0.9, 0.4, 0.7);
+    fallen.position.set(-0.95, 0.2, 0.55);
+    fallen.rotation.set(0.2, 0.5, 0.12);
+    fallen.castShadow = true;
+    g.add(fallen);
+
+    // ---- the horn. A swept curve of pale keratin, lying across the cap. ----
+    // Torus arc for the sweep, a cone at the tip for the taper — low-poly on
+    // purpose, like everything else in the valley.
+    this.matHorn = new THREE.MeshStandardMaterial({
+      color: 0x9a8a66, roughness: 0.5, metalness: 0.05, emissive: 0x000000,
     });
-    this.matAcrylic = new THREE.MeshStandardMaterial({
-      color: 0x11161c, roughness: 0.08, metalness: 0.1,
-      transparent: true, opacity: 0.55,
-    });
+    const horn = new THREE.Group();
+    const arc = new THREE.Mesh(
+      new THREE.TorusGeometry(0.3, 0.045, 8, 14, 2.1),
+      this.matHorn,
+    );
+    arc.rotation.x = Math.PI / 2;           // lie the sweep flat
+    horn.add(arc);
+    const tip = new THREE.Mesh(
+      new THREE.ConeGeometry(0.048, 0.22, 8),
+      this.matHorn,
+    );
+    // the arc ends at angle 2.1 rad; stand the tip on the end and point it on
+    const tipAng = 2.1;
+    tip.position.set(Math.cos(tipAng) * 0.3, 0, Math.sin(tipAng) * 0.3);
+    tip.rotation.z = tipAng - Math.PI / 2 + Math.PI;
+    horn.add(tip);
+    horn.position.set(0.05, 0.9, -0.08);
+    horn.rotation.y = 0.7;
+    g.add(horn);
+    this.horn = horn;
 
-    const casing = new THREE.Mesh(this.geoBox, this.matCase);
-    casing.scale.set(1.5, 2.34, 1.12);
-    casing.position.y = 1.17;
-    casing.castShadow = true;
-    g.add(casing);
+    this.hornLight = new THREE.PointLight(HORN_CYAN, 0, 5.5, 2);
+    this.hornLight.position.set(0.05, 1.05, -0.08);
+    g.add(this.hornLight);
 
-    for (const sy of [0.06, 2.28]) {             // plinth and cap, so it reads heavier
-      const band = new THREE.Mesh(this.geoBox, this.matCase);
-      band.scale.set(1.62, 0.12, 1.24);
-      band.position.y = sy;
-      g.add(band);
-    }
-
-    const faceplate = new THREE.Mesh(this.geoBox, this.matAcrylic);
-    faceplate.scale.set(1.22, 1.5, 0.05);
-    faceplate.position.set(0, 1.42, 0.58);
-    g.add(faceplate);
-
-    // ---- the terminal that folds out of its centre ----
-    this.terminal = new THREE.Group();
-    this.terminal.position.set(0, 0.98, 0.56);
-    g.add(this.terminal);
-
-    this.matKeyCap = new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.95 });
-    const tray = new THREE.Mesh(this.geoBox, this.matKeyCap);
-    tray.scale.set(1.0, 0.04, 0.42);
-    tray.position.z = 0.21;
-    this.terminal.add(tray);
-
-    const keys = new THREE.Mesh(this.geoBox, this.matKeyCap);
-    keys.scale.set(0.86, 0.02, 0.3);
-    keys.position.set(0, 0.03, 0.21);
-    this.terminal.add(keys);
-
-    const arm = new THREE.Mesh(this.geoBox, this.matCase);
-    arm.scale.set(0.9, 0.5, 0.04);
-    arm.position.set(0, 0.26, 0.04);
-    this.terminal.add(arm);
-
-    this.termTex = this._terminalTexture();
-    this.matTerm = new THREE.MeshBasicMaterial({ map: this.termTex });
-    this.termScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.44), this.matTerm);
-    this.termScreen.position.set(0, 0.5, 0.1);
-    this.termScreen.rotation.x = -0.22;
-    this.termScreen.visible = false;              // dark until he wakes it
-    this.terminal.add(this.termScreen);
-
-    // ---- the physical key, sitting in its socket ----
-    this.matKeyDrive = new THREE.MeshStandardMaterial({
-      color: 0x20262f, emissive: 0x000000, roughness: 0.35, metalness: 0.6,
-    });
-    this.keyDrive = new THREE.Mesh(this.geoBox, this.matKeyDrive);
-    this.keyDrive.scale.set(0.11, 0.05, 0.26);
-    this.keyDrive.position.set(0.42, 1.44, 0.66);
-    g.add(this.keyDrive);
-
-    this.keyLight = new THREE.PointLight(KEY_CYAN, 0, 3.4, 2);
-    this.keyLight.position.set(0.42, 1.44, 0.74);
-    g.add(this.keyLight);
-
-    // Once he pulls it, the drive and its light move into here, and this group
-    // follows him for the rest of the scene. The cyan has to travel with Kai —
-    // it is on him in the wide shot, and it is how he looks arriving in level 01.
+    // Once he lifts it, the horn and its light move into here, and this group
+    // follows him for the rest of the scene. The cyan has to travel with Kai
+    // — it is on him in the wide shot, and it is how he looks arriving in
+    // level 01.
     this.carried = new THREE.Group();
     this.root.add(this.carried);
-
-    // amber wash on whoever is standing at it — off until he gets there
-    this.termGlow = new THREE.PointLight(0xffa83a, 0, 5.0, 2);
-    this.termGlow.position.set(0, 1.62, 1.25);
-    g.add(this.termGlow);
-
-    // the one thing visible from the bench: a single amber standby light, so
-    // the rack is already picked out before the player knows why
-    this.matStandby = new THREE.MeshBasicMaterial({ color: 0x3a2a10 });
-    this.standby = new THREE.Mesh(this.geoBox, this.matStandby);
-    this.standby.scale.set(0.34, 0.035, 0.03);
-    this.standby.position.set(-0.45, 2.1, 0.6);
-    g.add(this.standby);
-
-    // ---- the tarp over it, propped on ruin stone ----
-    const tarp = new THREE.Mesh(this.geoBox, this.matCanvasDark);
-    tarp.scale.set(2.4, 0.06, 2.2);
-    tarp.position.set(0, 2.62, -0.2);
-    tarp.rotation.x = 0.16;
-    g.add(tarp);
-
-    // ruin wall behind it — the rack is leaning on the site's own stones
-    placeProp(this.root, cloneProp(this.kit.wall), RACK14.x + 0.8, 0, RACK14.z - 1.6, {
-      s: 0.017, ry: Math.PI - 0.35,
-    });
-    placeProp(this.root, cloneProp(this.kit.columnShort), RACK14.x - 1.3, 0, RACK14.z + 1.9, {
-      s: 0.012, ry: 0.7,
-    });
   }
 
-  /** The kill-switch readout. Drawn once — it never changes after this. */
-  _terminalTexture() {
-    const c = document.createElement('canvas');
-    c.width = 820; c.height = 440;
-    const g = c.getContext('2d');
-    g.fillStyle = '#140b02';
-    g.fillRect(0, 0, 820, 440);
-    g.fillStyle = 'rgba(255,255,255,0.025)';
-    for (let y = 0; y < 440; y += 4) g.fillRect(0, y, 820, 1);
-
-    g.font = '30px ui-monospace, Menlo, monospace';
-    g.textBaseline = 'top';
-    const lines = [
-      ['#ffb03a', 'BLACKOUT PROTOCOL'],
-      ['', ''],
-      ['#d89a52', 'Remote shutdown authorization'],
-      ['#d89a52', 'detected.'],
-      ['', ''],
-      ['#ff6b6b', 'Physical authorization key'],
-      ['#ff6b6b', 'required.'],
-      ['', ''],
-      ['#d89a52', 'Location: RACK 14 — HOLDING'],
-      ['#7fe08a', 'Retrieval status: READY'],
-    ];
-    let y = 26;
-    for (const [col, text] of lines) {
-      if (text) { g.fillStyle = col; g.fillText(text, 30, y); }
-      y += 39;
-    }
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  /** Everything solid the player can bump into, plus the clearing's edge. */
+  /* ---------------------------------------------------- everything solid */
   _buildBlockers() {
     const add = (x0, x1, z0, z1) => this.blockers.push({ x0, x1, z0, z1 });
-    add(-2.7, 2.7, 7.2, 10.4);            // tent walls + bench line
-    add(2.7, 4.2, 8.3, 9.5);              // generator
-    add(-6.6, -4.6, 5.9, 9.3);            // crates + barrel
-    add(5.6, 7.4, 8.0, 9.7);              // log stack
-    add(RACK14.x - 1.6, RACK14.x + 1.6, RACK14.z - 1.5, RACK14.z + 1.5); // rack
+    add(FIRE.x - 0.8, FIRE.x + 0.8, FIRE.z - 0.8, FIRE.z + 0.8);          // the fire
+    add(STONE.x - 1.1, STONE.x + 1.1, STONE.z - 1.0, STONE.z + 1.0);      // the stone
     add(-9.5, -5.5, -14.5, -11.5);        // the stag and its stones
   }
 
@@ -938,81 +777,96 @@ export class Prologue extends Level {
         { s: 0.011 + rnd() * 0.007, ry: rnd() * Math.PI * 2, shadow: false });
     }
 
-    // relics the trail will keep meeting — the site does not start at the gate
+    // relics the trail will keep meeting — the valley was lived in long
+    // before anyone cut a line through it
     placeProp(this.root, cloneProp(this.kit.stag), -7.5, 0, -13, { s: 0.0105, ry: 0.55 });
     placeProp(this.root, cloneProp(this.kit.column), -6.2, 0, -11.4, { s: 0.014, ry: 0.2 });
     placeProp(this.root, cloneProp(this.kit.columnShort), -8.6, 0, -11.8, { s: 0.012, ry: 1.4 });
     placeProp(this.root, cloneProp(this.kit.deadTree), 8.8, 0, -9.6, { s: 0.02, ry: 1.1 });
-
-    // the sign. Every level has one pointing to SITE 7; this is the first.
-    const sign = createSign('SITE 7 \u2192', { width: 2.4, height: 0.85 });
-    sign.position.set(-3.1, 0, -13.6);
-    sign.rotation.y = 0.5;
-    this.root.add(sign);
-
-    // a rope-and-pole barrier across the mouth, half fallen: the camp's edge
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x4b321f, roughness: 0.95 });
-    for (const x of [-2.6, 2.6]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.1, 8), poleMat);
-      post.position.set(x, 0.55, -12.2);
-      post.castShadow = true;
-      this.root.add(post);
-    }
-    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 5.1, 6), poleMat);
-    rope.rotation.z = Math.PI / 2;
-    rope.position.set(0, 0.92, -12.2);
-    this.root.add(rope);
   }
 
   /* ---------------------------------------------------- the two figures */
   _buildFigures() {
-    // ---- the figure in the trail mouth. Never a face, never named here. ----
-    this.matSil = new THREE.MeshBasicMaterial({ color: 0x05070b });
-    this.handler = new THREE.Group();
-
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.9, 4, 10), this.matSil);
+    // ---- Ingram, across the fire. Lit by the flames — this is the one
+    //      clear look the player gets, so he is NOT a silhouette here. ----
+    this.ingram = new THREE.Group();
+    const torso = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.34, 0.9, 4, 10),
+      new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.85 }),
+    );
     torso.position.y = 1.08;
-    this.handler.add(torso);
-
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 10), this.matSil);
+    torso.castShadow = true;
+    this.ingram.add(torso);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 14, 10),
+      new THREE.MeshStandardMaterial({ color: 0x6e5a48, roughness: 0.8 }),
+    );
     head.position.y = 1.8;
-    this.handler.add(head);
-
-    const coat = new THREE.Mesh(this.geoBox, this.matSil);
+    head.castShadow = true;
+    this.ingram.add(head);
+    // the long coat — the same one the player will spend three levels
+    // learning to dread, seen here in firelight for the only time
+    const coat = new THREE.Mesh(this.geoBox, this.matWood);
     coat.scale.set(0.82, 1.4, 0.4);
     coat.position.y = 0.74;
-    this.handler.add(coat);
+    coat.castShadow = true;
+    this.ingram.add(coat);
 
-    // his torch. In mist he reads as a beam of light first and a man second —
-    // which is exactly how level 01 asks the player to read him.
-    this.torchLight = new THREE.SpotLight(0xffcf96, 0, 30, 0.4, 0.5, 1.1);
-    this.torchLight.position.set(0, 1.5, 0.2);
-    this.torchLight.target.position.set(0, 0.7, 9);
-    this.handler.add(this.torchLight, this.torchLight.target);
-    this.torchBeam = createLightShaft(1.05, 0xffd9a0, 0.15);
-    this.torchBeam.position.set(0, 1.5, 0.15);
-    this.torchBeam.rotation.x = -Math.PI / 2 + 0.055;
-    this.torchBeam.visible = false;
-    this.handler.add(this.torchBeam);
+    this.ingram.position.set(INGRAM_AT.x, 0, INGRAM_AT.z);
+    this.ingram.rotation.y = Math.PI;       // faces Kai across the flames
+    this.root.add(this.ingram);
 
-    this.handler.position.set(TRAIL.x, 0, TRAIL.z + 1.2);
-    this.handler.rotation.y = 0;            // faces the camp
-    this.handler.visible = false;
-    this.root.add(this.handler);
+    // his lamp, hanging from one hand. Amber, like the fire, then the chase,
+    // then the helmet coming off.
+    this.matLamp = new THREE.MeshStandardMaterial({
+      color: 0x777c70, roughness: 0.6, metalness: 0.4,
+      emissive: 0xffb03a, emissiveIntensity: 0.6,
+    });
+    this.ingramLamp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.2, 10), this.matLamp);
+    this.ingramLamp.position.set(0.42, 0.62, 0.1);
+    this.ingram.add(this.ingramLamp);
+    this.ingramLampLight = new THREE.PointLight(0xffb03a, 2.2, 8, 2);
+    this.ingramLampLight.position.set(0.42, 0.68, 0.1);
+    this.ingram.add(this.ingramLampLight);
 
-    // ---- Kai himself. Only on screen during the pull-back, so the player
-    //      can see where they are standing relative to the trail mouth. ----
+    // whatever the downloaded rig looks like, it steps into this group. It
+    // loads in the background, so the blocky figure above is what the player
+    // sees until it lands — and forever if it never does.
+    this.ingramModel = attachCharacter(this.assets, 'handler', this.ingram, {
+      onReady: (h) => {
+        // after he walks off, the model must never show a face again
+        if (this.phase !== 'title' && this.phase !== 'talk' && this.phase !== 'leave') {
+          this._silenceIngram();
+        }
+      },
+    });
+
+    // ---- the pursuer's lamp, for after. The same amber, moving in the
+    //      trees, with a beam that reads through the mist. ----
+    this.lamp = new THREE.Group();
+    this.lampMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.22, 10), this.matLamp.clone());
+    this.lamp.add(this.lampMesh);
+    this.lampLight = new THREE.PointLight(0xffb03a, 0, 22, 1.6);
+    this.lamp.add(this.lampLight);
+    this.lampBeam = createLightShaft(0.9, 0xffd9a0, 0.14);
+    this.lampBeam.position.y = -0.9;
+    this.lampBeam.rotation.x = Math.PI;     // points down through the mist
+    this.lampBeam.visible = false;
+    this.lamp.add(this.lampBeam);
+    this.lamp.position.set(LAMP_SPOT.x, 1.5, LAMP_SPOT.z);
+    this.lamp.visible = false;
+    this.root.add(this.lamp);
+
+    // ---- Kai himself. Only on screen once the camera pulls back, so the
+    //      player can see where they are standing relative to the mouth. ----
     this.matKai = new THREE.MeshStandardMaterial({ color: 0x45566e, roughness: 0.7 });
     this.kai = new THREE.Group();
-
     const kTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.82, 4, 10), this.matKai);
     kTorso.position.y = 1.02; kTorso.castShadow = true;
     this.kai.add(kTorso);
-
     const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), this.matKai);
     kHead.position.y = 1.64; kHead.castShadow = true;
     this.kai.add(kHead);
-
     for (const sx of [-0.19, 0.19]) {
       const leg = new THREE.Mesh(this.geoBox, this.matKai);
       leg.scale.set(0.17, 0.62, 0.17);
@@ -1022,20 +876,33 @@ export class Prologue extends Level {
     this.kai.visible = false;
     this.root.add(this.kai);
 
-    // Swap in the downloaded models if they have been committed. These return
-    // immediately and load in the background, so the capsules above are what
-    // the player sees until the rigs land — and forever if one never does.
+    // Same swap-in pattern as Ingram: blocky Kai until the rig lands.
     this.kaiModel = attachCharacter(this.assets, 'kai', this.kai);
-    this.handlerModel = attachCharacter(this.assets, 'handler', this.handler, {
-      onReady: (h) => {
-        // whatever the model's materials are, he stays a silhouette in here:
-        // his face is level 03's reveal, not this scene's
-        if (h.root) h.root.traverse((o) => { if (o.isMesh) o.material = this.matSil; });
-      },
+
+    // the log Kai sits on, and one stump for his heels
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.5, 8), this.matWood);
+    log.rotation.z = Math.PI / 2;
+    log.position.set(SEAT.x, 0.16, SEAT.z + 0.35);
+    log.castShadow = true;
+    this.root.add(log);
+    this._buildBlockers();
+  }
+
+  /** Swap every material on Ingram for the matte-black one. One way. */
+  _silenceIngram() {
+    if (!this.ingramModel || !this.ingramModel.root) return;
+    this.ingramModel.root.traverse((o) => {
+      if (o.isMesh) o.material = this.matDark;
     });
+    // his lamp stays lit — the lamp IS him, from here to the shrine
   }
 
   /* ==================================================== hud */
+  /**
+   * Everything here sits over the live scene — there is no black card and no
+   * full-screen surface anywhere in the file. The one big element is the
+   * gradient at the bottom that keeps the subtitles readable over the fire.
+   */
   _buildHud() {
     const host = document.getElementById('hud') || document.body;
     const mk = (css, html = '') => {
@@ -1045,69 +912,121 @@ export class Prologue extends Level {
       host.appendChild(el);
       return el;
     };
-    const mono = "font-family:ui-monospace,'JetBrains Mono',Menlo,monospace";
+    const SERIF = "font-family:'Crimson Pro',Georgia,'Times New Roman',serif";
     const base = 'position:absolute;pointer-events:none;';
     this.hud = {};
 
+    // the reading gradient — soft dark at the bottom of the screen, nothing
+    // more. On whenever words are on screen, off when the forest talks.
+    this.hud.shade = mk(
+      base + ';left:0;right:0;bottom:0;height:42%;pointer-events:none;' +
+      'background:linear-gradient(to top, rgba(3,6,4,.78) 0%, rgba(3,6,4,.42) 55%, rgba(3,6,4,0) 100%);' +
+      'opacity:0;transition:opacity 1.2s',
+    );
+
+    // the title, over the live fire. Warm serif letters, nothing else.
+    this.hud.title = mk(
+      base + ';left:0;right:0;top:34%;text-align:center;opacity:0;' +
+      'transition:opacity 2.4s',
+      `<div style="${SERIF};color:${CREAM};font-size:46px;font-weight:600;` +
+      'letter-spacing:.3em;text-shadow:0 0 28px rgba(255,176,58,.4), 0 2px 18px rgba(0,0,0,.9)">' +
+      'BLACKOUT PROTOCOL</div>' +
+      `<div style="color:#8f9bb0;font-size:12px;letter-spacing:.34em;margin-top:18px;${SERIF}">' +
+      'CLICK TO BEGIN</div>`,
+    );
+
+    // the conversation. Speaker name above the line, in that character's
+    // colour; the line in cream serif with a soft shadow. No box.
+    this.hud.sub = mk(
+      base + ';left:50%;bottom:9%;transform:translateX(-50%);width:min(720px,86vw);' +
+      'text-align:center;opacity:0;transition:opacity .3s',
+    );
+    this.hud.subName = document.createElement('div');
+    this.hud.subName.style.cssText =
+      `${SERIF};font-size:13px;font-weight:600;letter-spacing:.42em;margin-bottom:7px;` +
+      'text-shadow:0 1px 8px rgba(0,0,0,.9)';
+    this.hud.sub.appendChild(this.hud.subName);
+    this.hud.subLine = document.createElement('div');
+    this.hud.subLine.style.cssText =
+      `${SERIF};color:${CREAM};font-size:23px;line-height:1.45;` +
+      'text-shadow:0 2px 12px rgba(0,0,0,.95), 0 0 30px rgba(0,0,0,.6)';
+    this.hud.sub.appendChild(this.hud.subLine);
+    this.hud.subHint = mk(
+      base + ';left:50%;bottom:4.5%;transform:translateX(-50%);color:#8f9bb0;' +
+      `font-size:11px;letter-spacing:.3em;${SERIF};opacity:0;transition:opacity .4s`,
+      'CLICK',
+    );
+
     this.hud.prompt = mk(
-      base + mono + ';left:50%;bottom:110px;transform:translateX(-50%);color:#eef2fb;' +
-      'font-size:14px;letter-spacing:.14em;text-align:center;opacity:0;transition:opacity .2s;' +
-      'background:rgba(5,8,14,.6);border:1px solid rgba(79,214,224,.45);border-radius:6px;' +
-      'padding:10px 18px'
+      base + SERIF + ';left:50%;bottom:19%;transform:translateX(-50%);color:' + CREAM + ';' +
+      'font-size:20px;letter-spacing:.08em;text-align:center;opacity:0;transition:opacity .25s;' +
+      'text-shadow:0 2px 12px rgba(0,0,0,.95)',
     );
 
     this.hud.lock = mk(
-      base + mono + ';left:50%;top:60%;transform:translate(-50%,-50%);color:#8f9bb0;' +
-      'font-size:12.5px;letter-spacing:.2em;transition:opacity .3s;opacity:0',
-      'CLICK TO LOOK AROUND'
+      base + ';left:50%;top:58%;transform:translate(-50%,-50%);color:#8f9bb0;' +
+      `font-size:13px;letter-spacing:.24em;${SERIF};transition:opacity .3s;opacity:0`,
+      'CLICK TO LOOK AROUND',
     );
 
     this.hud.skip = mk(
-      base + mono + ';right:34px;bottom:34px;color:#5b6379;font-size:11.5px;letter-spacing:.2em',
-      'X — SKIP &nbsp;·&nbsp; M — MUTE'
+      base + ';right:26px;bottom:20px;color:#5b6379;font-size:12px;letter-spacing:.24em;' + SERIF,
+      'X — SKIP &nbsp;·&nbsp; M — MUTE',
     );
 
+    // Kai's own head — italic, no speaker colour, a shade above the subs
     this.hud.thought = mk(
-      base + ';left:50%;bottom:160px;transform:translateX(-50%);max-width:680px;' +
-      'text-align:center;color:#dfe7f5;font-size:19px;font-style:italic;line-height:1.5;' +
-      'text-shadow:0 2px 14px rgba(0,0,0,.9);opacity:0;transition:opacity .5s'
+      base + ';left:50%;bottom:24%;transform:translateX(-50%);max-width:680px;' +
+      `text-align:center;color:#e8ddc8;font-size:21px;font-style:italic;line-height:1.5;${SERIF};` +
+      'text-shadow:0 2px 14px rgba(0,0,0,.95);opacity:0;transition:opacity .5s',
     );
 
     this.hud.fade = mk(
       'position:absolute;inset:0;background:#04060a;pointer-events:none;opacity:0;' +
-      'transition:opacity .9s'
+      'transition:opacity .9s',
     );
 
-    this.hud.card = mk(
-      'position:absolute;inset:0;background:#04060a;pointer-events:none;opacity:1;' +
-      'transition:opacity 1.1s;display:flex;align-items:center;justify-content:center;' +
-      'text-align:center;' + mono
-    );
-    this.hud.cardBody = document.createElement('div');
-    this.hud.cardBody.style.cssText = 'transition:opacity .35s';
-    this.hud.card.appendChild(this.hud.cardBody);
-    this.hud.cardBody.innerHTML = this.cards[0];
-
-    this.hud.cardHint = mk(
-      base + mono + ';left:50%;bottom:70px;transform:translateX(-50%);color:#5b6379;' +
-      'font-size:11.5px;letter-spacing:.28em;transition:opacity .4s',
-      'CLICK TO CONTINUE'
-    );
+    // the title drifts up once the scene is on screen
+    setTimeout(() => { if (this.hud.title) this.hud.title.style.opacity = '1'; }, 700);
   }
 
-  _nextCard() {
-    if (this.cardT > 0) return;
-    this.cardIndex++;
-    if (this.cardIndex >= this.cards.length) {
-      this.hud.card.style.opacity = '0';
-      this.hud.cardHint.style.opacity = '0';
-      this.phase = 'seated';
+  /* ---------------------------------------------------- the conversation */
+  _begin() {
+    this.phase = 'talk';
+    this.t = 0;
+    // the click that starts Ingram also starts the forest
+    this.hud.title.style.opacity = '0';
+    this._nextLine();
+  }
+
+  _showLine(i) {
+    const line = SCRIPT[i];
+    this.hud.subName.textContent = line.who;
+    this.hud.subName.style.color = SPEAK_COLOR[line.who];
+    this.hud.subLine.textContent = line.text;
+    this.hud.sub.style.opacity = '1';
+    this.hud.shade.style.opacity = '1';
+    this.hud.subHint.style.opacity = '1';
+  }
+
+  _nextLine() {
+    this.scriptIndex++;
+    if (this.scriptIndex >= SCRIPT.length) {
+      // the conversation is over — the title has long faded, the fire is
+      // lower, and Ingram has one thing left to do before he goes
+      this.hud.sub.style.opacity = '0';
+      this.hud.subHint.style.opacity = '0';
+      this.phase = 'leave';
       this.t = 0;
-      this.sfx.campTone();
+      this._leaveTold = false;
+      this._whistled = false;
       return;
     }
-    this.hud.cardBody.style.opacity = '0';
-    this.cardT = 0.35;
+    this._showLine(this.scriptIndex);
+    if (this.scriptIndex === 0) {
+      // the title fades out underneath his first line, not before it
+      this.hud.title.style.opacity = '0';
+    }
   }
 
   /* ==================================================== one text channel */
@@ -1133,12 +1052,10 @@ export class Prologue extends Level {
     }
   }
 
-  /** The two gates that stop text colliding with text. */
-  _typing() { return this.pending !== null || this.queue.length > 0; }
+  /** The gates that stop text colliding with text. */
   _talking() { return this.says.length > 0 || this.sayT > 0; }
 
-  /** Clear the text channel. Acting dismisses whatever he was thinking —
-   *  otherwise a leftover thought sits over the laptop while it types. */
+  /** Clear the text channel. */
   _hush() {
     this.says.length = 0;
     this.sayT = 0;
@@ -1148,40 +1065,6 @@ export class Prologue extends Level {
   _prompt(html) {
     this.hud.prompt.innerHTML = html;
     this.hud.prompt.style.opacity = html ? '1' : '0';
-  }
-
-  /* ==================================================== laptop screen */
-  _drawScreen() {
-    const c = this.ctx2d, W = this.canvas.width, H = this.canvas.height;
-    c.fillStyle = '#070c14';
-    c.fillRect(0, 0, W, H);
-    c.fillStyle = 'rgba(255,255,255,0.02)';
-    for (let y = 0; y < H; y += 4) c.fillRect(0, y, W, 1);
-
-    // 18 px at a 20 px step: the manifest is 15 lines and the canvas is 320
-    // tall — anything larger clips the holding sites off the bottom
-    c.font = '18px ui-monospace, Menlo, monospace';
-    c.textBaseline = 'top';
-    let y = 14;
-    const draw = (text) => {
-      if (text.startsWith('!')) c.fillStyle = '#ffb03a';
-      else if (text.startsWith('>')) c.fillStyle = '#ff6b6b';
-      else c.fillStyle = '#8fd8ff';
-      c.fillText(text.replace(/^[!>]/, ''), 22, y);
-      y += 20;
-    };
-    for (const line of this.lines) draw(line);
-    if (this.pending !== null) draw(this.pending.slice(0, this.pendingChars) + '█');
-    this.screenTex.needsUpdate = true;
-  }
-
-  _type(lines) { this.queue = lines.slice(); this._next(); }
-
-  _next() {
-    if (this.queue.length === 0) { this.pending = null; return false; }
-    this.pending = this.queue.shift();
-    this.pendingChars = 0;
-    return true;
   }
 
   /* ==================================================== movement */
@@ -1207,14 +1090,12 @@ export class Prologue extends Level {
     if (!this._blocked(this.px, this.pz + dz)) this.pz += dz;
 
     // The clearing has an edge: tree line all the way round, open only where
-    // the trail mouth cuts through it. That gap is the whole geography of the
-    // scene — Rack 14 sits off the line between the tent and the gap, so the
-    // flee has to cross the open ground the wide shot just showed you.
+    // the trail mouth cuts through it. Until he has the horn there is nothing
+    // out there but the dark, so the rope of shadow at the mouth holds him.
     if (this.pz < -14) {
       this.px = THREE.MathUtils.clamp(this.px, -CORRIDOR_X, CORRIDOR_X);
       this.pz = Math.max(this.pz, -21);
     } else if (this.phase !== 'flee' && this.pz < -11.5) {
-      // the rope across the mouth: until he has the Key there is nowhere to go
       this.pz = -11.5;
     } else {
       const r = Math.hypot(this.px, this.pz);
@@ -1227,7 +1108,7 @@ export class Prologue extends Level {
     this.yaw -= this.input.mouse.dx * LOOK;
     this.pitch -= this.input.mouse.dy * LOOK;
     this.pitch = THREE.MathUtils.clamp(this.pitch, -1.1, 1.1);
-    // on the crate he can glance around, but he cannot spin on the spot
+    // on the log he can glance around, but he cannot spin on the spot
     if (this.seated) this.yaw = THREE.MathUtils.clamp(this.yaw, -1.0, 1.0);
   }
 
@@ -1238,7 +1119,7 @@ export class Prologue extends Level {
     if (this.hud && this.hud.lock) this.hud.lock.style.opacity = '0';
   }
 
-  /** Screen-space arrow toward a point in the camp, relative to where he looks. */
+  /** Screen-space arrow toward a point in the clearing, relative to where he looks. */
   _arrowTo(tx, tz) {
     let d = this._yawTo(tx, tz) - this.yaw;
     while (d > Math.PI) d -= Math.PI * 2;
@@ -1248,18 +1129,18 @@ export class Prologue extends Level {
   }
 
   _trailArrow() { return this._arrowTo(TRAIL.x, TRAIL.z); }
-  _rackArrow() { return this._arrowTo(RACK14.x, RACK14.z); }
+  _stoneArrow() { return this._arrowTo(STONE.x, STONE.z); }
 
   /** Yaw that points the camera at a place, from where he is standing. */
   _yawTo(tx, tz) {
     return Math.atan2(-(tx - this.px), -(tz - this.pz));
   }
 
-  _yawToRack() { return this._yawTo(RACK14.x, RACK14.z); }
+  _yawToStone() { return this._yawTo(STONE.x, STONE.z); }
   _yawToTrail() { return this._yawTo(TRAIL.x, TRAIL.z); }
 
   /* ==================================================== night -> dawn */
-  /** k = 0 is the camp at 05:12; k = 1 is level 01's exact morning. */
+  /** k = 0 is the clearing at night; k = 1 is level 01's exact morning. */
   _applyDawn(k) {
     if (Math.abs(k - this._dawnApplied) < 0.004) return;
     this._dawnApplied = k;
@@ -1288,40 +1169,42 @@ export class Prologue extends Level {
     }
     for (const m of this.mist) m.material.opacity = 0.05 * (1 - k);
     this.fireflyMat.opacity = 0.8 * (1 - k);
-    this.lantern.intensity = lerp(7.5, 2.6);
   }
 
   /* ==================================================== key moments */
-  _copy(state) {
-    this.phase = 'copied';
-    this.t = 0;
-    this._prompt('');
-    this._hush();
-    this.lines.push('');
-    this.lines.push('!COPIED TO EXTERNAL VOLUME');
-    this._drawScreen();
-    this.sfx.confirm();
-    // NOTE: hasKey is NOT set here. The desk copy gets him the data; the
-    // physical authorization key is still in the rack. See _takeKey().
-  }
-
-  /** Rack 14, in the open. This is the moment he actually has the Key. */
-  _takeKey(state) {
+  /** THE HORN, off the stone and into his hand. */
+  _takeHorn(state) {
     this.phase = 'taken';
     this.t = 0;
     this._prompt('');
     this._hush();
-    this.carried.add(this.keyDrive);              // out of the rack, into his hand
-    this.carried.add(this.keyLight);
-    this.keyDrive.position.set(0, 0, 0);
-    this.keyDrive.rotation.y = 0.5;
-    this.keyLight.position.set(0, 0.05, 0);
-    this.matKeyDrive.emissive.setHex(KEY_CYAN);
-    this.matKeyDrive.emissiveIntensity = 0.8;
-    this.keyLight.intensity = 4.5;
-    this.matStandby.color.setHex(0x3a2a10);       // the rack goes back to sleep
-    this.sfx.confirm();
-    state.hasKey = true;
+    this.carried.add(this.horn);              // off the stone, into his hand
+    this.carried.add(this.hornLight);
+    this.horn.position.set(0, 0, 0);
+    this.horn.rotation.set(0.5, 0.3, 0.2);
+    this.hornLight.position.set(0, 0.12, 0);
+    this.matHorn.emissive.setHex(HORN_CYAN);
+    this.matHorn.emissiveIntensity = 0.85;
+    this.hornLight.intensity = 4.5;
+    // THE SILENCE. Wind, insects, frogs, fire — all of it, at once.
+    this.sfx.silence();
+    state.hasKey = true;                      // what he carries through the game
+  }
+
+  /** The lamp, in the trees behind him. */
+  _showLamp() {
+    this.lamp.visible = true;
+    this.lampLight.intensity = 3.6;
+    this.lampBeam.visible = true;
+    // the man under it: the same one who sat at the fire, face gone now.
+    // Whatever load state the model is in, it must not show a face.
+    this.ingram.position.set(LAMP_SPOT.x - 0.6, 0, LAMP_SPOT.z + 0.8);
+    this.ingram.rotation.y = Math.PI * 0.12;
+    this.ingramLamp.visible = false;          // the hand lamp IS the tree lamp now
+    this.ingramLampLight.intensity = 0;
+    this.ingram.visible = true;
+    this._silenceIngram();
+    if (this.ingramModel) this.ingramModel.play('idle');
   }
 
   _exit(state) {
@@ -1330,15 +1213,16 @@ export class Prologue extends Level {
     this.phase = 'done';
     this._prompt('');
     this.hud.thought.style.opacity = '0';
+    this.hud.sub.style.opacity = '0';
+    this.hud.shade.style.opacity = '0';
     this.hud.fade.style.opacity = '1';
-    this.sfx.dawnBreak();
-    this._applyDawn(1);      // the fade is black; the jump in light is free
+    this._applyDawn(1);      // the fade is dark; the jump in light is free
     if (document.exitPointerLock) document.exitPointerLock();
-    // This prologue IS the intro of record: it ends on Kai breaking onto the
-    // trail at dawn, which is level 01's first frame, so go straight in. The
-    // level-1 cutscene (TrailIntro) stays reachable on its own via
-    // ?level=level01-intro, but playing both back to back is one intro too
-    // many. Straight into the run.
+    // This prologue is the intro of record: it ends on Kai breaking onto the
+    // trail at dawn with the horn, which is level 01's first frame. The old
+    // level-1 cutscene (TrailIntro) is still built around a data-centre door,
+    // so playing it here would break the valley story — go straight into the
+    // run. Reachable on its own via ?level=level01-intro.
     setTimeout(() => this.game.setLevel('level01'), 1250);
   }
 
@@ -1371,10 +1255,9 @@ export class Prologue extends Level {
       cam.rotation.order = 'YXZ';
       cam.rotation.set(this.pitch, this.yaw, 0);
 
-      // leaning in while he reads, back out once he is on his feet
-      const reading = ['card', 'seated', 'check', 'checkRead', 'manifest', 'read',
-        'choice', 'refused'].includes(this.phase);
-      const want = reading ? 42 : 58;
+      // tighter while he listens at the fire, wide once he is on his feet
+      const intimate = ['title', 'talk', 'leave', 'rise'].includes(this.phase);
+      const want = intimate ? 44 : 58;
       if (Math.abs(cam.fov - want) > 0.05) {
         cam.fov += (want - cam.fov) * 0.06;
         cam.updateProjectionMatrix();
@@ -1392,34 +1275,13 @@ export class Prologue extends Level {
     if (this.input.pressed('mute')) this.sfx.setMuted(!this.sfx.muted);
     if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
-    if (this.cardT > 0) {
-      this.cardT -= dt;
-      if (this.cardT <= 0) {
-        this.hud.cardBody.innerHTML = this.cards[this.cardIndex];
-        this.hud.cardBody.style.opacity = '1';
-      }
-    }
-
-    if (this.phase !== 'card' && this.cine <= 0) this._look();
+    if (this.phase !== 'title' && this.phase !== 'talk' && this.cine <= 0) this._look();
     this._tickSay(dt);
     if (this.standing && this.phase !== 'done') this._move(dt);
 
-    // laptop typing, with a keystroke every few characters
-    if (this.pending !== null) {
-      const before = Math.floor(this.pendingChars);
-      this.pendingChars += dt * 58;
-      const after = Math.floor(this.pendingChars);
-      if (after > before && after % 3 === 0) this.sfx.click();
-      if (this.pendingChars >= this.pending.length) {
-        this.lines.push(this.pending);
-        this.pendingChars = 0;
-        if (!this._next()) this.pending = null;
-      }
-      this._drawScreen();
-    }
-
-    // the night is alive until the dawn takes it
-    if (this.dawnK < 1) this.sfx.tickNight(dt);
+    // the forest is alive until the horn comes off the stone
+    this.sfx.tickNight(dt);
+    this.sfx.tickFire(dt);
 
     // fireflies hold still until they don't; mist crawls
     this.fireflyMat.opacity = (0.55 + Math.sin(this.t * 1.7) * 0.25) * (1 - this.dawnK);
@@ -1427,250 +1289,169 @@ export class Prologue extends Level {
     for (const m of this.mist) m.rotation.z += dt * 0.012;
 
     if (this.kaiModel) this.kaiModel.update(dt);
-    if (this.handlerModel) this.handlerModel.update(dt);
+    if (this.ingramModel) this.ingramModel.update(dt);
 
-    // the Key rides just in front of him, at about the height he'd hold it
+    // the horn rides just in front of him, at about the height he'd carry it
     if (this.carried && this.carried.children.length) {
       this.carried.position.set(
         this.px - Math.sin(this.yaw) * 0.42, 1.08, this.pz - Math.cos(this.yaw) * 0.42,
       );
     }
 
-    // heartbeat, from the moment the Key is lit
+    // heartbeat, from the moment the horn is lit
     if (this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
       this.beatT -= dt;
       if (this.beatT <= 0) { this.sfx.thump(); this.beatT = 0.84; }
     }
 
-    switch (this.phase) {
-      case 'card': break;
+    // fire flicker — its own noise, never a loop you can hear
+    const power = this.sfx.firePower;
+    this.fireLight.intensity = (5.6 + Math.sin(this.t * 11) * 0.9 + Math.sin(this.t * 23.7) * 0.6) * power;
+    this.ember.material.opacity = 0.85 * power;
+    for (let i = 0; i < this.flames.length; i++) {
+      const f = this.flames[i];
+      const w = 0.9 + Math.sin(this.t * (9 + i * 3.1) + i * 2) * 0.14;
+      f.scale.set(w, (0.92 + Math.sin(this.t * 7.3 + i) * 0.1) * power, 1);
+      f.material.opacity = Math.min(1, 0.85 * power + 0.1);
+    }
 
-      case 'seated': {
-        if (this.kaiModel && !this._typeStarted) {
-          this._typeStarted = true;
-          this.kaiModel.play('type');      // ignored until the rig lands
+    switch (this.phase) {
+      // The scene plays itself: fire, mist, the camera breathing. One click
+      // starts the forest and hands the scene to Ingram.
+      case 'title': {
+        this.yaw = Math.sin(this.t * 0.11) * 0.05;
+        this.pitch = 0.06 + Math.sin(this.t * 0.07) * 0.012;
+        break;
+      }
+
+      // One camera, two people, click to advance — the card mechanic pointed
+      // at faces instead of text. The camera holds the two-shot: fire
+      // centre, Ingram left of it, barely breathing so it stays alive.
+      case 'talk': {
+        this.yaw = Math.sin(this.t * 0.09) * 0.02;
+        // the fire is dying all through the conversation
+        this.sfx.firePower = Math.max(0.45, 1 - this.t * 0.012);
+        // Ingram is alive at the fire: breathing weight, the lamp swinging
+        if (this.ingramModel) {
+          if (!this._ingramIdled) { this._ingramIdled = true; this.ingramModel.play('idle'); }
         }
-        if (!this.introSaid && this.t > 1.0) {
-          this.introSaid = true;
-          this.hud.lock.style.opacity = this.locked ? '0' : '1';
-          this._say('Sign it off and go home.');
-        }
-        if (this.t > 2.0) {
-          this._prompt('<b style="color:#4fd6e0">E</b> &nbsp; RUN THE CHECK');
-          if (this.input.pressed('interact')) {
-            this._prompt('');
-            this._hush();
-            this.phase = 'check';
-            this.t = 0;
-            this.lines = [];
-            this._type([
-              'RACK 14 — DECOMMISSION CHECK',
-              '',
-              'VERIFYING ......................... 98%',
-              'VERIFYING ........................ 100%',
-              '',
-              'COMPLETE',
-              '!PULLED FROM SERVICE 14 MARCH',
-              '!STILL DRAWING POWER',
-            ]);
+        this.ingram.rotation.y = Math.PI + Math.sin(this.t * 0.4) * 0.03;
+        break;
+      }
+
+      // He whistles two notes and walks off into the dark.
+      case 'leave': {
+        if (!this._whistled && this.t > 0.6) { this._whistled = true; this.sfx.whistle(); }
+        if (this.t > 1.4) {
+          if (this.ingramModel) this.ingramModel.play('walk');
+          // out along the west tree line, unhurried — a man with nowhere to be
+          const k = Math.min(1, (this.t - 1.4) / 4.6);
+          const ease = k * k * (3 - 2 * k);
+          this.ingram.position.set(
+            THREE.MathUtils.lerp(INGRAM_AT.x, WALKOFF.x, ease),
+            0,
+            THREE.MathUtils.lerp(INGRAM_AT.z, WALKOFF.z, ease),
+          );
+          this.ingram.rotation.y = Math.atan2(
+            -(WALKOFF.x - INGRAM_AT.x), -(WALKOFF.z - INGRAM_AT.z),
+          );
+          // the lamp's glow goes with him and thins into the dark
+          this.ingramLampLight.intensity = 2.2 * (1 - ease * 0.55);
+          if (k >= 1 && !this._leaveTold) {
+            this._leaveTold = true;
+            this.ingram.visible = false;
+            this.ingramLampLight.intensity = 0;
           }
         }
-        break;
-      }
-
-      // the laptop finishes before he thinks anything
-      case 'check': {
-        if (!this._typing()) {
-          this.phase = 'checkRead';
+        if (this.t > 7.4) {
+          this.phase = 'rise';
           this.t = 0;
-          this.sfx.alert();
-          this._say('This rack was switched off in March.');
-          this._say('So why is it still running?');
         }
         break;
       }
 
-      // and he finishes thinking before the laptop types again
-      case 'checkRead': {
-        if (!this._talking()) {
-          this.phase = 'manifest';
+      // He gets to his feet — the camera rises, and control comes back.
+      case 'rise': {
+        const k = Math.min(1, this.t / 1.2);
+        this.eye = THREE.MathUtils.lerp(SEAT.eye, STAND_EYE, k);
+        this.pz = THREE.MathUtils.lerp(SEAT.z, SEAT.z + 0.75, k);
+        if (this.t > 1.2) {
+          this.phase = 'walk';
           this.t = 0;
-          this.lines = [];
-          this.sfx.sting();
-          this._type([
-            '> VOLUME FOUND — NOT ON THE ASSET REGISTER',
-            '',
-            'PROJECT BLACKOUT',
-            'DEPLOYMENT MANIFEST',
-            '',
-            'EFFECT   : CONTINENTAL NETWORK SHUTDOWN',
-            'STATUS   : CONTRACTED',
-            '!GOES LIVE: 9 DAYS',
-            '',
-            'HOLDING SITES',
-            '  02  NORTHGATE SUBSTATION',
-            '  07  SITE 7 — INTERIOR BASIN',
-            '  11  CAPE LANDING',
-            '',
-            '!MASTER KEY HELD ON THIS VOLUME',
-          ]);
+          this.seated = false;        // off the log: he can turn freely
+          this.standing = true;       // and he can walk
+          if (this.kaiModel) this.kaiModel.play('walk');
+          this.yaw = this._yawToStone();
+          this._say('A few metres. Then back in bed before he changes his mind.');
+          this._onLockChange();
         }
         break;
       }
 
-      case 'manifest': {
-        if (!this._typing()) {
-          this.phase = 'read';
-          this.t = 0;
-          this._say("This isn't a maintenance log.");
-          this._say('A kill switch. Every network on the continent. Nine days.');
+      // THE WALK. No threat yet — this stretch is only the fire behind him
+      // and the dark under the trees ahead. About five seconds of open grass.
+      case 'walk': {
+        this._prompt(
+          '<span style="color:' + INGRAM_AMBER + '">THE STONE</span> &nbsp; ' +
+          '<span style="font-size:24px;color:' + INGRAM_AMBER + '">' + this._stoneArrow() + '</span>',
+        );
+        if (!this.halfway &&
+            Math.hypot(this.px - STONE.x, this.pz - STONE.z) < 6) {
+          this.halfway = true;
+          this._say('Everyone in the valley could tell you what this stone means.');
         }
-        break;
-      }
-
-      case 'read': {
-        if (!this._talking()) { this.phase = 'choice'; this.t = 0; }
+        if (Math.hypot(this.px - STONE.x, this.pz - STONE.z) < 2.35) {
+          this.phase = 'choice';
+          this.t = 0;
+          this._hush();
+          this._prompt('');
+        }
         break;
       }
 
       case 'choice': {
-        this._prompt(
-          '<b style="color:#4fd6e0">E</b> &nbsp; COPY IT TO THE DRIVE' +
-          '<span style="opacity:.4"> &nbsp;&nbsp;|&nbsp;&nbsp; </span>' +
-          '<b style="color:#8f9bb0">Q</b> &nbsp; CLOSE THE LAPTOP'
-        );
-        if (this.input.pressed('decline')) {
-          this.lines.push('');
-          this.lines.push('!9 DAYS');
-          this._drawScreen();
-          this.phase = 'refused';
-          this.t = 0;
-          this._prompt('');
-          this._say("I can't close this and walk out.", null, true);
-        }
-        if (this.input.pressed('interact')) this._copy(state);
-        break;
-      }
-
-      case 'refused': {
-        if (!this._talking()) this.phase = 'choice';
-        break;
-      }
-
-      // the data lands on his own drive — this is NOT the key yet
-      case 'copied': {
-        if (this.t > 2.0) {
-          this.phase = 'brief';
-          this.t = 0;
-          this._type([
-            '',
-            '!BLACKOUT PROTOCOL',
-            '',
-            'Remote shutdown authorization detected.',
-            '>Physical authorization key required.',
-            '',
-            'Location: RACK 14 — HOLDING',
-            '!Retrieval status: READY',
-          ]);
+        if (this.doubted) {
+          // the doubt line has the screen; when it is done, the prompt comes
+          // back — so taking the horn is always something chosen twice
+          if (!this._talking()) this.doubted = false;
+        } else {
+          this._prompt(
+            '<b style="color:' + HORN_HEX + '">E</b> — TAKE THE HORN' +
+            '<span style="opacity:.45"> &nbsp;&nbsp;|&nbsp;&nbsp; </span>' +
+            '<b style="color:#8f9bb0">Q</b> — LEAVE IT',
+          );
+          if (this.input.pressed('decline')) {
+            // a moment of doubt, in his own head
+            this.doubted = true;
+            this._prompt('');
+            this._say('Walk away. Tell him it wouldn\u2019t come loose.', null, true);
+          }
+          if (this.input.pressed('interact')) this._takeHorn(state);
         }
         break;
       }
 
-      // he reads what the copy actually got him, and what it didn't
-      case 'brief': {
-        if (!this._typing() && !this._talking() && !this.briefSaid) {
-          this.briefSaid = true;
-          this._say('So the data is mine.');
-          this._say("The key isn't. It's in the rack they told me to sign away.");
-          this.matStandby.color.setHex(0xffb03a);   // Rack 14 answers across the dark
-          this.sfx.alert();
-        }
-        if (this.briefSaid && !this._talking()) { this.phase = 'stand'; this.t = 0; }
-        break;
-      }
-
-      // he gets to his feet — the camera rises, and control comes back
-      case 'stand': {
-        const k = Math.min(1, this.t / 1.2);
-        this.eye = THREE.MathUtils.lerp(SEAT.eye, STAND_EYE, k);
-        this.pz = THREE.MathUtils.lerp(SEAT.z, SEAT.z + 0.8, k);
-        if (this.t > 1.2) {
-          this.phase = 'toRack';
-          this.t = 0;
-          this.seated = false;        // off the crate: he can turn freely
-          this.standing = true;       // and he can walk
-          if (this.kaiModel) this.kaiModel.play('walk');
-          this.yaw = this._yawToRack();
-          this._say('Across the clearing. In the open.');
-        }
-        break;
-      }
-
-      // THE WALK. No threat yet — this stretch is only the camp and the dark
-      // under the trees, and the dark is the point. He has read what Rack 14
-      // is holding and now has to cross open ground to get to it.
-      case 'toRack': {
-        this._prompt(
-          '<b style="color:#ffb03a">RACK 14</b> &nbsp; ' +
-          '<span style="font-size:18px;color:#ffb03a">' + this._rackArrow() + '</span>'
-        );
-        if (!this.halfway &&
-            Math.hypot(this.px - RACK14.x, this.pz - RACK14.z) < 5.5) {
-          this.halfway = true;
-          this._say("No fence. No lock. They didn't even guard it.");
-        }
-        if (Math.hypot(this.px - RACK14.x, this.pz - RACK14.z) < 2.4) {
-          this.phase = 'atRack';
-          this.t = 0;
-          this._hush();
-          this.termScreen.visible = true;   // the terminal wakes as he arrives
-          this.termGlow.intensity = 5.0;
-          this.sfx.sting();
-          this._say('There it is.');
-        }
-        break;
-      }
-
-      // amber on his face, the protocol in front of him, the key in the socket
-      case 'atRack': {
-        this.termGlow.intensity = 5.0 + Math.sin(this.t * 3.4) * 0.7;
-        // if he wanders back off across the clearing, hand the walk prompt back
-        if (Math.hypot(this.px - RACK14.x, this.pz - RACK14.z) > 3.2) {
-          this.phase = 'toRack'; this.t = 0; this._prompt('');
-          break;
-        }
-        if (this.t > 1.2) {
-          this._prompt('<b style="color:' + KEY_HEX + '">E</b> &nbsp; TAKE THE KEY');
-          if (this.input.pressed('interact')) this._takeKey(state);
-        }
-        break;
-      }
-
-      // he pulls it, it lights — and something is already in the camp
+      // He lifts it. The valley holds its breath.
       case 'taken': {
-        this.matKeyDrive.emissiveIntensity = 0.8 + Math.sin(this.t * 7) * 0.3;
-        this.keyLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
-        if (this.t > 1.5) {
+        this.matHorn.emissiveIntensity = 0.85 + Math.sin(this.t * 7) * 0.3;
+        this.hornLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
+        if (this.t > 1.5 && !this._quietSaid) {
+          this._quietSaid = true;
+          this._say('Everything just went quiet.', null, true);
+          this._say("That's not supposed to happen.");
+        }
+        if (this._quietSaid && !this._talking() && this.t > 4.2) {
           this.phase = 'wide';
           this.t = 0;
           this.standing = false;            // the shot takes the controls back
-          this.yaw = this._yawToTrail();
-          // He is at the rack, so the figure walking in is standing in the
-          // only way out — which is what the wide shot is for.
-          this.handler.visible = true;
-          this.handler.position.set(TRAIL.x, 0, TRAIL.z + 1.2);
-          this.handler.rotation.y = 0;
-          if (this.handlerModel) this.handlerModel.play('idle');
-          this.torchLight.intensity = 55;
-          this.torchBeam.visible = true;
-          this.sfx.alarm();
-          this._say('Someone is in the mouth of the trail.', null, true);
-          this._say("And it's the only way out.");
+          this._showLamp();
+          // the last of the fire settles to embers behind him
+          this.sfx.firePower = 0.3;
         }
         break;
       }
 
-      // THE PULL-BACK — both the figure and the way out in one frame
+      // THE PULL-BACK — the lamp in the trees and the way out, one frame
       case 'wide': {
         if (this.t < 1.1) this.cine = this.t / 1.1;
         else if (this.t < 4.4) this.cine = 1;
@@ -1679,47 +1460,51 @@ export class Prologue extends Level {
           this.cine = 0;
           this.standing = true;
           this.phase = 'flee';
-          this.fleeT = 0;
           this.t = 0;
-          this.matMarker.emissive.setHex(0x39b54a);  // the lamps become a runway
+          this.sfx.alarm();
           if (this.kaiModel) this.kaiModel.play('run');
+          this._onLockChange();
+        }
+        // the lamp drifts through the trunks while the shot holds
+        if (this.lamp.visible) {
+          this.lamp.position.x = LAMP_SPOT.x + Math.sin(this.t * 0.5) * 1.3;
+          this.lamp.position.y = 1.5 + Math.sin(this.t * 1.7) * 0.14;
+          this.lampLight.intensity = 3.4 + Math.sin(this.t * 9) * 0.7;
+        }
+        if (!this._lampSaid && this.t > 1.9) {
+          this._lampSaid = true;
+          this._say("Someone's out there.", null, true);
         }
         break;
       }
 
       case 'flee': {
-        this.fleeT += dt;
-        // dawn starts coming up while he runs — level 01's morning is seconds away
-        this.dawnK = Math.min(1, this.fleeT / 14);
+        // he runs the only line there is: across the open ground, through the
+        // mouth, out onto the trail. The lamp comes through the trees behind
+        // him, slower than him, and never once in a hurry.
+        if (this.ingramModel) this.ingramModel.play('walk');
+        const toward = Math.sign(this.px - this.ingram.position.x) || 1;
+        this.ingram.position.x = THREE.MathUtils.clamp(
+          this.ingram.position.x + toward * 1.7 * dt, -2.6, 2.6);
+        this.ingram.position.z = Math.min(-4.2, this.ingram.position.z + 1.05 * dt);
+        // the lamp detaches from the man and haunts the gap between trunks
+        this.lamp.position.set(
+          this.ingram.position.x, 1.5 + Math.sin(this.t * 2.1) * 0.13, this.ingram.position.z + 0.6,
+        );
+        this.lampLight.intensity = 3.4 + Math.sin(this.t * 13) * 0.9;
+
+        // dawn starts coming up while he runs — level 01's morning is seconds
+        // away, and Ingram said "before morning"
+        this.dawnK = Math.min(1, this.t / 16);
         this._applyDawn(this.dawnK);
 
-        // he comes up from the mouth, a little slower than Kai can run, so
-        // getting past him is tight rather than impossible
-        // He walks the centre of the gap and does not chase sideways. That is
-        // the character — he is not worried — and it is also the rule the
-        // player has to find: run straight at him and you are caught, go round
-        // him and you are not. The gap is 4.6 m and he is 0.8, so there is room
-        // on either side if you commit to a side early.
-        if (this.handlerModel) this.handlerModel.play('walk');
-        const toward = Math.sign(this.px - this.handler.position.x) || 1;
-        this.handler.position.x = THREE.MathUtils.clamp(
-          this.handler.position.x + toward * 2.0 * dt, -2.6, 2.6);
-        this.handler.position.z = Math.min(-4.5, this.handler.position.z + 1.15 * dt);
-        this.torchLight.intensity = 55 + Math.sin(this.t * 13) * 9;
-
-        // the marker lamps strobe him a line back to the trail
-        for (let i = 0; i < this.markers.length; i++) {
-          const on = Math.sin(this.t * 6 - i * 0.9) > 0;
-          this.markers[i].material.emissiveIntensity = on ? 2.4 : 0.15;
-        }
-
         this._prompt(
-          '<b style="color:#9ed36a">RUN</b> &nbsp; ' +
-          '<span style="font-size:18px;color:#9ed36a">' + this._trailArrow() + '</span>'
+          '<b style="color:' + KAI_GREEN + '">RUN</b> &nbsp; ' +
+          '<span style="font-size:24px;color:' + KAI_GREEN + '">' + this._trailArrow() + '</span>',
         );
         const atTrail = this.pz < -17.4 && Math.abs(this.px) < CORRIDOR_X;
-        const caught = Math.hypot(this.px - this.handler.position.x,
-                                  this.pz - this.handler.position.z) < 0.75;
+        const caught = Math.hypot(this.px - this.ingram.position.x,
+                                  this.pz - this.ingram.position.z) < 0.8;
         if (atTrail || caught) this._exit(state);
         break;
       }
@@ -1742,7 +1527,7 @@ export class Prologue extends Level {
     this.hud = {};
 
     if (this.kaiModel) this.kaiModel.dispose();
-    if (this.handlerModel) this.handlerModel.dispose();
+    if (this.ingramModel) this.ingramModel.dispose();
     this.mist = [];               // drop the references; super disposes the meshes
     this.scene.fog = null;
     this.game.camera.fov = 62;
