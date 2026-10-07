@@ -105,16 +105,17 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
-    const [kai, handlerSrc] = await Promise.all([
-      this._loadKai(assets),
-      safe(assets.fbx('characters/handler.fbx')),
+    const [kai, handler] = await Promise.all([
+      this._loadFighter(assets, 'kai-bryce', 'kai.fbx'),
+      this._loadFighter(assets, 'handler-monk', 'handler.fbx'),
       this.arena.build(assets),
     ]);
     if (!this.scene) return; // level was torn down while loading
 
     this.kaiMeta = kai.meta;
+    this.handlerMeta = handler.meta;
     this.combat = new CombatController(this.root, kai.source, kai.meta);
-    this.boss = new HandlerBoss(this.root, this.combat, handlerSrc);
+    this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
@@ -155,24 +156,25 @@ export class Level03 extends Level {
   }
 
   /**
-   * Kai: the Mixamo one (assets/characters/kai-bryce.glb + .json, built by
-   * tools/build-kai.py) with real fight moves, or the Quaternius one if that
-   * hasn't been built. meta is the build's measurements of each move.
+   * A fighter: the Mixamo build (assets/characters/<name>.glb + .json, from
+   * tools/build-character.py: Kai is Bryce, the Handler the shrine monk) with
+   * real fight moves, or the old Quaternius model (`fallback`) if it hasn't
+   * been built. meta is the build's measurements of each move.
    */
-  async _loadKai(assets) {
+  async _loadFighter(assets, name, fallback) {
     try {
       const [gltf, meta] = await Promise.all([
-        assets.model('characters/kai-bryce.glb'),
-        fetch(assets.resolve('characters/kai-bryce.json')).then((r) => {
-          if (!r.ok) throw new Error(`kai-bryce.json: ${r.status}`);
+        assets.model(`characters/${name}.glb`),
+        fetch(assets.resolve(`characters/${name}.json`)).then((r) => {
+          if (!r.ok) throw new Error(`${name}.json: ${r.status}`);
           return r.json();
         }),
       ]);
       gltf.scene.animations = gltf.animations;
       return { source: gltf.scene, meta };
     } catch (e) {
-      console.warn('[level03] no Mixamo Kai, using the Quaternius one:', e?.message || e);
-      return { source: await safe(assets.fbx('characters/kai.fbx')), meta: null };
+      console.warn(`[level03] no ${name} build, using the Quaternius ${fallback}:`, e?.message || e);
+      return { source: await safe(assets.fbx(`characters/${fallback}`)), meta: null };
     }
   }
 
@@ -677,7 +679,13 @@ export class Level03 extends Level {
       }
       const b = this.boss;
       const drop = smooth(10.0, 10.75, t);
-      if (t >= 10.0 && !this._jumped) {
+      const leap = this.handlerMeta?.clips.jump;
+      if (leap && t >= 9.75 && !this._jumped) {
+        // the real leap: stretched so he leaves the arch at 10.0 and his landing crouch hits the ground at 10.75
+        this._jumped = true;
+        const speed = (leap.land - leap.takeoff) / 0.75;
+        b.fighter.playOnce('jump', { from: Math.max(0, leap.takeoff - 0.25 * speed), speed, fade: 0.1 });
+      } else if (!leap && t >= 10.0 && !this._jumped) {
         this._jumped = true;
         b.fighter.playOnce('jump', { speed: 1.3 });
       }
@@ -686,7 +694,7 @@ export class Level03 extends Level {
       if (drop >= 1 && !this._landed) {
         this._landed = true;
         b.root.position.y = 0;
-        b.fighter.play('idle', { fade: 0.2 });
+        if (!leap) b.fighter.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
         this._addShake(0.75);
         this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
         this.story.showCard('THE HANDLER', 'He never slows down.');
