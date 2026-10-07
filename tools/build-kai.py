@@ -17,7 +17,9 @@ named as Mixamo names them. Writes:
                   when the guard is fully up, how high the hips sit, how fast
                   a walk cycle walks... (times in seconds from the move's start)
 
-Jab Cross is split into two moves, "jab" and "jabcross2", one per punch.
+Jab Cross is split into two moves, "jab" and "jabcross2", one per punch, and
+two left-handed moves are made by mirroring: "kickl" (MMA Kick with the left
+leg) and "dodgel" (Dodging, slipping to the other side).
 
 Missing moves are skipped with a warning, so the game falls back for those.
 """
@@ -25,6 +27,7 @@ import bpy
 import json
 import os
 import sys
+from mathutils import Matrix
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 SRC, OUT_GLB = argv[0], argv[1]
@@ -92,6 +95,59 @@ for name, (file, loop) in CLIPS.items():
             bpy.data.armatures.remove(data)
 
 
+# ------------------------------------------------------------------ mirror
+def mirrored(act, name):
+    """
+    A left-right mirror of a move (a left kick from a right one), baked bone by
+    bone: each bone takes its twin's pose, reflected across the body's middle.
+    General form, so it doesn't rely on the left and right bones' rest axes
+    being exact mirrors: M = F (M_twin R_twin^-1) F R, F = the reflection.
+    """
+    flip = Matrix.Scale(-1, 4, (1, 0, 0))  # the armature's own x is the body's left-right
+    bones = arm.pose.bones
+    rest = {b.name: b.bone.matrix_local.copy() for b in bones}
+
+    def twin(n):
+        return n.replace('Left', '\0').replace('Right', 'Left').replace('\0', 'Right')
+
+    use(act)
+    f0, f1 = int(act.frame_range[0]), int(act.frame_range[1])
+    want = []
+    for f in range(f0, f1 + 1):
+        scene.frame_set(f)
+        pose = {b.name: b.matrix.copy() for b in bones}
+        want.append({b.name: flip @ pose[twin(b.name)] @ rest[twin(b.name)].inverted() @ flip @ rest[b.name] for b in bones})
+
+    # pose bones are set parent-first (a child's local pose depends on its parent's), with no action playing
+    arm.animation_data.action = None
+    levels = {}
+    for b in bones:
+        levels.setdefault(len(b.parent_recursive), []).append(b)
+    basis = []
+    for w in want:
+        for d in sorted(levels):
+            for b in levels[d]:
+                b.matrix = w[b.name]
+            bpy.context.view_layer.update()
+        basis.append({b.name: (b.location.copy(), b.rotation_quaternion.copy()) for b in bones})
+
+    new = bpy.data.actions.new(name)
+    new.use_fake_user = True
+    arm.animation_data.action = new
+    prev = {}
+    for i, f in enumerate(range(f0, f1 + 1)):
+        for b in bones:
+            loc, rot = basis[i][b.name]
+            if b.name in prev and prev[b.name].dot(rot) < 0:
+                rot.negate()  # keep the quaternions on one side, or the in-betweens spin the long way round
+            prev[b.name] = rot
+            b.location, b.rotation_quaternion = loc, rot
+            b.keyframe_insert('location', frame=f)
+            b.keyframe_insert('rotation_quaternion', frame=f)
+    arm.animation_data.action = None
+    return new
+
+
 # ------------------------------------------------------------------ measure
 def use(act):
     ad = arm.animation_data
@@ -118,6 +174,12 @@ def flat(v, w):
 def t(i):
     return round(i / fps, 3)
 
+
+# left-handed copies the game wants: the second kick of the chain, and slipping to the left
+for src, name in (('kick', 'kickl'), ('dodge', 'dodgel')):  # lower case: the game lower-cases clip names
+    if src in actions:
+        actions[name] = (mirrored(actions[src][0], name), actions[src][1])
+        log('mirrored', src, '->', name)
 
 BONES = ['Hips', 'Head', 'LeftHand', 'RightHand', 'LeftFoot', 'RightFoot']
 meta = {'fps': fps, 'clips': {}}
@@ -173,17 +235,27 @@ for name, (act, loop) in list(actions.items()):
     elif name in ('cross', 'hook'):
         h, limb = strike(['LeftHand', 'RightHand'])
         info.update(start=t(started(limb, h)), hit=t(h), settle=t(settled(limb, h)), limb=limb)
-    elif name in ('kick', 'roundhouse'):
+    elif name in ('kick', 'kickl', 'roundhouse'):
         h, limb = strike(['LeftFoot', 'RightFoot'])
         info.update(start=t(started(limb, h)), hit=t(h), settle=t(settled(limb, h)), limb=limb)
     elif name == 'block':
-        up = [((p['LeftHand'].z + p['RightHand'].z) / 2 - p['Hips'].z) for p in fr]
-        info['hold'] = t(max(range(n), key=lambda i: up[i]))
-    elif name in ('hit', 'dodge'):
+        # Center Block takes a blow: from the guard he rocks back (recoil) and comes back up with his
+        # forearms round his head. hold: back up, upright again - the guard to hold; jolt: just before
+        # the rock back starts, where a blow landing on the guard plays from
+        lean = [flat(p['Head'], fr[0]['Head']) for p in fr]
+        recoil = max(range(n), key=lambda i: lean[i])
+        hold = next((i for i in range(recoil, n) if lean[i] <= 0.3 * lean[recoil]), n - 1)
+        jolt = max((i for i in range(recoil) if lean[i] <= 0.5 * lean[recoil]), default=0)
+        info.update(hold=t(hold), jolt=t(jolt), recoil=t(recoil))
+    elif name in ('hit', 'dodge', 'dodgel'):
         moved = [flat(p['Head'], fr[0]['Head']) for p in fr]
         peak = max(range(n), key=lambda i: moved[i])
         back = next((i for i in range(peak, n) if moved[i] < 0.3 * moved[peak]), n - 1)
         info.update(peak=t(peak), settle=t(back), lean=round(moved[peak], 3))
+        if name != 'hit':
+            # duck: head lowest before the slip; slip: which way the head goes (his right is -x: he faces -y)
+            info['duck'] = t(min(range(peak + 1), key=lambda i: fr[i]['Head'].z))
+            info['slip'] = 'right' if fr[peak]['Head'].x < fr[0]['Head'].x else 'left'
     elif name in ('sitting', 'standing'):
         info.update(hips0=round(fr[0]['Hips'].z, 3), hips1=round(fr[-1]['Hips'].z, 3))
         if name == 'standing':

@@ -75,14 +75,18 @@
     "block": {
       "duration": 1.6,
       "loop": false,
-      "hold": 0.467
+      "hold": 0.9,
+      "jolt": 0.267,
+      "recoil": 0.533
     },
     "dodge": {
       "duration": 2.333,
       "loop": false,
       "peak": 0.9,
       "settle": 1.833,
-      "lean": 0.519
+      "lean": 0.519,
+      "duck": 0.4,
+      "slip": "right"
     },
     "hit": {
       "duration": 2.733,
@@ -107,9 +111,26 @@
       "hips0": 0.121,
       "hips1": 0.908,
       "up": 1.5
+    },
+    "kickl": {
+      "duration": 1.667,
+      "loop": false,
+      "start": 0.233,
+      "hit": 0.833,
+      "settle": 0.967,
+      "limb": "LeftFoot"
+    },
+    "dodgel": {
+      "duration": 2.333,
+      "loop": false,
+      "peak": 0.9,
+      "settle": 1.833,
+      "lean": 0.519,
+      "duck": 0.4,
+      "slip": "left"
     }
   },
-  "ankle": 0.128,
-  "hips": 0.85,
+  "ankle": 0.158,
+  "hips": 0.859,
   "height": 1.801
 }
