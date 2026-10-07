@@ -122,7 +122,7 @@ const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 // The conversation, word for word. It has to carry everything the old four
 // cards carried: his name, the job, who is asking, and why he says yes.
 const SCRIPT = [
-  { who: 'INGRAM', text: 'Kai. Sit down.' },
+  { who: 'INGRAM', text: 'Kai. You came.' },
   { who: 'INGRAM', text: 'You know the stone up past the ridge?' },
   { who: 'KAI', text: 'Everyone knows it.' },
   { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
@@ -935,16 +935,18 @@ export class Prologue extends Level {
       'CLICK TO BEGIN</div>`,
     );
 
-    // the conversation. Speaker name above the line, in that character's
-    // colour; the line in cream serif with a soft shadow. No box.
+    // the conversation. The text stands next to whoever is speaking —
+    // Ingram's lines float at his post across the fire, Kai's stay low where
+    // the player is — so the speaker is never in doubt. The name is in that
+    // character's colour; the line in cream serif; no box, just shadows.
     this.hud.sub = mk(
-      base + ';left:50%;bottom:9%;transform:translateX(-50%);width:min(720px,86vw);' +
-      'text-align:center;opacity:0;transition:opacity .3s',
+      base + ';left:30%;top:30%;transform:translate(-50%,-50%);width:min(560px,80vw);' +
+      'text-align:center;opacity:0;transition:left .45s ease, top .45s ease, opacity .3s',
     );
     this.hud.subName = document.createElement('div');
     this.hud.subName.style.cssText =
-      `${SERIF};font-size:13px;font-weight:600;letter-spacing:.42em;margin-bottom:7px;` +
-      'text-shadow:0 1px 8px rgba(0,0,0,.9)';
+      `${SERIF};font-size:16px;font-weight:600;letter-spacing:.5em;margin-bottom:8px;` +
+      'text-shadow:0 1px 10px rgba(0,0,0,.95), 0 0 26px rgba(0,0,0,.8)';
     this.hud.sub.appendChild(this.hud.subName);
     this.hud.subLine = document.createElement('div');
     this.hud.subLine.style.cssText =
@@ -1004,8 +1006,18 @@ export class Prologue extends Level {
     this.hud.subName.textContent = line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
+    if (line.who === 'INGRAM') {
+      // his words, at his post — up in the frame where he stands
+      this.hud.sub.style.left = '30%';
+      this.hud.sub.style.top = '30%';
+      this.hud.shade.style.opacity = '0';   // no bottom band needed up there
+    } else {
+      // Kai's words stay low — they are yours
+      this.hud.sub.style.left = '50%';
+      this.hud.sub.style.top = '76%';
+      this.hud.shade.style.opacity = '1';
+    }
     this.hud.sub.style.opacity = '1';
-    this.hud.shade.style.opacity = '1';
     this.hud.subHint.style.opacity = '1';
   }
 
