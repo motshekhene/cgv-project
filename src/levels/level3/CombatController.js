@@ -63,6 +63,8 @@ function clipMoves(meta) {
     ],
     kick: [
       strike({ type: 'kick', active: 0.1, damage: 16, stamina: 9, lunge: 3.6 }, 'kick', 0.45, 1.5),
+      // the left kick is the right one mirrored by the build (kickl); without it the chain is two kicks
+      ...(c.kickl ? [strike({ type: 'kick', active: 0.1, damage: 16, stamina: 9, lunge: 3.6 }, 'kickl', 0.45, 1.5)] : []),
       strike({ type: 'kick', active: 0.12, damage: 32, stamina: 18, lunge: 5.2, finisher: true }, 'roundhouse', 0.6, 1.5),
     ],
   };
@@ -95,6 +97,9 @@ export class CombatController {
     this.meta = source && meta;
     this.moves = this.meta ? clipMoves(meta) : MOVES;
     this.staggerT = 0; // knocked back by a hit (the hit clip is playing): can't walk or swing
+    this.blockedT = 0; // a blow on his guard is rocking him back (the block clip's recoil is playing)
+    this.pushT = 0; // ...and shoving him back along pushDir
+    this.pushDir = new THREE.Vector3();
     this.root = this.fighter.root;
     this.root.position.set(0, 0, 4);
 
@@ -106,8 +111,9 @@ export class CombatController {
     this.dodging = false;
     this.dodgeT = 0;
     this.dodgeCD = 0;
-    this.dodgeDuration = 0.34;
-    this.dodgeSpeed = 11;
+    // the old Kai somersaults 3.7 m; the Mixamo one slips or ducks, a shorter, quicker step (2.4 m)
+    this.dodgeDuration = this.meta ? 0.42 : 0.34;
+    this.dodgeSpeed = this.meta ? 5.8 : 11;
     this.dodgeDir = new THREE.Vector3();
 
     this.blocking = false;
@@ -196,11 +202,12 @@ export class CombatController {
       this.staggerT = 0; // rolling out of a hit is allowed
       this.dodgeT = this.dodgeDuration;
       this.dodgeCD = this.dodgeDuration + 0.25;
-      // steering: a dodge while turning sidesteps that way
+      // steering: a dodge while turning sidesteps that way; with no direction, the Mixamo Kai steps back
       if (moving) this.dodgeDir.copy(this._move);
       else if (turning) this.dodgeDir.copy(this._right).multiplyScalar(Math.sign(ix));
-      else this.dodgeDir.copy(this._fwd);
-      f.roll(this.dodgeDuration);
+      else this.dodgeDir.copy(this._fwd).multiplyScalar(this.meta ? -1 : 1);
+      if (this.meta) this._dodgeClip();
+      else f.roll(this.dodgeDuration);
     }
     if (this.dodging) {
       this.dodgeT -= dt;
@@ -248,6 +255,12 @@ export class CombatController {
     if (moving && !this.dodging && !this.attacking && !staggered) {
       this.root.position.addScaledVector(this._move, speed * dt);
     }
+    // a blow on his guard gives a little ground
+    if (this.pushT > 0) {
+      this.pushT -= dt;
+      this.root.position.addScaledVector(this.pushDir, 2.4 * dt);
+    }
+    if (this.blockedT > 0) this.blockedT -= dt;
 
     // ---- facing (steering already turned him directly) ----
     if (!steer) {
@@ -293,8 +306,10 @@ export class CombatController {
       f.setKick(null, 0);
       f.setLean(this.blocking ? 0.1 : 0);
     }
-    if (!this.attacking && !staggered) {
-      if (this.dodging) f.play('run', { speed: 1.6 });
+    const guard = this.meta?.clips.block;
+    if (!this.attacking && !staggered && !(this.dodging && this.meta) && !(this.blockedT > 0)) {
+      if (this.dodging) f.play('run', { speed: 1.6 }); // the old Kai's somersault
+      else if (this.blocking && !moving && guard) f.hold('block', guard.hold); // the whole body braced, not just the arms
       else if (backing && f.actions.walkback) f.play('walkback', { speed: this._pace('walkback', speed) });
       else if (backing) f.play('walk', { speed: -0.9 }); // back-step: the walk cycle reversed
       else if (moving) f.play('run', { speed: this.meta ? this._pace('run', speed) : this.blocking ? 0.6 : 1 });
@@ -312,6 +327,43 @@ export class CombatController {
     if (Math.hypot(dx, dz) > this.attackRange + 2) return;
     const d = shortestAngle(this.heading, Math.atan2(dx, dz));
     if (Math.abs(d) < AIM_ASSIST) this.heading += d;
+  }
+
+  /**
+   * Mixamo Kai's dodge: a boxer's slip to the side he's dodging (Dodging leans
+   * one way; the build mirrors it for the other), or a duck when he's dodging
+   * straight forward or back. Starts so the slip or duck is deepest a fifth of
+   * a second in, inside the dodge's window.
+   */
+  _dodgeClip() {
+    const d = this.meta.clips.dodge;
+    if (!d) return;
+    const h = this.heading;
+    const side = this.dodgeDir.x * -Math.cos(h) + this.dodgeDir.z * Math.sin(h); // > 0: toward his right
+    let clip = 'dodge', at = d.duck;
+    if (Math.abs(side) > 0.4) {
+      at = d.peak;
+      if ((side > 0) !== (d.slip === 'right') && this.fighter.actions.dodgel) clip = 'dodgel';
+    }
+    this.fighter.playOnce(clip, { from: Math.max(0, at - 0.3), speed: 1.5, fade: 0.06 });
+  }
+
+  /**
+   * A blow landed on his guard (Level03, when the Handler's strike is blocked):
+   * he's jolted back into the block clip's recoil, which plays him back up into
+   * the guard, and gives a little ground away from (fromX, fromZ).
+   */
+  onBlocked(fromX, fromZ) {
+    this.pushDir.set(this.root.position.x - fromX, 0, this.root.position.z - fromZ);
+    if (this.pushDir.lengthSq() < 1e-6) this.pushDir.set(-Math.sin(this.heading), 0, -Math.cos(this.heading));
+    this.pushDir.normalize();
+    this.pushT = 0.16;
+    const b = this.meta?.clips.block;
+    if (b?.jolt !== undefined) {
+      const speed = 1.7;
+      this.fighter.playOnce('block', { from: b.jolt, speed, fade: 0 });
+      this.blockedT = (b.hold - b.jolt) / speed;
+    }
   }
 
   /** Clip speed for walking/running at `mps` (m/s), matched to the cycle's own stride so the feet don't skate. */

@@ -264,6 +264,12 @@ export class Level03 extends Level {
         state.damage(info.damage * info.blockMul);
         state.spendStamina(info.damage * 0.7);
         this._addShake(0.14);
+        // the blow lands on his forearms: he rocks back with it, and it sparks off the guard
+        const bp = this.boss.root.position, cp = c.root.position;
+        c.onBlocked(bp.x, bp.z);
+        this.arena.burst(cp.x + (bp.x - cp.x) * 0.25, cp.z + (bp.z - cp.z) * 0.25, {
+          color: 0xffe2a8, count: 18, speed: 2.6, size: 0.14, y: cp.y + 1.35, lift: 1.2, additive: true,
+        });
         hud().popup('BLOCKED', '#c9d6e0');
         this._checkPlayerDeath(state);
         return 'blocked';

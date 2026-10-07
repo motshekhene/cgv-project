@@ -234,6 +234,25 @@ export class Fighter {
     if (this.current) this.current.timeScale = speed;
   }
 
+  /** Hold a clip still at `at` seconds, as a pose (e.g. the guard), fading into it unless it's already held. */
+  hold(name, at, fade = 0.12) {
+    const next = this.actions[name];
+    if (!next || (this.current === next && next.timeScale === 0)) return;
+    next.setLoop(THREE.LoopOnce, 1);
+    next.clampWhenFinished = true;
+    const already = this.current === next; // e.g. the blocked-hit recoil, which ends on this pose: no fade
+    next.reset();
+    next.time = at;
+    next.timeScale = 0;
+    next.play();
+    if (!already) {
+      next.fadeIn(fade);
+      if (this.current) this.current.fadeOut(fade);
+    }
+    this.current = next;
+    this.currentName = name;
+  }
+
   clipDuration(name) {
     return this.actions[name] ? this.actions[name].getClip().duration : 0;
   }
