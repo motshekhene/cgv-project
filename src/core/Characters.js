@@ -300,11 +300,16 @@ function _findClip(clips, name) {
  * This exists so the console stays clean while models are still being sourced:
  * AssetRegistry logs a red error on any failed load, which is right for a model
  * a level needs and wrong for one that is optional by design.
+ *
+ * A dev server answers a missing file with its index.html SPA fallback — a
+ * 200 with a text/html body — which would defeat a bare status check and send
+ * the loader off to parse HTML as an FBX. An HTML answer means "not there".
  */
 async function _exists(url) {
   try {
     const r = await fetch(url, { method: 'HEAD' });
-    return r.ok;
+    if (!r.ok) return false;
+    return !(r.headers.get('content-type') || '').includes('text/html');
   } catch (_) {
     return false;
   }
