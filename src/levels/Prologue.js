@@ -50,7 +50,8 @@ import {
  *   wide     a lamp moves in the trees behind him. The pull-back holds the
  *            lamp and the way out in the same frame, so the player works out
  *            the problem by looking at it.
- *   flee     control returns and he runs, straight into level 01's run.
+ *   flee     control returns and he runs, the night dying into level 01's
+ *            morning around him — he is racing the sun, and loses.
  *
  * HOW THE TEXT LOOKS — the old screens were monospace on black, which was
  * right for a server room and wrong for a forest:
@@ -138,7 +139,7 @@ const SCRIPT = [
   { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
   { who: 'KAI', text: 'That horn is the only reason this valley is still standing.' },
   { who: 'INGRAM', text: 'I know what it is.' },
-  { who: 'INGRAM', text: "I'm paying you one night's wage. Enough that you never guide a timber crew again." },
+  { who: 'INGRAM', text: "One night. I'll pay you a year of the company's wages for it." },
   { who: 'KAI', text: 'Why me?' },
   { who: 'INGRAM', text: 'Because I picked you.' },
   { who: 'INGRAM', text: "I've watched you walk that path since you were small." },
@@ -203,16 +204,19 @@ class Sfx {
     const src = ctx.createBufferSource();
     src.buffer = this._noise(3, 0);
     src.loop = true;
+    // Loud enough to matter. The silence is the scene's whole point, and a
+    // whisper cutting out is not a silence — the forest has to fill the
+    // valley before it can stop.
     const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.6;
+    bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.4;
     const g = ctx.createGain(); g.gain.value = 0;
     const lfo = ctx.createOscillator();
     lfo.type = 'sine'; lfo.frequency.value = 0.13;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 0.028;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.06;
     src.connect(bp); bp.connect(g); g.connect(this.master);
     lfo.connect(lfoG); lfoG.connect(g.gain);
     src.start(); lfo.start();
-    g.gain.linearRampToValueAtTime(0.05, t + 2.5);
+    g.gain.linearRampToValueAtTime(0.13, t + 2.5);
     this.tone = g; this.toneSrc = src;
   }
 
@@ -222,11 +226,11 @@ class Sfx {
     const ctx = this.ctx, t = this.t;
     const o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.value = 3600 + Math.random() * 1600;
+    o.frequency.value = 2600 + Math.random() * 900;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
     // three fast pulses — a cricket, not a beep
-    for (const [d, a] of [[0, 0.014], [0.055, 0.017], [0.11, 0.011]]) {
+    for (const [d, a] of [[0, 0.05], [0.055, 0.062], [0.11, 0.042]]) {
       g.gain.setValueAtTime(0, t + d);
       g.gain.linearRampToValueAtTime(a, t + d + 0.012);
       g.gain.exponentialRampToValueAtTime(0.0004, t + d + 0.05);
@@ -241,13 +245,13 @@ class Sfx {
     const ctx = this.ctx, t = this.t;
     const o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(168, t);
-    o.frequency.exponentialRampToValueAtTime(112, t + 0.22);
+    o.frequency.setValueAtTime(142, t);
+    o.frequency.exponentialRampToValueAtTime(94, t + 0.22);
     const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 420;
+    lp.type = 'lowpass'; lp.frequency.value = 520;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.02, t + 0.03);
+    g.gain.linearRampToValueAtTime(0.07, t + 0.03);
     g.gain.exponentialRampToValueAtTime(0.0002, t + 0.3);
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     o.connect(lp); lp.connect(g);
@@ -276,7 +280,7 @@ class Sfx {
     bp.frequency.value = 700 + Math.random() * 1900;
     bp.Q.value = 2.2;
     const g = ctx.createGain();
-    const a = (0.006 + Math.random() * 0.014) * this.firePower;
+    const a = (0.014 + Math.random() * 0.03) * this.firePower;
     g.gain.setValueAtTime(a, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
     src.connect(bp); bp.connect(g); g.connect(this.master);
@@ -297,10 +301,22 @@ class Sfx {
   silence() {
     if (!this.ctx) return;
     this.alive = false;
-    const t = this.t;
+    const ctx = this.ctx, t = this.t;
     if (this.tone) this.tone.gain.cancelScheduledValues(t);
     if (this.tone) this.tone.gain.setValueAtTime(this.tone.gain.value, t);
-    if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.12);
+    if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.06);
+    // the bottom falling out of the night — one soft sub swell into
+    // nothing, so the cut is something you feel and not just notice
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(58, t);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.9);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.09, t + 0.07);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 1.2);
   }
 
   /**
@@ -409,6 +425,7 @@ export class Prologue extends Level {
     this.doubted = false;         // said the doubt line yet?
     this._aimed = false;          // has the scene turned him to the horn yet?
     this._aimSaid = false;
+    this._skySaid = false;        // said the sky-is-turning line yet?
     this._aimFromYaw = 0;
     this._aimFromPitch = 0;
     this.halfway = false;         // said the open-ground line yet?
@@ -709,30 +726,17 @@ export class Prologue extends Level {
     fallen.castShadow = true;
     g.add(fallen);
 
-    // ---- the horn. A swept curve of pale keratin, lying across the cap. ----
-    // Torus arc for the sweep, a cone at the tip for the taper — low-poly on
-    // purpose, like everything else in the valley.
+    // ---- the horn. One clean curl of pale keratin lying on the cap the
+    //      way a tool is laid down: resting on its belly, both ends arcing
+    //      up. The old one was a torus and a cone, and it looked like
+    //      exactly that. Ivory with a soft sheen, so the moonlight finds it.
     this.matHorn = new THREE.MeshStandardMaterial({
-      color: 0x9a8a66, roughness: 0.5, metalness: 0.05, emissive: 0x000000,
+      color: 0xb3a488, roughness: 0.32, metalness: 0.05, emissive: 0x000000,
+      side: THREE.DoubleSide,
     });
-    const horn = new THREE.Group();
-    const arc = new THREE.Mesh(
-      new THREE.TorusGeometry(0.3, 0.045, 8, 14, 2.1),
-      this.matHorn,
-    );
-    arc.rotation.x = Math.PI / 2;           // lie the sweep flat
-    horn.add(arc);
-    const tip = new THREE.Mesh(
-      new THREE.ConeGeometry(0.048, 0.22, 8),
-      this.matHorn,
-    );
-    // the arc ends at angle 2.1 rad; stand the tip on the end and point it on
-    const tipAng = 2.1;
-    tip.position.set(Math.cos(tipAng) * 0.3, 0, Math.sin(tipAng) * 0.3);
-    tip.rotation.z = tipAng - Math.PI / 2 + Math.PI;
-    horn.add(tip);
-    horn.position.set(0.05, 0.9, -0.08);
-    horn.rotation.y = 0.7;
+    const horn = new THREE.Mesh(this._hornGeometry(), this.matHorn);
+    horn.position.set(0.1, 0.95, -0.04);
+    horn.rotation.set(-1.5, 0.2, 0);
     g.add(horn);
     this.horn = horn;
 
@@ -753,6 +757,43 @@ export class Prologue extends Level {
     // level 01.
     this.carried = new THREE.Group();
     this.root.add(this.carried);
+  }
+
+  /**
+   * The horn's shape: a round tube swept along a bending spine, fat at the
+   * base and tapering to a fine point — a kudu curl in one piece, resting
+   * on its belly (the geometry is shifted so its lowest point is y 0).
+   */
+  _hornGeometry() {
+    const RINGS = 30, SIDES = 12, SWEEP = 0.28, A0 = -2.3, A1 = 1.6;
+    const baseY = SWEEP * (1 - Math.cos(A0));
+    const pos = [], nor = [], idx = [];
+    for (let i = 0; i <= RINGS; i++) {
+      const t = i / RINGS;
+      const a = A0 + (A1 - A0) * t;
+      const px = SWEEP * Math.sin(a);
+      const py = SWEEP * (1 - Math.cos(a)) - baseY;
+      const r = 0.045 * Math.pow(1 - t, 1.15) + 0.003;
+      const ca = Math.cos(a), sa = Math.sin(a);
+      for (let s = 0; s <= SIDES; s++) {
+        const b = (s / SIDES) * Math.PI * 2, cb = Math.cos(b), sb = Math.sin(b);
+        pos.push(px + ca * cb * r, py + sa * cb * r, sb * r);
+        nor.push(ca * cb, sa * cb, sb);
+      }
+    }
+    for (let i = 0; i < RINGS; i++) {
+      for (let s = 0; s < SIDES; s++) {
+        const a0 = i * (SIDES + 1) + s, b0 = a0 + SIDES + 1;
+        idx.push(a0, a0 + 1, b0, b0 + 1, b0, a0 + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setIndex(idx);
+    geo.computeBoundingBox();
+    geo.translate(0, -geo.boundingBox.min.y, 0);   // rest on the belly
+    return geo;
   }
 
   /* ---------------------------------------------------- everything solid */
@@ -1471,7 +1512,7 @@ export class Prologue extends Level {
           this.standing = true;       // and he can walk
           if (this.kaiModel) this.kaiModel.play('walk');
           this.yaw = this._yawToStone();
-          this._say('A few metres. Then back in bed before he changes his mind.');
+          this._say('A year of wages. For one walk in the dark.');
           this._onLockChange();
         }
         break;
@@ -1588,6 +1629,10 @@ export class Prologue extends Level {
           this.lamp.position.y = 1.5 + Math.sin(this.t * 1.7) * 0.14;
           this.lampLight.intensity = 3.4 + Math.sin(this.t * 9) * 0.7;
         }
+        // the first grey of morning creeps in while he stands there — the
+        // night is already dying, and Ingram said "before morning"
+        this.dawnK = Math.max(this.dawnK, Math.min(0.16, this.t * 0.045));
+        this._applyDawn(this.dawnK);
         if (!this._lampSaid && this.t > 1.9) {
           this._lampSaid = true;
           this._say("Someone's out there.", null, true);
@@ -1610,10 +1655,15 @@ export class Prologue extends Level {
         );
         this.lampLight.intensity = 3.4 + Math.sin(this.t * 13) * 0.9;
 
-        // dawn starts coming up while he runs — level 01's morning is seconds
-        // away, and Ingram said "before morning"
-        this.dawnK = Math.min(1, this.t / 16);
+        // dawn coming up while he runs — the night is ending around him, and
+        // Ingram said "before morning". The run IS the night ending; by the
+        // mouth of the trail it is level 01's morning already.
+        this.dawnK = Math.max(this.dawnK, Math.min(1, this.t / 12));
         this._applyDawn(this.dawnK);
+        if (!this._skySaid && this.t > 3) {
+          this._skySaid = true;
+          this._say('The sky is turning.', null, true);
+        }
 
         this._prompt(
           '<b style="color:' + KAI_GREEN + '">RUN</b> &nbsp; ' +
