@@ -26,7 +26,8 @@ import {
  *      the scene opens — lit properly, face showing, the one clear look the
  *      player ever gets until the last two minutes of the game.
  *   2. There is a horn on a stone deep in the forest. While it stays there,
- *      nobody cuts the trees. Ingram pays Kai one night's pay to take it.
+ *      nobody cuts the trees. Ingram pays Kai a year of the company's
+ *      wages for one night's work to take it.
  *   3. The moment Kai lifts it off the stone, every sound in the forest stops
  *      at once. He understands what he has done, turns around, and runs it
  *      back. Level 01 is that run.
