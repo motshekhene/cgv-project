@@ -63,6 +63,10 @@ const _v = new THREE.Vector2();
  *   - giveSpace(s) after you crash into something: he backs off, cancels a
  *     move that hasn't landed, and his bumps don't hurt for a few seconds
  *   - tailgating taps cost 2 at most
+ *   - no move while cars box you in on both sides: every counter needs a
+ *     lane to move into
+ *   - a hit never chains into another: after a tyre shot, a drone or a
+ *     spike strip lands he gives you space too (Level02 calls giveSpace)
  *
  * Smooth driving: where he wants to be (tx, tz) is eased, not snapped, so a
  * new state, a new move or a car to steer round doesn't jerk him across the
@@ -168,6 +172,7 @@ export class HandlerAI {
     if (this.elapsed < this.graceUntil) return false;
     if (this.weapons && this.weapons.threatActive) return false;   // one threat at a time
     if (this._hazardAhead()) return false;         // you're busy dodging the road already
+    if (this._boxedIn(-1) && this._boxedIn(1)) return false;   // cars both sides: nowhere to dodge to
     return true;
   }
 

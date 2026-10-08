@@ -39,7 +39,7 @@ Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — 
 level01-intro → level01 → level02-intro → level02 → level03
 ```
 
-`level02-intro` is the drive-out scene: Kai takes the car out of the jungle onto the River Road, and Level 2 picks up with him already driving (no car picker; it's still on V / the CAR button, and a restart shows it).
+Level 1 ends with a short finish scene at the bay: Kai runs in to the car (the one you picked for Level 2, in its paint), looks back at the Handler hammering on the sealed gate, gets in and the headlights come on, then the ESCAPED card. `level02-intro` is the drive-out scene that follows: Kai takes the car out of the jungle onto the River Road, and Level 2 picks up with him already driving (no car picker; it's still on V / the CAR button, and a restart shows it).
 
 Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. The intro skips with Space / Enter / click. The order is set in `src/main.js`.
 

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Cutscene, smooth, lerp } from '../Cutscene.js';
-import { loadCast, makeKai, syncClip } from '../cast.js';
 import { Burst } from '../fx.js';
 import {
   loadJungleKit, createJungleMaterials, createJungleSky, createPollen, createLightShaft, createSign,
@@ -15,11 +14,11 @@ import { PAINTS, applyPaint, detectPaint } from '../../levels/level2/paint.js';
 /**
  * Between Level 1 and Level 2, "Out of the jungle" (~10.4 s).
  *
- * Level 1 ends with Kai reaching the car in the bay at the end of the trail;
+ * Level 1 ends with Kai getting into the car in the bay at the end of the trail;
  * Level 2 starts with him already driving down the River Road. This is the
  * bit in between, so the two levels read as one chase:
  *
- *   A   0.0  the bay at the end of the trail: Kai runs in and gets into the car        card: THE RIVER ROAD
+ *   A   0.0  the bay at the end of the trail: Kai's in, headlights on, engine ticking   card: THE RIVER ROAD
  *   B   3.2  low on the logging track: headlights on, the car pulls out and roars past the camera
  *   C   5.6  across the River Road: the car bursts out of the treeline and swings onto the road
  *   C2  8.0  looking back down the track: the Handler's lights coming through the trees
@@ -98,9 +97,6 @@ export class DriveOutIntro extends Cutscene {
       [45, 0, ROAD_Z + 2], [120, 0, ROAD_Z + 2], [600, 0, ROAD_Z + 2],
     ].map(([x, y, z]) => new THREE.Vector3(x, y, z)), false, 'centripetal');
     this.routeLength = this.route.getLength();
-    this.kaiPath = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(1.2, 0, -16), new THREE.Vector3(0.6, 0, -6), new THREE.Vector3(-1.4, 0, 1), new THREE.Vector3(-1.75, 0, 3.6),
-    ]);
     this._p = new THREE.Vector3();
     this._t = new THREE.Vector3();
   }
@@ -130,8 +126,7 @@ export class DriveOutIntro extends Cutscene {
 
   async build(assets) {
     const carDef = CARS[loadSavedCar()];
-    const [cast, kit, mats] = await Promise.all([
-      loadCast(assets),
+    const [kit, mats] = await Promise.all([
       loadJungleKit(assets),
       createJungleMaterials(assets, 200),
       // Level 2's models: loaded once here, cached for the level
@@ -174,7 +169,6 @@ export class DriveOutIntro extends Cutscene {
     this.police = new PoliceLights(this.handlerCar);
     if (hm) this.police.fit(hm.userData.bounds, hm);
 
-    this.kai = makeKai(this.root, cast.kai);
     this.tracks = new TyreTracks(this.root, { maxQuads: 1500, life: 30 });
 
     // mud thrown up by the back wheels as it pulls away, and on the turn
@@ -390,32 +384,14 @@ export class DriveOutIntro extends Cutscene {
     const heading = this._place(this.car, cd);
     const cp = this.car.position;
     const speed = (this.carDist(s + 0.05) - cd) / 0.05;
-    const idling = s > 3.0 && s < CAR_GO + 0.3;
+    const idling = s < CAR_GO + 0.3;
     this.car.position.y = idling ? Math.sin(t * 60) * 0.01 : 0;          // the engine catching
     this.car.rotation.x = -smooth(CAR_GO, CAR_GO + 0.3, s) * 0.035 * (1 - smooth(CAR_GO + 0.6, CAR_GO + 1.5, s)); // squats as it pulls away
     if (this.carModel) spinWheels(this.carModel, speed, THREE.MathUtils.clamp(this.car.rotation.z * -4, -1, 1), ds);
     if (this.lights) {
-      const on = s > 3.0;
+      const on = true; // on since Kai got in, at the end of Level 1
       for (const l of this.lights.spots || []) l.visible = on;
       this.lights.update(dt, { braking: s > 6.6 && s < 7.3 });                 // a dab of brake for the turn
-    }
-
-    // ---- Kai: across the bay to the driver's door, then he's in
-    const kai = this.kai;
-    const inCar = t >= 3.0;
-    kai.root.visible = !inCar;
-    if (!inCar) {
-      const run = smooth(0, 0.35, t);
-      const u = Math.min(1, (t * 6.4 * run + 0.4) / this.kaiPath.getLength());
-      this.kaiPath.getPointAt(u, kai.root.position);
-      const tan = this.kaiPath.getTangentAt(u);
-      kai.root.rotation.y = Math.atan2(tan.x, tan.z);
-      const want = u >= 1 ? 'idle' : 'run';
-      if (kai.currentName !== want) {
-        kai.play(want, { fade: 0.15 });
-        if (want === 'run') syncClip(kai, s);
-      }
-      kai.update(ds);
     }
 
     // ---- the Handler, out of the trees behind the bay
@@ -438,10 +414,11 @@ export class DriveOutIntro extends Cutscene {
     // ---- camera
     const sh = Math.sin(heading), ch = Math.cos(heading);
     if (this.shot === 'A') {
-      // in front of the car, Kai running in across the bay toward it
+      // picks up where Level 1 left off: Kai in, the car ticking over in the
+      // bay, a slow push in on its headlights
       const k = smooth(0, 3.2, t);
-      this.frame(new THREE.Vector3(lerp(-5.2, -4.4, k), lerp(1.45, 1.3, k), lerp(11, 10, k)),
-        new THREE.Vector3(lerp(kai.root.position.x, -1.2, 0.35), 1.05, lerp(kai.root.position.z, 3, 0.35)), { fov: 46, rate: 5 });
+      this.frame(new THREE.Vector3(lerp(-5.6, -3.4, k), lerp(1.6, 1.15, k), lerp(11.5, 9.2, k)),
+        new THREE.Vector3(lerp(-0.4, 0, k), 0.85, lerp(4, 4.6, k)), { fov: 46, rate: 5 });
     } else if (this.shot === 'B') {
       // on the track ahead: the headlights, then it fills the frame and goes by
       this.frame(new THREE.Vector3(-2.3, 0.75, 17), new THREE.Vector3(cp.x, 0.9, cp.z + 1), { fov: 40, rate: 7 });

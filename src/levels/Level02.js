@@ -142,6 +142,7 @@ export class Level02 extends Level {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
       const extra = hit.kind === 'drone' ? '' : '  · TYRE DAMAGED';
+      this.handler.giveSpace(2.5);                 // no follow-up while you recover
       this._flash(`${hit.label}  -${hit.damage}${extra}`, '#f2934f');
     };
     this.weapons.onWarn = (text) => { this._flash(text, '#e3bb62'); this.sound.warn(); };
@@ -163,7 +164,7 @@ export class Level02 extends Level {
     this.tracks = new TyreTracks(this.root);       // tread prints in the mud from every wheel
     this.smoke = new Smoke(this.root);
     // only a few cars here and there: it's a gravel road, not a motorway
-    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 3, spawnMin: 250, spawnMax: 650, despawnAhead: 900 });
+    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 5, spawnMin: 200, spawnMax: 550, despawnAhead: 900 });
     this.traffic.obstacles = this.obstacles;      // they pull round fallen trees
     // he steers round traffic and the solid obstacles alike
     this._roadUsers = { pool: [] };
