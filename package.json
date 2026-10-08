@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "intro:l1": "vite --open /intros/level1-intro.html",
     "build": "vite build",
     "preview": "vite preview"
   },

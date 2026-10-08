@@ -29,7 +29,9 @@ export class GameState {
     this.distance = 0; // metres travelled in the current level
     this.bestDistance = 0;
     this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.awards = []; // one-time shrine gifts collected in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
+
 
     // The pursuer. Level 01's only currency is distance, so handlerGap IS the
     // health bar for that level — the run ends when it reaches 0.
@@ -51,6 +53,7 @@ export class GameState {
     // level 03 — the Handler's boss bar (HUD reads these directly)
     this.bossHealth = 300;
     this.bossMaxHealth = 300;
+    this.handlerHelmetOff = false; // level 03 — flips true once, on the phase-2 reveal
   }
 
   /** Called by Game when a new level starts. Keeps letters, resets the rest. */
@@ -93,6 +96,12 @@ export class GameState {
   collectLetter(id) {
     if (this.letters.includes(id)) return false;
     this.letters.push(id);
+    return true;
+  }
+
+  collectAward(id) {
+    if (this.awards.includes(id)) return false;
+    this.awards.push(id);
     return true;
   }
 

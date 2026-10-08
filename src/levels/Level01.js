@@ -5,6 +5,8 @@ import { AudioSystem } from "../audio/audioSystem.js";
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
 import { PoliceLights } from "./level2/carLights.js";
+import { showEndCard } from "../ui/EndCard.js";
+import { loadCast, makeKai } from "../intros/cast.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -481,6 +483,9 @@ export class Level01 extends Level {
     this._templeHud = null;
     this._hudControls = {};
     this._hudButtons = {};
+    this._hudHandlerDist = null;
+    this._hudHandlerState = null;
+    this._hudHandlerPanel = null;
     this._virtualPressed = Object.create(null);
     this._virtualHeld = new Set();
     this._soundEnabled = true;
@@ -639,6 +644,7 @@ export class Level01 extends Level {
     body.castShadow = true;
     this.body = body;
     this.player.add(body);
+    await this._buildKai();
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
@@ -2103,15 +2109,39 @@ export class Level01 extends Level {
         <div><span data-reward-count style="font-size:22px;font-weight:900">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">TOKENS</div></div>
         <div><span data-reward-score style="font-size:22px;font-weight:900;color:#ffdc72">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">SCORE</div></div>
       </div>
-      <div data-health-bar-wrap style="margin-top:8px;position:relative;height:8px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;border:1px solid rgba(205,232,128,.22)">
-        <div data-health-fill style="position:absolute;inset:0 auto 0 0;width:100%;border-radius:999px;background:linear-gradient(90deg,#43d94a,#7fff6a);transition:width .25s ease,background .3s"></div>
+      <div data-health-bar-wrap style="margin-top:8px;position:relative;height:8px;border-radius:999px;background:rgba(0,0,0,.6);overflow:hidden;border:1px solid rgba(227,187,98,.35);box-shadow:inset 0 1px 2px rgba(0,0,0,.8)">
+        <div data-health-fill style="position:absolute;inset:0 auto 0 0;width:100%;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.3),transparent 60%),linear-gradient(90deg,#c9442b,#f2934f);transition:width .25s ease"></div>
         <div data-health-flash style="position:absolute;inset:0;border-radius:999px;background:rgba(255,60,40,.0);transition:background .12s"></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:3px;font-size:8px;letter-spacing:.10em;opacity:.6">
         <span data-health-text>HP 100 / 100</span>
-        <span data-health-icon>❤</span>
+        <span data-health-icon style="color:#f2934f">❤</span>
       </div>
       <div data-jetpack-status style="margin-top:7px;font-size:10px;letter-spacing:.1em;color:#8eeaff;opacity:.55">JETPACK — FIND A BOOSTER</div>
+    `;
+
+    // Handler panel — top-right, same plaque style as Level 2's handler box.
+    // Shows the Handler's distance and current state (LOSING_GROUND, CLOSING, etc.)
+    const handlerPanel = document.createElement("div");
+    Object.assign(handlerPanel.style, {
+      position: "absolute",
+      right: "70px",
+      top: "20px",
+      minWidth: "170px",
+      padding: "11px 13px",
+      background: "linear-gradient(135deg, rgba(8,20,11,.86), rgba(23,35,14,.70))",
+      border: "1px solid rgba(205,232,128,.42)",
+      borderRadius: "10px",
+      backdropFilter: "blur(5px)",
+      boxShadow: "0 10px 30px rgba(0,0,0,.28)",
+      transition: "border-color .2s, box-shadow .2s",
+    });
+    handlerPanel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <div style="font-size:10px;letter-spacing:.18em;color:#d8f69a;font-weight:900">THE HANDLER</div>
+        <span data-handler-dist style="font-size:10px;letter-spacing:.12em;color:#b8aa8a;font-weight:600">— m</span>
+      </div>
+      <div data-handler-state style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:.22em;color:#f2934f;white-space:nowrap">APPROACH</div>
     `;
 
     // Compact escape-route trail: back at the bottom centre, but intentionally
@@ -2122,6 +2152,12 @@ export class Level01 extends Level {
       left: "50%",
       bottom: "20px",
       transform: "translateX(-50%)",
+
+
+
+
+
+      
       width: "clamp(230px, 31vw, 360px)",
       padding: "7px 10px 6px",
       borderRadius: "10px",
@@ -2252,7 +2288,7 @@ export class Level01 extends Level {
       </div>
     `;
 
-    root.append(stat, progress, pauseOverlay, controls, topActions);
+    root.append(stat, handlerPanel, progress, pauseOverlay, controls, topActions);
     document.body.append(root);
 
     this._templeHud = root;
@@ -2263,6 +2299,9 @@ export class Level01 extends Level {
     this._hudHealthFlash = stat.querySelector("[data-health-flash]");
     this._hudHealthText = stat.querySelector("[data-health-text]");
     this._hudHealthIcon = stat.querySelector("[data-health-icon]");
+    this._hudHandlerDist = handlerPanel.querySelector("[data-handler-dist]");
+    this._hudHandlerState = handlerPanel.querySelector("[data-handler-state]");
+    this._hudHandlerPanel = handlerPanel;
     this._hudProgressFill = progress.querySelector("[data-progress-fill]");
     this._hudProgressDot = progress.querySelector("[data-progress-dot]");
     this._hudDistanceLeft = progress.querySelector("[data-distance-left]");
@@ -2432,14 +2471,6 @@ export class Level01 extends Level {
     if (this._hudHealthFill) {
       const pct = THREE.MathUtils.clamp(this._health / MAX_HEALTH, 0, 1);
       this._hudHealthFill.style.width = `${(pct * 100).toFixed(1)}%`;
-      // Colour shifts from green to amber to red as health drops
-      if (pct > 0.55) {
-        this._hudHealthFill.style.background = "linear-gradient(90deg,#43d94a,#7fff6a)";
-      } else if (pct > 0.25) {
-        this._hudHealthFill.style.background = "linear-gradient(90deg,#e6c84a,#ffe066)";
-      } else {
-        this._hudHealthFill.style.background = "linear-gradient(90deg,#e04a4a,#ff7266)";
-      }
     }
     if (this._hudHealthText) {
       this._hudHealthText.textContent = `HP ${Math.ceil(this._health)} / ${MAX_HEALTH}`;
@@ -2449,6 +2480,39 @@ export class Level01 extends Level {
       const flashAlpha = Math.max(0, this._healthFlashT) * 0.7;
       this._hudHealthFlash.style.background = `rgba(255,60,40,${flashAlpha.toFixed(3)})`;
     }
+
+    // --- handler panel (matches Level 2's handler box) ---
+    if (this._hudHandlerDist) {
+      const gap = this.state?.handlerGap ?? this.gap;
+      this._hudHandlerDist.textContent = `${Math.round(gap)} m`;
+    }
+    if (this._hudHandlerState) {
+      const hs = this.state?.handlerState || "APPROACH";
+      // Map internal state names to readable labels, same as Level 2
+      const labels = {
+        IDLE: "APPROACH",
+        LOSING_GROUND: "LOSING GROUND",
+        CLOSING: "CLOSING",
+        TRIGGERED: "TRIGGERED!",
+        CAUGHT: "CAUGHT",
+        SEALED: "SEALED",
+        GUARDIAN: "GUARDIAN",
+        POLICE_CHASE: "POLICE CHASE",
+      };
+      this._hudHandlerState.textContent = labels[hs] || hs;
+      // Colour: ember when dangerous, moss when safe
+      const dangerous = /CAUGHT|TRIGGERED|GUARDIAN|CLOSING|POLICE_CHASE/.test(hs);
+      this._hudHandlerState.style.color = dangerous ? "#f2934f" : "#bcd96a";
+      if (this._hudHandlerPanel) {
+        this._hudHandlerPanel.style.borderColor = dangerous
+          ? "rgba(242,147,79,.75)"
+          : "rgba(205,232,128,.42)";
+        this._hudHandlerPanel.style.boxShadow = dangerous
+          ? "0 10px 30px rgba(0,0,0,.28), 0 0 18px rgba(201,68,43,.35)"
+          : "0 10px 30px rgba(0,0,0,.28)";
+      }
+    }
+
     if (this._hudProgressFill) this._hudProgressFill.style.width = `${(progress * 100).toFixed(2)}%`;
     if (this._hudProgressDot) this._hudProgressDot.style.left = `${(progress * 100).toFixed(2)}%`;
     if (this._hudDistanceLeft) this._hudDistanceLeft.textContent = `${Math.ceil(left)} m LEFT`;
@@ -2503,6 +2567,9 @@ export class Level01 extends Level {
     this._templeHud = null;
     this._hudControls = {};
     this._hudButtons = {};
+    this._hudHandlerDist = null;
+    this._hudHandlerState = null;
+    this._hudHandlerPanel = null;
     this._soundButton = null;
     this._pauseButton = null;
     this._pauseOverlay = null;
@@ -2553,126 +2620,82 @@ export class Level01 extends Level {
   _showCaughtOverlay(title = "THE HANDLER CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
 
-    const overlay = document.createElement("div");
-    overlay.dataset.level01Caught = "true";
-    Object.assign(overlay.style, {
-      position: "fixed",
-      inset: "0",
-      display: "grid",
-      placeItems: "center",
-      background: "rgba(3, 8, 5, 0.72)",
-      backdropFilter: "blur(5px)",
-      zIndex: "9999",
-      fontFamily: "system-ui, sans-serif",
-      color: "#f5f1df",
+    // the team's shared end card (ui/theme.js), same as levels 02 and 03
+    this._caughtOverlay = showEndCard({
+      kind: "lose",
+      title: "CAUGHT",
+      sub: title,
+      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
+      action: {
+        label: "CONTINUE",
+        key: "SPACE",
+        onClick: () => {
+          this._removeCaughtOverlay();
+          this._health = MAX_HEALTH;
+          this._healthFlashT = 0;
+          this.caught = false;
+          this.failCause = null;
+          this.finished = false;
+          if (this.state) {
+            this.state.alive = true;
+            this.state.failCause = null;
+          }
+          this._stumbleT = 0;
+          this._stumbleDebt = 0;
+          this.speed = this.baseSpeed;
+          this.boostSpeed = 0;
+          if (this.game) this.game.setPaused(false);
+        },
+      },
+      extra: [
+        {
+          label: "RESTART LEVEL",
+          key: "R",
+          bindKey: false,
+          onClick: async () => {
+            this._removeCaughtOverlay();
+            if (!this.game) return;
+            this.game.setPaused(false);
+            try {
+              await this.game.restart();
+            } catch (err) {
+              console.error("[level01] restart failed", err);
+            }
+          },
+        },
+        { label: "RELOAD GAME", onClick: () => window.location.reload() },
+      ],
     });
+  }
 
-    const panel = document.createElement("div");
-    Object.assign(panel.style, {
-      width: "min(520px, calc(100vw - 36px))",
-      padding: "30px",
-      border: "1px solid rgba(178, 220, 126, 0.7)",
-      background: "rgba(11, 20, 13, 0.94)",
-      boxShadow: "0 22px 80px rgba(0,0,0,.55)",
-      textAlign: "center",
+  /** Kai reached the vehicle: the win card, and CONTINUE starts level 02. */
+  _showEscapedCard() {
+    if (this._escapedCard || typeof document === "undefined") return;
+    const distance = Math.round(this.state?.distance ?? 0);
+    const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
+    this._escapedCard = showEndCard({
+      kind: "win",
+      title: "ESCAPED",
+      sub: "You made it out of the jungle. He's still coming.",
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M` }],
+      action: {
+        label: "CONTINUE",
+        key: "SPACE",
+        onClick: () => {
+          this._removeEscapedCard();
+          this._startLevel02();
+        },
+      },
     });
+  }
 
-    const h = document.createElement("h1");
-    h.textContent = "CAUGHT";
-    Object.assign(h.style, {
-      margin: "0 0 10px",
-      fontSize: "clamp(42px, 8vw, 72px)",
-      letterSpacing: "0.08em",
-      color: "#c9e88c",
-    });
-
-    const p = document.createElement("p");
-    p.textContent = title;
-    Object.assign(p.style, {
-      margin: "0 0 24px",
-      opacity: "0.86",
-      fontSize: "16px",
-    });
-
-    const buttons = document.createElement("div");
-    Object.assign(buttons.style, {
-      display: "flex",
-      gap: "12px",
-      justifyContent: "center",
-      flexWrap: "wrap",
-    });
-
-    const makeButton = (label, primary, action) => {
-      const btn = document.createElement("button");
-      btn.textContent = label;
-      Object.assign(btn.style, {
-        cursor: "pointer",
-        border: primary ? "0" : "1px solid rgba(245,241,223,.4)",
-        padding: "12px 18px",
-        fontWeight: "800",
-        letterSpacing: "0.06em",
-        background: primary ? "#b9df76" : "transparent",
-        color: primary ? "#0b140d" : "#f5f1df",
-      });
-      btn.addEventListener("click", action);
-      return btn;
-    };
-
-    // CONTINUE button: refills health, clears caught state, resumes from
-    // the current position. This is the main testing flow — no reload needed.
-    buttons.append(
-      makeButton("CONTINUE", true, () => {
-        this._removeCaughtOverlay();
-        this._health = MAX_HEALTH;
-        this._healthFlashT = 0;
-        this.caught = false;
-        this.failCause = null;
-        this.finished = false;
-        if (this.state) {
-          this.state.alive = true;
-          this.state.failCause = null;
-        }
-        // Give a brief invulnerability window so the player does not
-        // immediately re-trigger the same obstacle
-        this._stumbleT = 0;
-        this._stumbleDebt = 0;
-        this.speed = this.baseSpeed;
-        this.boostSpeed = 0;
-        if (this.game) this.game.setPaused(false);
-      }),
-    );
-
-    buttons.append(
-      makeButton("RESTART LEVEL", false, async () => {
-        this._removeCaughtOverlay();
-        if (!this.game) return;
-        this.game.setPaused(false);
-        try {
-          await this.game.restart();
-        } catch (err) {
-          console.error("[level01] restart failed", err);
-        }
-      }),
-      makeButton("RELOAD GAME", false, () => window.location.reload()),
-    );
-
-    const hint = document.createElement("div");
-    hint.textContent = "CONTINUE resumes from here with full health • R restarts the level";
-    Object.assign(hint.style, {
-      marginTop: "18px",
-      fontSize: "12px",
-      opacity: "0.52",
-      letterSpacing: "0.08em",
-    });
-
-    panel.append(h, p, buttons, hint);
-    overlay.append(panel);
-    document.body.append(overlay);
-    this._caughtOverlay = overlay;
+  _removeEscapedCard() {
+    this._escapedCard?.destroy();
+    this._escapedCard = null;
   }
 
   _removeCaughtOverlay() {
-    if (this._caughtOverlay?.parentNode) this._caughtOverlay.parentNode.removeChild(this._caughtOverlay);
+    this._caughtOverlay?.destroy();
     this._caughtOverlay = null;
   }
 
@@ -3278,6 +3301,7 @@ export class Level01 extends Level {
     }
 
     state.handlerGap = this.gap;
+    this._closest = Math.min(this._closest ?? Infinity, this.gap);
     this.handler.position.z = this.z + this.gap;
     this.handler.position.y = jungleCourseHeight(this.handler.position.z) + this._handlerVaultOffset(this.handler.position.z);
     const handlerRouteX = this._routeOffsetAt(this.handler.position.z, this._routeSide);
@@ -3746,6 +3770,7 @@ export class Level01 extends Level {
     state.distance = -this.z;
     state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
     this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
+    this._updateKai(dt);
     this._updateTempleRewards(dt, x, prevZ, state);
     this._updateHealthPacks(dt, x, prevZ);
     this._updateTempleRunHUD();
@@ -3775,7 +3800,7 @@ export class Level01 extends Level {
       this._handOff -= dt;
       if (this._handOff <= 0) {
         this._handedOff = true;
-        this._startLevel02();
+        this._showEscapedCard();
       }
     }
 
@@ -3909,8 +3934,59 @@ export class Level01 extends Level {
     }
   }
 
+  /**
+   * Kai himself — the same rig, colours and Key as the Level 1 intro
+   * (intros/cast.js). The capsule stays as the invisible gameplay body:
+   * jumps, slides, lane changes and collisions still move and squash it
+   * exactly as before, and _updateKai() mirrors that onto the model.
+   * If the character fails to load, the capsule simply stays visible.
+   */
+  async _buildKai() {
+    const { kai } = await loadCast(this.assets);
+    if (!kai) return;
+    this.kai = makeKai(this.player, kai);
+    this.kai.root.rotation.y = Math.PI; // facing down the trail (-z), as in the intro
+    this.kai.root.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    this.body.visible = false;
+    this._kaiWasAirborne = false;
+  }
+
+  _updateKai(dt) {
+    const kai = this.kai;
+    if (!kai) return;
+
+    if (this.caught) {
+      if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
+    } else if (this.airborne) {
+      // the rig's running jump (1.25 s), sped up to fit the 0.77 s hop
+      if (!this._kaiWasAirborne) kai.playOnce(kai.actions.runningjump ? "runningjump" : "jump", { fade: 0.08, speed: 1.6 });
+    } else if (this.speed < 0.5) {
+      kai.play("idle", { fade: 0.3 });
+    } else {
+      kai.play("run", { fade: 0.15 });
+      // stride rate follows his speed, from a jog at the start to a sprint
+      kai.current.timeScale = 0.8 + 0.6 * THREE.MathUtils.clamp(this.speed / SPEED_TOP, 0, 1);
+    }
+    this._kaiWasAirborne = this.airborne;
+
+    // the capsule's squash is the slide: lean him back and drop him with it
+    const slide = THREE.MathUtils.clamp((1 - this._bodySquash) / 0.58, 0, 1);
+    kai.visual.position.y = -0.55 * slide;
+    // capsule tilts (jetpack pitch, side-on hits) carry over; Kai's root is
+    // turned 180 degrees, so both flip sign in his frame
+    kai.visual.rotation.set(-this.body.rotation.x - 1.1 * slide, 0, -this.body.rotation.z);
+
+    kai.update(dt);
+  }
+
   teardown() {
+    this.kai?.root.traverse((o) => {
+      if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
+    });
     this._removeCaughtOverlay();
+    this._removeEscapedCard();
     this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);

@@ -15,6 +15,32 @@ npm run dev
 
 If something breaks after pulling new changes from the team, try running `npm install` again first,  someone may have added something new.
 
+## Where things are
+
+The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPLEMENTATION.md](docs/JUNGLE_SHRINE_IMPLEMENTATION.md).
+
+```
+assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
+assets/characters/ kai.fbx, handler.fbx
+public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
+src/               the game (core/, levels/, shaders/, ui/, intros/)
+intros/            the Level 1 intro on its own page: npm run intro:l1
+docs/              pitch, plans, implementation guide, concept pages
+tools/concepts/    the script that rendered the concept images (reference only)
+```
+
+Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — `_source/` is in `.gitignore`. Keep them on the team's shared drive.
+
+### Playing the game
+
+`npm run dev` plays the whole thing in order:
+
+```
+level01-intro → level01 → level02 → level03
+```
+
+Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. The intro skips with Space / Enter / click. The order is set in `src/main.js`.
+
 ## A few rules (please follow these)
 
 ### 1. File paths must start with `./`, never `/`
@@ -48,11 +74,22 @@ Same rule in `index.html`:
 
 Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitive (Windows/Mac aren't, so this bug hides during development and only appears once hosted).
 
-### 3. Commit and push often to your individual branches as usual
+### 3. Models and textures
+
+- Load them through `AssetRegistry` (`assets.model(...)`, `assets.fbx(...)`, `assets.texture(...)`), not your own loader, so they are cached and freed between levels.
+- Shared models (Kai, the Handler, the jungle kit) live in `assets/characters/` and `assets/jungle/`. Reuse them rather than adding copies.
+- A model only one level needs goes in that level's own folder, e.g. `public/assets/level2/`.
+- Prefer `.glb`, keep textures at 2K or smaller, and note where it came from in a `CREDITS.md` next to it.
+
+### 4. Win and defeat screens
+
+Every level ends on the same card from `src/ui/theme.js`. If your level has no FightHUD or StoryOverlay to show it on, use `showEndCard({ kind: 'win' | 'lose', title, sub, lines, action })` from `src/ui/EndCard.js`.
+
+### 5. Commit and push often to your individual branches as usual
 
 Small changes are fine, don't sit on big, unpushed changes for days.
 
-### 4. When in doubt, ask before pushing to `main`
+### 6. When in doubt, ask before pushing to `main`
 
 If you're not sure whether something will break the project for everyone, check with the group first.
 

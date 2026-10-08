@@ -1,0 +1,327 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Blackout Protocol Storyboard</title>
+<style>
+  @page { size: 13.333in 7.5in; margin: 0; }
+  :root {
+    --bg: #0d0f12; --panel: #161a1f; --ink: #f2efe9; --mute: #a9b0b8; --line: #2a3038;
+    --run: #38e1ff; --drive: #ff4fa3; --fight: #ff9a4a;
+    --display: 'Bahnschrift', 'Segoe UI', sans-serif; --body: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 13.333in; height: 7.5in; position: relative; overflow: hidden; page-break-after: always; background: var(--bg); }
+  .page:last-child { page-break-after: auto; }
+  h1, h2, h3 { font-family: var(--display); margin: 0; font-weight: 700; }
+  .kicker { font: 600 10.5pt var(--display); letter-spacing: .28em; text-transform: uppercase; color: var(--accent, var(--fight)); }
+  .mute { color: var(--mute); }
+  .pg { position: absolute; right: .4in; bottom: .25in; font: 600 8.5pt var(--display); letter-spacing: .2em; color: #ffffff66; z-index: 3; }
+
+  /* cover */
+  .cover { padding: .6in .65in; }
+  .cover h1 { font-size: 64pt; line-height: .95; letter-spacing: .02em; margin: .14in 0 .12in; }
+  .cover .sub { font-size: 14pt; color: #d6dade; max-width: 7.5in; line-height: 1.45; }
+  .verbs { position: absolute; left: .65in; right: .65in; bottom: .55in; display: grid; grid-template-columns: repeat(3, 1fr); gap: .16in; }
+  .verb { position: relative; height: 3.05in; border-radius: 6px; overflow: hidden; }
+  .verb img { width: 100%; height: 100%; object-fit: cover; }
+  .verb .lab { position: absolute; left: 0; right: 0; bottom: 0; padding: .35in .16in .12in; background: linear-gradient(transparent, rgba(0,0,0,.82)); }
+  .verb b { display: block; font: 700 24pt var(--display); letter-spacing: .12em; }
+  .verb span { font-size: 9.5pt; color: #dfe3e7; letter-spacing: .08em; }
+
+  /* full-bleed shot with a caption band */
+  .bleed img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .bleed .band { position: absolute; left: 0; right: 0; bottom: 0; padding: 1in .65in .45in; background: linear-gradient(transparent, rgba(6,8,10,.75) 35%, rgba(6,8,10,.92)); }
+  .bleed .band.top { top: 0; bottom: auto; padding: .45in .65in 1in; background: linear-gradient(rgba(6,8,10,.88), rgba(6,8,10,.6) 60%, transparent); }
+  .bleed h2 { font-size: 44pt; line-height: 1; margin: .06in 0 .12in; }
+  .bleed .tag { font-size: 15pt; color: #ebe7df; font-style: italic; max-width: 9in; }
+  .bleed .copy { font-size: 11.5pt; line-height: 1.5; color: #dfe2e6; max-width: 8.2in; margin-top: .12in; }
+  .card { display: inline-block; margin-top: .16in; padding: .1in .2in; border: 1px solid #ffffff44; background: #00000066; font: 600 11pt var(--display); letter-spacing: .14em; }
+  .card small { display: block; font: 400 10pt var(--body); letter-spacing: 0; color: #d9dde2; margin-top: 3px; font-style: italic; }
+
+  /* level detail */
+  .detail { display: grid; grid-template-columns: 7.55in 1fr; height: 100%; }
+  .detail .left { padding: .5in 0 .5in .55in; display: flex; flex-direction: column; gap: .14in; }
+  .shot { border-radius: 6px; overflow: hidden; border: 1px solid var(--line); position: relative; }
+  .shot img { width: 100%; display: block; }
+  .cap { font-size: 9.5pt; color: var(--mute); }
+  .story { font-size: 11pt; line-height: 1.55; color: #dfe2e6; margin: 0; }
+  .right { padding: .45in .55in .3in .4in; display: flex; flex-direction: column; gap: .1in; }
+  .right h3 { font-size: 20pt; }
+  .sec { border-top: 1px solid var(--line); padding-top: .085in; }
+  .sec .kicker { font-size: 8.5pt; margin-bottom: .06in; display: block; }
+  .sec p, .sec li { font-size: 9.8pt; line-height: 1.4; color: #d9dde2; margin: 0; }
+  .sec ul { margin: 0; padding-left: 1.1em; }
+  .sec li + li { margin-top: 2px; }
+  .quote { font-style: italic; color: #f5ead0 !important; }
+
+  /* story map */
+  .plain { padding: .5in .6in; }
+  .plain h2 { font-size: 28pt; margin: .08in 0 .22in; }
+  .map { display: grid; grid-template-columns: repeat(7, 1fr); gap: .1in; align-items: start; }
+  .beat { position: relative; }
+  .beat .t { border-radius: 4px; overflow: hidden; height: 1.02in; border: 1px solid var(--line); }
+  .beat .t img { width: 100%; height: 100%; object-fit: cover; }
+  .beat b { display: block; font: 700 9.5pt var(--display); letter-spacing: .1em; margin-top: .06in; color: var(--c, #fff); }
+  .beat span { display: block; font-size: 8.5pt; color: var(--mute); line-height: 1.3; margin-top: 2px; }
+  .beat:not(:last-child)::after { content: '\2192'; position: absolute; right: -.1in; top: .38in; font-size: 12pt; color: #ffffff88; transform: translateX(50%); }
+  .branch4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: .06in; }
+  .branch4 .t { height: .5in; }
+  .threads { margin-top: .3in; display: grid; grid-template-columns: 1.6in 1fr 1fr 1fr; border-top: 1px solid var(--line); }
+  .threads div { padding: .1in .12in; border-bottom: 1px solid var(--line); font-size: 10pt; line-height: 1.35; color: #d9dde2; }
+  .threads .h { font: 700 9pt var(--display); letter-spacing: .14em; color: var(--mute); }
+  .threads .run { color: var(--run); } .threads .drive { color: var(--drive); } .threads .fight { color: var(--fight); }
+
+  /* branch chooser */
+  .choose { display: grid; grid-template-columns: repeat(4, 1fr); gap: .16in; margin-top: .1in; }
+  .choose .opt { background: var(--panel); border-radius: 6px; overflow: hidden; border-top: 3px solid var(--accent); }
+  .choose .opt img { width: 100%; height: 1.75in; object-fit: cover; display: block; }
+  .choose .opt div { padding: .12in .14in .16in; }
+  .choose .opt b { font: 700 13pt var(--display); }
+  .choose .opt p { font-size: 9.5pt; line-height: 1.4; color: #d3d7dc; margin: .06in 0 0; }
+  .choose .opt .sign { display: inline-block; margin-top: .08in; font: 700 8.5pt var(--display); letter-spacing: .12em; padding: 3px 7px; background: #e9e2d0; color: #a3231c; border-radius: 2px; }
+
+  /* Act III strip */
+  .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: .14in; }
+  .strip .shot img { height: 2.62in; object-fit: cover; }
+  .strip .n { position: absolute; left: .08in; top: .08in; font: 700 8.5pt var(--display); letter-spacing: .16em; background: #000000aa; padding: 3px 7px; border-radius: 2px; color: var(--accent); }
+  .strip .cap { margin-top: .05in; line-height: 1.35; }
+  .act3 { padding: .42in .55in; height: 100%; display: flex; flex-direction: column; gap: .16in; }
+  .act3 .cols { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: .3in; }
+  .swatches { display: flex; gap: 5px; }
+  .sw { flex: 1; } .sw i { display: block; height: .26in; border-radius: 3px; border: 1px solid rgba(255,255,255,.12); }
+  .sw small { display: block; font-size: 7pt; color: var(--mute); margin-top: 2px; }
+
+  /* epilogue */
+  .epi { display: grid; grid-template-columns: 1fr 3.4in; gap: .6in; padding: .6in .75in; height: 100%; align-items: center; }
+  .phone { width: 3.1in; height: 6.1in; border-radius: .38in; background: #050608; border: 3px solid #2b3138; padding: .3in .22in; box-shadow: 0 0 60px #38e1ff22; position: relative; }
+  .phone .notch { width: 1in; height: .14in; background: #1a1e23; border-radius: 0 0 .1in .1in; margin: -.3in auto .3in; }
+  .phone .msg { background: #12171d; border-radius: .14in; padding: .14in; margin-bottom: .12in; font-size: 9.5pt; line-height: 1.4; color: #d9e4ec; }
+  .phone .msg b { color: #38e1ff; font: 700 8.5pt var(--display); letter-spacing: .14em; display: block; margin-bottom: 3px; }
+  .phone .big { font: 700 34pt var(--display); color: #ff4a3a; text-align: center; margin-top: .3in; letter-spacing: .05em; }
+  .phone .big small { display: block; font: 600 9pt var(--display); color: #a9b0b8; letter-spacing: .25em; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
+  th, td { text-align: left; padding: .1in .13in; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 700 11.5pt var(--display); }
+  td:first-child { color: var(--mute); width: 1.8in; font-size: 9.5pt; letter-spacing: .04em; }
+  .ballot td, .ballot th { text-align: center; height: .46in; }
+  .ballot td:first-child { text-align: left; color: var(--ink); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: .5in; }
+  .plain p, .plain li { font-size: 10.5pt; line-height: 1.5; color: #d3d7dc; }
+</style>
+</head>
+<body>
+<div id="book"></div>
+<script>
+const img = (n) => `out/${n}.jpg`;
+
+const THEMES = [
+  {
+    id: 'shrine', letter: 'A', name: 'Overgrown Shrine', act: 'SITE 7', accent: '#9ed36a', plan: true,
+    tag: 'A forgotten jungle shrine, quietly wired into the network.',
+    river: 'The river under the bridge runs into the jungle and drops him into a pool at the foot of a waterfall. Behind it is a stone gate with a laminated sign zip-tied to the pillar.',
+    sign: 'SITE 7 · NO ENTRY', card: 'You got off the road. Now there’s only the river.',
+    fight: 'The courtyard is ringed by broken columns and guardian statues. A fibre cable runs into the gate, where the uplink is hidden. It’s golden hour, with sun shafts and pollen in the air.',
+    letter2: 'The shrine isn’t a hiding place. It’s an address.',
+    shader: 'Flowing waterfall and pool', mood: 'Golden hour · moss · warm stone',
+    palette: ['#5f9a2e', '#7a7c66', '#f4e2b0', '#2f7f7a', '#3f1d0c'],
+    pros: ['Every asset is already in hand', 'Bright and readable, with a round arena like the current one'],
+    cons: ['A lot of foliage to keep fast on laptops'],
+  },
+  {
+    id: 'monastery', letter: 'B', name: 'Cliffside Monastery', act: 'THE PASS', accent: '#e05a4f',
+    tag: 'No way out but down.',
+    river: 'The current carries him down the valley. He climbs the pilgrim steps toward the only lights for miles and reaches a terrace with a sign that has no business being this far up a mountain.',
+    sign: 'PASS CLOSED · NO SERVICE', card: 'You got off the road. Now there’s only up.',
+    fight: 'An open terrace with a sheer drop on one side and a gothic monastery on the other. Prayer flags snap overhead and torches burn in the arches. The uplink is in the bell tower.',
+    letter2: 'The monastery isn’t a hiding place. It’s an address.',
+    shader: 'Drifting mist banks below the terrace', mood: 'Cold morning · red banners · torchlight',
+    palette: ['#3f74b8', '#9c988e', '#a3262a', '#f4f7fb', '#ff9a4a'],
+    pros: ['The most epic silhouette', 'The cheapest shader of the four'],
+    cons: ['The provided HDRI is a city street, so the sky stays painted'],
+  },
+  {
+    id: 'desert', letter: 'C', name: 'Desert Canyon Outpost', act: 'RELAY 7', accent: '#f0a35e',
+    tag: 'Dead tech under a burning sky.',
+    river: 'The river carves out of the mountains into a box canyon and leaves him on a sandbar. Up the bank stands a red-and-white mast and a sun-bleached relay station, with its door ajar.',
+    sign: 'RELAY 7 · DECOMMISSIONED', card: 'You got off the road. Now there’s only the canyon.',
+    fight: 'A cracked concrete pad between sandstone walls. Through the open door, the server rack the whole game has been about blinks cyan.',
+    letter2: 'The relay isn’t a hiding place. It’s an address.',
+    shader: 'Heat haze over the sand (reuses the lava maths)', mood: 'Late afternoon · sandstone · server glow',
+    palette: ['#c98a5a', '#f6d6a6', '#3a76c4', '#d23a2a', '#4ff0d8'],
+    pros: ['Keeps the warm Deephold palette', 'The server room is on screen, so the set tells the story'],
+    cons: ['Canyon walls can feel enclosed'],
+  },
+  {
+    id: 'coast', letter: 'D', name: 'Coastal Cliffs', act: 'STATION 7', accent: '#ffb26b',
+    tag: 'The last stand at the edge of the world.',
+    river: 'The river reaches the sea and throws him onto the shingle under a sea stack. A bunker sits on top, with an antenna blinking red and a sign on the beach.',
+    sign: 'STATION 7 · RESTRICTED', card: 'You got off the road. Now there’s only the edge.',
+    fight: 'An exposed rock shelf thirty metres above the ocean at sunset, beside the uplink bunker, with a lighthouse blinking on the headland.',
+    letter2: 'The station isn’t a hiding place. It’s an address.',
+    shader: 'Animated ocean (waves, sun glint, foam)', mood: 'Sunset · backlit · sea glitter',
+    palette: ['#25335e', '#f6a774', '#0d2a46', '#9a9298', '#4ff0d8'],
+    pros: ['The biggest "wow" of the four', 'Open horizon, no walls needed'],
+    cons: ['Backlit fighters need a fill light', 'The ocean shader is the most work'],
+  },
+];
+
+let page = 0, html = '';
+const P = (cls, inner, style = '') => { page++; return `<section class="page ${cls}" style="${style}">${inner}<div class="pg">${String(page).padStart(2, '0')}</div></section>`; };
+
+/* 1 · cover */
+html += P('cover', `
+  <div class="kicker" style="color:#fff">CGV group project · story concept · Levels 1–3</div>
+  <h1>BLACKOUT<br>PROTOCOL</h1>
+  <div class="sub">One chase, three games. You run, then you drive, then you stop running and turn around. This is the whole story, start to finish, rendered in our engine with our own characters.</div>
+  <div class="verbs">
+    <div class="verb"><img src="${img('metro-hero')}"><div class="lab"><b style="color:var(--run)">01 RUN</b><span>DOWNLINE · THE METRO</span></div></div>
+    <div class="verb"><img src="${img('highway-hero')}"><div class="lab"><b style="color:var(--drive)">02 DRIVE</b><span>REDLINE · THE HIGHWAY</span></div></div>
+    <div class="verb"><img src="${img('shrine-hero')}"><div class="lab"><b style="color:var(--fight)">03 FIGHT</b><span>ACT III · FOUR ARENAS TO CHOOSE FROM</span></div></div>
+  </div>`);
+
+/* 2 · story map */
+const beat = (n, t, s, c) => `<div class="beat" style="--c:${c}"><div class="t"><img src="${img(n)}"></div><b>${t}</b><span>${s}</span></div>`;
+html += P('plain', `
+  <div class="kicker">The story spine</div><h2>How the three levels connect</h2>
+  <div class="map">
+    ${beat('prologue', 'PROLOGUE', '01:48. Kai copies the Key to BLACKOUT.', '#fff')}
+    ${beat('metro-hero', 'L1 · DOWNLINE', 'Run the flooded metro. He is 15 m behind.', 'var(--run)')}
+    ${beat('gate', 'THE GATE', 'The seal locks between them. He climbs.', 'var(--run)')}
+    ${beat('highway-hero', 'L2 · REDLINE', 'The N3 at sunset. Now he can hurt you.', 'var(--drive)')}
+    ${beat('bridge', 'THE FALL', 'Rammed off the bridge into the river.', 'var(--drive)')}
+    <div class="beat" style="--c:var(--fight)"><div class="branch4">${THEMES.map(t => `<div class="t"><img src="${img(t.id + '-wake')}"></div>`).join('')}</div><b>L3 · ACT III</b><span>The river decides where he wakes. Pick 1 of 4.</span></div>
+    ${beat('shrine-reveal', 'THE REVEAL', 'The helmet comes off. You know that face.', 'var(--fight)')}
+  </div>
+  <div class="threads">
+    <div class="h">THREAD</div><div class="h run">LEVEL 1 · RUN</div><div class="h drive">LEVEL 2 · DRIVE</div><div class="h fight">LEVEL 3 · FIGHT</div>
+    <div class="h">THE KEY</div><div>On Kai’s back</div><div>Bolted into the car</div><div>In his fist (it glows cyan in every shot)</div>
+    <div class="h">THE HANDLER</div><div>A shape behind a torch beam</div><div>Headlights in the mirror</div><div>A face: the man who recruited him</div>
+    <div class="h">THE COST OF A MISTAKE</div><div>Distance</div><div>Damage</div><div>Health, with nowhere left to run</div>
+    <div class="h">COLOUR</div><div class="run">Cold cyan and steel</div><div class="drive">Magenta dusk into night</div><div class="fight">The arena’s own palette</div>
+    <div class="h">THE NUMBER 7</div><div>Platform 4 · Sector seal 043</div><div>N3 South · Toll 2 km</div><div>Site 7 · Relay 7 · Station 7 · the pass, whichever arena wins</div>
+  </div>`);
+
+/* 3 · prologue */
+html += P('bleed', `<img class="bg" src="${img('prologue')}">
+  <div class="band"><div class="kicker" style="color:#9fdcff">Prologue · The night migration · 01:48</div>
+  <h2>You were never supposed to read that file.</h2>
+  <div class="copy">Kai Ndlovu, 24, a junior systems engineer, is on a routine overnight job at a private data centre. A rack that was meant to be decommissioned spills a manifest onto his screen: <b>BLACKOUT</b>, a continent-wide network kill switch, delivery in nine days. He copies the Key onto a shielded drive. At the far end of Hall B, the door opens.</div></div>`);
+
+/* level pages */
+const level = (o) => {
+  html += P('bleed', `<img class="bg" src="${img(o.hero)}">
+    <div class="band"><div class="kicker" style="color:${o.c}">${o.k}</div><h2>${o.title}</h2><div class="tag">${o.tag}</div></div>`);
+  html += P('', `<div class="detail">
+    <div class="left"><div class="kicker" style="color:${o.c}">${o.k} · In-game view</div>
+      <div class="shot"><img src="${img(o.play)}"></div><div class="cap">${o.cap}</div><p class="story">${o.story}</p></div>
+    <div class="right" style="--accent:${o.c}"><h3>${o.title}</h3>
+      ${o.secs.map(([h, b]) => `<div class="sec"><span class="kicker">${h}</span>${b}</div>`).join('')}
+    </div></div>`);
+};
+level({
+  hero: 'metro-hero', play: 'metro-play', c: 'var(--run)', k: 'Level 01 · RUN · Downline', title: 'The Metro',
+  tag: 'Rosebank interchange, 02:14. Closed, half-flooded, and not empty.',
+  cap: 'Runner camera with the distance meter, letters found and a letter card. The 02:20 southbound is coming down the left lane.',
+  story: 'The cameras own the street, so Kai goes under it. Three lanes: jump, slide, don’t stop. Behind him a man has not once broken stride. You can’t hurt him and he can’t reach you; every mistake just closes the gap.',
+  secs: [
+    ['What’s new', '<p>The core runner loop. The only currency is distance: every clipped barrier hands him three metres.</p>'],
+    ['Letters on the route', '<ul><li class="quote">“They told you that rack was decommissioned. It was signed for on Tuesday.”</li><li class="quote">“Twelve names on the manifest. Yours is the only one still breathing.”</li><li class="quote">“He isn’t chasing the drive. He’s chasing you.”</li></ul>'],
+    ['Boards shout', '<p>PLATFORM 4 SOUTHBOUND · HE’S STILL COMING · SECTOR 2 CLEAR</p>'],
+    ['What will kill you', '<p>The oncoming train, the third rail, ticket barriers, luggage trolleys, closing sector gates, ceiling ducts.</p>'],
+    ['Shader & effects', '<p>Speed-warp shader, wet-floor reflections (shown), shadow-casting headlight, cyan emergency lighting.</p>'],
+  ],
+});
+html += P('bleed', `<img class="bg" src="${img('gate')}">
+  <div class="band"><div class="kicker" style="color:var(--run)">Interlude I · Level 1 → Level 2</div><h2>The gate closes between you.</h2>
+  <div class="copy">The tunnel forks and a train is coming. Kai slides under Sector Seal 043 a heartbeat before it locks. The Handler hits the bars a beat too late, and the two of them look at each other through the steel. The card holds for two seconds. Then the camera pulls back, and he is already climbing.</div>
+  <div class="card">LEVEL COMPLETE<small>“You escaped the subway… but he’s still coming.”</small></div></div>`);
+level({
+  hero: 'highway-hero', play: 'highway-play', c: 'var(--drive)', k: 'Level 02 · DRIVE · Redline', title: 'The Highway',
+  tag: 'The N3 out of the city. Sunset bleeding into night, and now he can hurt you.',
+  cap: 'Chase camera with car integrity, speed and boost heat. The rear-view inset shows his SUV on your bumper, and the minimap tracks the traffic.',
+  story: 'A contact is waiting past the toll. He never arrives, because he never left the building. Six lanes, freight trucks and rain on the way. The Handler rams, shoots out tyres and drops drones. Mistakes now cost paint, then panels, then the car.',
+  secs: [
+    ['What’s new', '<p>A vehicle: momentum, drift and boost. For the first time, a health bar.</p>'],
+    ['Letters on the route', '<ul><li class="quote">“Your contact never left the building.”</li><li class="quote">“You were selected six months ago. The job was the interview.”</li><li class="quote">“The Act III location isn’t a hiding place. It’s an address.” <span class="mute">(the wording follows the chosen arena)</span></li></ul>'],
+    ['Boards shout', '<p>N3 SOUTH · TOLL PLAZA 2 km · NO SERVICE BEYOND THIS POINT</p>'],
+    ['Camera language', '<p>Rear-view picture-in-picture and an orthographic minimap (both shown, both real renders).</p>'],
+    ['Shader & effects', '<p>Dynamic sky from dusk to night, wet-road reflections, rain, sodium streetlights, headlight beams.</p>'],
+  ],
+});
+html += P('bleed', `<img class="bg" src="${img('bridge')}">
+  <div class="band"><div class="kicker" style="color:var(--drive)">Interlude II · Level 2 → Level 3</div><h2>There is nothing left to run to.</h2>
+  <div class="copy">The highway climbs onto a mountain bridge, with no shoulder and his headlights filling the mirror. No more warning shots: he rams Kai at speed, and the car goes through the barrier into the ravine. Cut to black as it hits the water. The game takes the car away, so Level 3’s new controls are a story event, not a settings change.</div>
+  <div class="card">LEVEL COMPLETE<small>The river decides where Kai comes round (see the next page).</small></div></div>`);
+
+/* branch chooser */
+html += P('plain', `<div class="kicker">Act III · the branch the team chooses</div><h2>Where does the river take him?</h2>
+  <div class="choose">${THEMES.map(t => `<div class="opt" style="--accent:${t.accent}"><img src="${img(t.id + '-wake')}"><div><b style="color:${t.accent}">${t.letter} · ${t.name}</b>${t.plan ? ' <span class="mute" style="font-size:8.5pt">(theme plan pick)</span>' : ''}<p>${t.river}</p><span class="sign">${t.sign}</span><p class="quote" style="margin-top:.08in">“${t.card}”</p></div></div>`).join('')}</div>
+  <p class="mute" style="margin-top:.2in;font-size:10pt">The prologue, Levels 1 and 2 and both interludes are identical in every branch. Only where Kai wakes, the arena, and one line of the Level 2 letter change. Each option gets two pages next.</p>`);
+
+/* Act III per theme */
+for (const t of THEMES) {
+  html += P('bleed', `<img class="bg" src="${img(t.id + '-hero')}">
+    <div class="band"><div class="kicker" style="color:${t.accent}">Level 03 · FIGHT · Option ${t.letter} · ${t.act}${t.plan ? ' · theme plan pick' : ''}</div><h2>${t.name}</h2><div class="tag">${t.tag}</div></div>`, `--accent:${t.accent}`);
+  html += P('', `<div class="act3">
+    <div class="kicker">Option ${t.letter} · Act III in three beats</div>
+    <div class="strip">
+      <div><div class="shot"><img src="${img(t.id + '-wake')}"><span class="n">1 · WAKE</span></div><div class="cap">${t.river}</div></div>
+      <div><div class="shot"><img src="${img(t.id + '-play')}"><span class="n">2 · FIGHT</span></div><div class="cap">${t.fight}</div></div>
+      <div><div class="shot"><img src="${img(t.id + '-reveal')}"><span class="n">3 · REVEAL</span></div><div class="cap">Phase II: the helmet comes off. It’s the man who signed Kai onto the contract six months ago.</div></div>
+    </div>
+    <div class="cols">
+      <div class="sec"><span class="kicker">Letters in this arena</span><ul>
+        <li class="quote">“You were meant to find it.”</li>
+        <li class="quote">“He wrote your recruitment letter. Compare the handwriting.”</li>
+        <li class="quote">“Eleven more keys. Eleven more of you.”</li></ul>
+        <p class="mute" style="margin-top:.06in">Level 2’s third letter becomes: <span class="quote">“${t.letter2}”</span></p></div>
+      <div class="sec"><span class="kicker">Look & shader</span><p>${t.mood}</p><p style="margin:.05in 0">Signature shader: ${t.shader}</p>
+        <div class="swatches">${t.palette.map(c => `<div class="sw"><i style="background:${c}"></i><small>${c}</small></div>`).join('')}</div></div>
+      <div class="sec"><span class="kicker">For / against</span><ul>${t.pros.map(p => `<li>${p}</li>`).join('')}${t.cons.map(p => `<li class="mute">${p}</li>`).join('')}</ul></div>
+    </div></div>`, `--accent:${t.accent}`);
+}
+
+/* epilogue */
+html += P('', `<div class="epi">
+  <div><div class="kicker" style="color:#ff4a3a">Epilogue · after the fight</div>
+    <h2 style="font-size:46pt;line-height:1;margin:.12in 0 .2in">Eleven more.</h2>
+    <p class="story" style="font-size:13pt;max-width:6.6in">The upload finishes. BLACKOUT is public, and a kill switch everyone knows about is worthless. Kai finally breathes. Then the Handler’s phone lights up on the ground beside the helmet, with something else he was never meant to read.</p>
+    <div class="sec" style="margin-top:.3in;max-width:6.6in"><span class="kicker" style="color:#ffd27a">True ending · for collectors</span><p>Find all three letters in every level (nine in total) to unlock the lore terminal and the true ending. That covers the rubric’s “replay value” by name.</p></div>
+    <div class="sec" style="max-width:6.6in"><span class="kicker" style="color:var(--fight)">Trailer edit, already storyboarded</span><p><b style="color:var(--run)">RUN</b> in cyan → <b style="color:var(--drive)">DRIVE</b> in magenta → <b style="color:var(--fight)">FIGHT</b> in the arena’s colour → title card → “Eleven more.”</p></div>
+  </div>
+  <div class="phone"><div class="notch"></div>
+    <div class="msg"><b>UPLOAD · 100%</b>BLACKOUT master key published to 214 mirrors.</div>
+    <div class="msg"><b>HANDLER-01 · NEW MESSAGE</b>Asset 1 compromised. Proceed with the remaining keys.</div>
+    <div class="msg"><b>MANIFEST · KEYS</b>KEY-02 · KEY-03 · KEY-04 … KEY-12</div>
+    <div class="big">11<small>OTHER KEYS</small></div>
+  </div></div>`);
+
+/* comparison + ballot */
+const rows = [
+  ['Where Kai wakes', ...THEMES.map(t => t.river.split('. ')[0] + '.')],
+  ['Signature shader', ...THEMES.map(t => t.shader)],
+  ['Mood', ...THEMES.map(t => t.mood)],
+  ['Main risk', 'Foliage performance', 'Distant mountains look simple', 'Feels enclosed', 'Ocean shader time'],
+];
+html += P('plain', `<div class="kicker">Side by side</div><h2>Choosing Act III</h2>
+  <table><tr><th></th>${THEMES.map(t => `<th style="color:${t.accent}">${t.letter} · ${t.name}</th>`).join('')}</tr>
+  ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>
+  <p class="mute" style="font-size:10pt;margin-top:.2in">Whatever wins: the combat, Kai, the Handler, the FightHUD, the Key and the reveal are the same code in all four. Only the arena dressing, the lighting, the sky and one shader in <code>Level03.js</code> change.</p>`);
+html += P('plain', `<div class="kicker">Team vote</div><h2>Pick the arena for Act III</h2>
+  <div class="two"><div>
+    <table class="ballot"><tr><th style="text-align:left">Name</th>${THEMES.map(t => `<th style="color:${t.accent}">${t.letter}</th>`).join('')}</tr>
+    ${Array.from({ length: 6 }, () => `<tr><td></td>${THEMES.map(() => '<td></td>').join('')}</tr>`).join('')}</table>
+    <p class="mute" style="font-size:10pt">Write <b>1</b> for your first choice and <b>2</b> for your second. 1st = 2 pts, 2nd = 1 pt. Most points wins.</p></div>
+    <div><p><b>Already locked (not up for a vote)</b></p><ul>
+      <li>Prologue in the data centre, 01:48</li><li>Level 1 Downline (metro, run) and Interlude I, The Gate</li>
+      <li>Level 2 Redline (highway, drive) and Interlude II, The Fall</li><li>The helmet reveal and the “Eleven more” epilogue</li></ul>
+      <p><b>Decided by this vote</b>: where the river leaves Kai, the Act III arena, its shader, and one line of the Level 2 letter.</p></div></div>`);
+
+document.getElementById('book').innerHTML = html;
+window.__ready = Promise.all([...document.images].map(i => i.decode().catch(() => {}))).then(() => true);
+</script>
+</body>
+</html>

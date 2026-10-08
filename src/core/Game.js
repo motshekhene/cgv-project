@@ -28,6 +28,9 @@ export class Game {
     this.levelName = null;
     this.running = false;
     this.paused = false;
+    // true while a level's init() is still running: nothing is updated or
+    // drawn, so a half-built scene (just its sky colour) never reaches the screen
+    this.loading = false;
 
     this.state = new GameState();
     this.input = new Input(window).attach();
@@ -63,6 +66,7 @@ export class Game {
 
     // hooks the UI layer can set — Game does not touch the DOM itself
     this.onLevelChanged = null;
+    this.onLevelLoading = null; // (name) — a level has started building
     this.onLoadProgress = null;
     this.onPaused = null;
 
@@ -82,6 +86,9 @@ export class Game {
     const factory = this.levels.get(name);
     if (!factory) throw new Error(`[game] no level registered as "${name}"`);
 
+    this.loading = true;
+    if (this.onLevelLoading) this.onLevelLoading(name);
+
     if (this.level) {
       this.level.teardown();
       this.level = null;
@@ -93,7 +100,11 @@ export class Game {
     level.game = this;
     this.level = level;
     this.levelName = name;
-    await level.init(this.scene, this.assets, this.input, this.state);
+    try {
+      await level.init(this.scene, this.assets, this.input, this.state);
+    } finally {
+      this.loading = false;
+    }
     if (this.onLevelChanged) this.onLevelChanged(name);
     return level;
   }
@@ -128,6 +139,12 @@ export class Game {
     const raw = Math.min((now - this._last) / 1000, this.maxDelta);
     this._last = now;
     const dt = raw * (this.state.timeScale ?? 1);
+
+    // a level is still building: keep the last finished frame on screen
+    if (this.loading) {
+      this.input.endFrame();
+      return;
+    }
 
     if (this.input.pressed("pause")) this.setPaused(!this.paused);
     if (this.input.pressed("restart")) {

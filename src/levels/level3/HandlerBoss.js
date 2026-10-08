@@ -1,488 +1,355 @@
-import * as THREE from "three";
-import { makeDissolve, applyRim } from "./materials.js";
-import { applyToMaterials } from "./characters.js";
-import { ARENA_CENTER } from "./Arena.js";
+import * as THREE from 'three';
+import { Fighter } from './Fighter.js';
 
 /**
- * The Handler, phase-locked: PURSUIT -> STAND -> DESPERATION at 70% / 35%.
+ * HandlerBoss — the three-phase boss (Member 3A).
  *
- * Every attack telegraphs — a ring on the floor and a windup pose —
- * because a fight you can't read is a fight you can't parry. Phase 2
- * dissolves the helmet (the story reveal); phase 3 turns on the red rim,
- * drops arena wedges behind him and chains lunges.
+ * Phases are health-gated and each fights differently:
+ *   PURSUIT      lunge only
+ *   STAND        lunge + sweep (helmet comes off on entry)
+ *   DESPERATION  sweep + 2-hit combo + lunge, faster
+ * Every attack telegraphs with its own colour: orange = lunge (dodge or block),
+ * red = sweep (dodge — block only half-works), purple = combo (two hits).
+ * A well-timed parry staggers him and opens a damage window.
  *
- * Damage numbers assume Kai: light 7 / heavy 16 / riposte 2.5x.
+ * He never touches the player: when a strike connects he calls onStrike() and
+ * Level03 answers 'hit' | 'blocked' | 'parried' | 'dodged'.
  */
+const PHASES = [
+  { name: 'PURSUIT', speed: 4.2, attacks: ['lunge'], pace: 1.0, rest: [0.5, 0.9] },
+  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.35, 0.7] },
+  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge'], pace: 0.64, rest: [0.2, 0.45] },
+];
 
-const MAX_HP = 300;
-const PHASE_AT = [0.7, 0.35]; // health fractions that flip the phases
+const ATTACKS = {
+  lunge: {
+    tell: 0xff7a1a, telegraph: 0.85, recover: 0.95, engage: 5.2, clip: 'punch', clipSpeed: 2.6,
+    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 14 }],
+  },
+  sweep: {
+    tell: 0xff1133, telegraph: 1.0, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
+    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 18 }],
+  },
+  combo: {
+    tell: 0xb04dff, telegraph: 0.7, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
+    hits: [
+      { dur: 0.26, move: 9, reach: 2.0, damage: 11 },
+      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 11 },
+    ],
+  },
+};
 
-const RUN_SPEED = [4.6, 5.3, 6.2];
-const ATK_CD = [1.7, 1.25, 0.85];
-const LUNGE_CD = [5.5, 4.5, 3.5];
-const DMG_MULT = [1, 1.15, 1.3];
+const STAGGER_TIME = 1.7;
+const TRANSITION_TIME = 1.5;
 
 export class HandlerBoss {
-  constructor(root, rig, effects) {
-    this.rig = rig;
-    this.effects = effects;
-    this.pos = rig.group.position;
-    this.pos.set(0, 0, -49);
-    this.facing = 0;
-
-    this.hp = MAX_HP;
-    this.phase = 1;
-    this.state = "pursue";
-    this.t = 0;
-    this.atkCd = 1.2;
-    this.lungeCd = 3;
-    this.specialCd = 5;
-    this.strafeDir = 1;
-    this.strafeT = 0;
-    this.vulnerable = false;
-
-    // lunge bookkeeping
-    this.lungeTarget = new THREE.Vector3();
-    this.lungeHit = false;
-    this.rushLeft = 0;
-
-    // shockwave bookkeeping
-    this.waveR = -1;
-    this.waveHit = false;
-
-    // helmet dissolve (phase 2) and death dissolve controllers
-    this.helmetMats = [];
-    this.helmetDissolve = [];
-    this.bodyMats = [];
-    this.bodyDissolve = [];
-    this.helmetT = -1; // -1 = intact
-    this.deathT = -1;
-    this.rimControllers = [];
-
-    const seen = new Set();
-    applyToMaterials(this.rig.group, (m) => {
-      if (!m || seen.has(m)) return;
-      seen.add(m);
-      this.bodyMats.push(m);
+  constructor(parent, target, source) {
+    this.target = target;
+    this.levelRoot = parent;
+    this.fighter = new Fighter(parent, {
+      source,
+      capsuleColor: 0xff5533,
+      palette: { Skin: 0x7a5233, Hair: 0xb4b4bc, Shirt: 0x3a3d4d, Pants: 0x2f3240, Details: 0xefe9e0, TieTexture: 0xb02323, Shoes: 0x1a1a1e },
     });
-    if (this.rig.parts.helmet) {
-      const helmetSeen = new Set();
-      applyToMaterials(this.rig.parts.helmet, (m) => {
-        if (!m || helmetSeen.has(m)) return;
-        helmetSeen.add(m);
-        this.helmetMats.push(m);
-        this.helmetDissolve.push(makeDissolve(m, { color: 0xff7a2a, scale: 8 }));
-      });
-    }
+    for (const m of this.fighter.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a1210);
+    this.root = this.fighter.root;
+    this.root.position.set(0, 0, -4.5);
+    this.root.rotation.y = 0;
 
-    // callbacks the level wires up
-    this.onPlayerHit = null; // (dmg, fromPos, kind)
-    this.onPhaseChange = null; // (phase)
-    this.onDeath = null;
+    this.maxHealth = 320;
+    this.health = this.maxHealth;
+    this.phaseIndex = 0;
+    this.helmetOff = false;
 
-    this._tmp = new THREE.Vector3();
-    this._dir = new THREE.Vector3();
-  }
-
-  get alive() {
-    return this.deathT < 0;
-  }
-
-  get staggering() {
-    return this.state === "stagger";
-  }
-
-  chest(out = new THREE.Vector3()) {
-    return out.set(this.pos.x, this.pos.y + 1.35, this.pos.z);
-  }
-
-  spawn() {
-    this.pos.set(0, 0, -49);
-    this.rig.group.visible = true;
-    this.rig.play("idle");
-  }
-
-  /* ------------------------------------------------------------------ *
-   * damage
-   * ------------------------------------------------------------------ */
-
-  takeHit(dmg, heavy = false, fromPos = null, riposte = false) {
-    if (!this.alive) return { died: false };
-    let total = dmg;
-    if (this.staggering) total *= 2;
-    if (riposte) total *= 2.5;
-    this.hp = Math.max(0, this.hp - total);
-
-    this.effects.burstSparks(this.chest(this._tmp).clone(), heavy ? 26 : 14, riposte ? 0x9ce8ff : 0xffa03a, heavy ? 8 : 6);
-    if (heavy && fromPos) {
-      this._dir.subVectors(this.pos, fromPos).setY(0).normalize();
-      this.pos.addScaledVector(this._dir, 0.45);
-    }
-
-    if (this.hp <= 0) {
-      this._die();
-      return { died: true };
-    }
-
-    // phase flips
-    if (this.phase === 1 && this.hp <= MAX_HP * PHASE_AT[0]) this._enterPhase(2);
-    else if (this.phase === 2 && this.hp <= MAX_HP * PHASE_AT[1]) this._enterPhase(3);
-
-    return { died: false };
-  }
-
-  stagger(duration = 2.2) {
-    if (!this.alive || this.state === "stagger") return;
-    this.state = "stagger";
+    this.state = 'APPROACH';
     this.t = 0;
-    this.staggerDur = duration;
-    this.vulnerable = true;
-    this.waveR = -1;
-    this.rig.play("stagger");
+    this.attackName = null;
+    this.hitIndex = 0;
+    this.hitT = 0;
+    this.hitResolved = false;
+    this.restFor = 0;
+    this.strikeDir = new THREE.Vector3(0, 0, 1);
+    this.heading = 0;
+    this.staggered = false;
+    this.flying = null; // the helmet, once it comes off
+    this.arenaLimit = 13.4; // he follows Kai anywhere inside this radius
+
+    this.onStrike = null;
+    this.onHelmetOff = null;
+    this.onPhaseChange = null;
+    this.onDefeated = null;
+
+    this._pickAttack();
+    this._attachHelmet();
+    this._to = new THREE.Vector3();
   }
 
-  _enterPhase(n) {
-    this.phase = n;
-    this.state = "stagger"; // the roar is a stagger with theatre
-    this.t = 0;
-    this.staggerDur = 1.6;
-    this.vulnerable = false;
-    this.rig.play("roar");
-    this.effects.spawnRing(this.pos, { maxR: 7, dur: 1.0, color: 0xff3a1a });
-    this.effects.addTrauma(0.5);
+  get phase() {
+    return PHASES[this.phaseIndex];
+  }
 
-    if (n === 2 && this.rig.parts.helmet) this.helmetT = 0;
-    if (n === 3) {
-      for (const m of this.bodyMats) {
-        this.rimControllers.push(applyRim(m, 0xff2a1a, 1.7));
+  get vulnerable() {
+    return this.state === 'STAGGER';
+  }
+
+  _attachHelmet() {
+    const helmet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.42, 18, 14),
+      new THREE.MeshStandardMaterial({ color: 0x0c0c10, metalness: 0.75, roughness: 0.28 }),
+    );
+    helmet.scale.set(1, 1.15, 1.05);
+    helmet.castShadow = true;
+    this.helmet = helmet;
+    let head = null;
+    this.fighter.pivot.traverse((o) => {
+      if (o.isBone && o.name === 'Head') head = o;
+    });
+    if (head) {
+      helmet.position.set(0, 0.28, 0.03);
+      head.add(helmet);
+    } else {
+      helmet.scale.setScalar(0.22);
+      helmet.position.y = 0.95;
+      this.fighter.pivot.add(helmet);
+    }
+  }
+
+  _popHelmet() {
+    if (!this.helmet) return;
+    this.levelRoot.attach(this.helmet);
+    this.flying = {
+      mesh: this.helmet,
+      vel: new THREE.Vector3((Math.random() - 0.5) * 3, 5.5, (Math.random() - 0.5) * 3),
+      spin: new THREE.Vector3(6, 4, 8),
+      life: 2.2,
+    };
+    this.helmet = null;
+  }
+
+  _pickAttack() {
+    const list = this.phase.attacks;
+    let pick = list[Math.floor(Math.random() * list.length)];
+    if (pick === this.attackName && list.length > 1 && Math.random() < 0.6) {
+      pick = list[(list.indexOf(pick) + 1) % list.length];
+    }
+    this.attackName = pick;
+  }
+
+  _enter(state) {
+    this.state = state;
+    this.t = 0;
+  }
+
+  takeDamage(amount) {
+    if (this.health <= 0 || this.state === 'TRANSITION') return 0;
+    const dealt = amount * (this.vulnerable ? 1.6 : 1);
+    this.health = Math.max(0, this.health - dealt);
+    this.fighter.flinch();
+
+    if (this.health <= 0) {
+      this.state = 'DOWN';
+      this.fighter.setGlow(0, 0);
+      this.fighter.setLean(0);
+      this.fighter.playOnce('death', { fade: 0.1 });
+      if (this.onDefeated) this.onDefeated();
+      return dealt;
+    }
+
+    const frac = this.health / this.maxHealth;
+    const wanted = frac > 0.66 ? 0 : frac > 0.33 ? 1 : 2;
+    if (wanted > this.phaseIndex) {
+      this.phaseIndex = wanted;
+      this._enter('TRANSITION');
+      this.attackName = null;
+      this._pickAttack();
+      if (wanted === 1 && !this.helmetOff) {
+        this.helmetOff = true;
+        this._popHelmet();
+        if (this.onHelmetOff) this.onHelmetOff();
       }
+      if (this.onPhaseChange) this.onPhaseChange(wanted + 1);
     }
-    if (this.onPhaseChange) this.onPhaseChange(n);
+    return dealt;
   }
 
-  _die() {
-    this.state = "dying";
-    this.deathT = 0;
-    this.waveR = -1;
-    this.rig.play("death");
-    for (const m of this.bodyMats) {
-      this.bodyDissolve.push(makeDissolve(m, { color: 0xff7a2a, scale: 3.2 }));
-    }
-    this.effects.addTrauma(0.6);
-    this.effects.spawnRing(this.pos, { maxR: 10, dur: 1.4, color: 0xff7a2a });
+  /** Called by Level03 when a strike was parried. */
+  stagger() {
+    this._enter('STAGGER');
+    this.hitIndex = 0;
+    this.fighter.setGlow(0xffd23a, 1.4);
+    this.fighter.setLean(0.35);
+    this.fighter.play('idle');
   }
 
-  /* ------------------------------------------------------------------ *
-   * the FSM
-   * ------------------------------------------------------------------ */
+  update(dt) {
+    const f = this.fighter;
+    this._updateHelmet(dt);
+    if (this.state === 'DOWN') {
+      f.update(dt);
+      return { dist: 0, state: 'DOWN', phase: this.phase.name };
+    }
 
-  update(dt, ctx) {
-    const { state, player, arena } = ctx;
+    if (this.target.dead) {
+      f.play('idle');
+      f.setGlow(0, 0);
+      f.setLean(0);
+      f.update(dt);
+      return { dist: 0, state: 'IDLE', phase: this.phase.name };
+    }
+
+    const p = this.phase;
+    const tp = this.target.root.position;
+    this._to.set(tp.x - this.root.position.x, 0, tp.z - this.root.position.z);
+    const dist = this._to.length();
+    const dir = dist > 0.001 ? this._to.clone().divideScalar(dist) : new THREE.Vector3(0, 0, 1);
     this.t += dt;
-    this.atkCd -= dt;
-    this.lungeCd -= dt;
-    this.specialCd -= dt;
 
-    if (this.deathT >= 0) {
-      this._updateDeath(dt);
-      this._publish(state);
-      return;
-    }
-
-    const playerPos = player.pos;
-    const dx = playerPos.x - this.pos.x;
-    const dz = playerPos.z - this.pos.z;
-    const dist = Math.hypot(dx, dz);
-    const toPlayer = this._dir.set(dx, 0, dz).normalize();
+    const atk = ATTACKS[this.attackName];
+    const face = (rate) => {
+      const want = Math.atan2(dir.x, dir.z);
+      let d = (want - this.heading) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      this.heading += d * (1 - Math.exp(-rate * dt));
+    };
 
     switch (this.state) {
-      case "pursue": {
-        this.rig.play(dist > 6 ? "run" : "walk");
-        this._faceTo(toPlayer, dt);
-        this._moveToward(playerPos, RUN_SPEED[this.phase - 1], dt, arena);
-
-        this.strafeT += dt;
-        if (dist < 2.9 && this.atkCd <= 0) {
-          this._startSwipe();
-        } else if (
-          dist >= 4.2 &&
-          dist <= 8.8 &&
-          this.lungeCd <= 0
-        ) {
-          this._startLunge(playerPos);
-        } else if (this.phase >= 2 && this.specialCd <= 0 && dist < 12) {
-          if (dist >= 4.5) this._startVentCall();
-          else this._startShockwave();
-        } else if (this.strafeT > 4.5 + Math.random() * 2) {
-          this.state = "strafe";
-          this.t = 0;
-          this.strafeT = 0;
-          this.strafeDir = Math.random() < 0.5 ? -1 : 1;
-        }
-        break;
-      }
-
-      case "strafe": {
-        this.rig.play("walk");
-        this._faceTo(toPlayer, dt);
-        // circle at roughly the current radius
-        const tangent = this._tmp.set(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this.strafeDir);
-        const desired = this._tmp
-          .clone()
-          .multiplyScalar(2.2)
-          .addScaledVector(toPlayer, dist > 3.8 ? 1.2 : -1.2);
-        this._moveToward(
-          this._tmp.copy(this.pos).add(desired),
-          3.2,
-          dt,
-          arena,
-        );
-        if (this.t > 1.15) {
-          this.state = "pursue";
-          this.t = 0;
-        }
-        break;
-      }
-
-      case "swipe": {
-        const WINDUP = 0.55;
-        const ACTIVE = 0.2;
-        const RECOVER = 1.35;
-        if (this.t < WINDUP) {
-          this._faceTo(toPlayer, dt * 0.6); // slow tracking — dodgeable
-        } else if (this.t < WINDUP + ACTIVE) {
-          if (!this.lungeHit) {
-            this.lungeHit = true;
-            this._faceTo(toPlayer, 1);
-            const angle = Math.abs(this._angleDiff(this.facing, Math.atan2(dx, dz)));
-            if (dist < 2.75 && angle < 1.35) {
-              if (this.onPlayerHit) {
-                this.onPlayerHit(Math.round(14 * DMG_MULT[this.phase - 1]), this.pos, "swipe");
-              }
-            }
-          }
-        } else if (this.t >= RECOVER) {
-          this.state = "pursue";
-          this.t = 0;
-          this.atkCd = ATK_CD[this.phase - 1];
-          this.lungeHit = false;
-        }
-        break;
-      }
-
-      case "lunge": {
-        const TELEGRAPH = this.rushLeft > 0 ? 0.32 : 0.5;
-        const DASH = 0.35;
-        if (this.t < TELEGRAPH) {
-          this._faceTo(
-            this._tmp.subVectors(this.lungeTarget, this.pos).setY(0).normalize(),
-            dt,
-          );
-        } else if (this.t < TELEGRAPH + DASH) {
-          this._dashToward(this.lungeTarget, 15, dt, arena);
-          if (
-            !this.lungeHit &&
-            Math.hypot(playerPos.x - this.pos.x, playerPos.z - this.pos.z) < 1.85
-          ) {
-            this.lungeHit = true;
-            if (this.onPlayerHit) {
-              this.onPlayerHit(Math.round(18 * DMG_MULT[this.phase - 1]), this.pos, "lunge");
-            }
-          }
-        } else if (this.t >= TELEGRAPH + DASH + 0.35) {
-          if (this.rushLeft > 0) {
-            // phase-3 rush: chain the next lunge immediately
-            this.rushLeft--;
-            this._startLunge(playerPos);
-          } else {
-            this.state = "pursue";
-            this.t = 0;
-            this.lungeCd = LUNGE_CD[this.phase - 1];
-            this.lungeHit = false;
-          }
-        }
-        break;
-      }
-
-      case "shockwave": {
-        const WINDUP = 0.7;
-        if (this.t < WINDUP) {
-          this._faceTo(toPlayer, dt * 0.4);
+      case 'APPROACH': {
+        face(9);
+        f.setLean(0);
+        f.setGlow(0, 0);
+        if (this.restFor > 0) {
+          this.restFor -= dt;
+          f.play('idle');
+        } else if (dist > atk.engage) {
+          this.root.position.addScaledVector(dir, p.speed * dt);
+          f.play('run', { speed: 0.9 + p.speed * 0.05 });
         } else {
-          if (this.waveR < 0) {
-            this.waveR = 0.5;
-            this.waveHit = false;
-            this.effects.spawnRing(this.pos, { maxR: 9.5, dur: 1.0, color: 0xff7a2a, opacity: 1 });
-            this.effects.addTrauma(0.35);
-            this.effects.burstSparks(this.pos, 22, 0xff7a2a, 7);
+          this._enter('TELEGRAPH');
+        }
+        break;
+      }
+      case 'TELEGRAPH': {
+        const dur = atk.telegraph * p.pace;
+        if (this.t < dur * 0.75) face(6);
+        f.play('idle', { speed: 1.5 });
+        f.setLean(-0.3);
+        const pulse = 1.1 + Math.sin(this.t * 18) * 0.5;
+        f.setGlow(atk.tell, pulse);
+        if (this.t >= dur) {
+          this.strikeDir.copy(dir);
+          this.hitIndex = 0;
+          this._beginHit(atk);
+        }
+        break;
+      }
+      case 'STRIKE': {
+        const hit = atk.hits[this.hitIndex];
+        this.hitT += dt;
+        f.setLean(0.2);
+        if (this.hitT >= (hit.gap || 0)) {
+          if (!this.hitStarted) {
+            this.hitStarted = true;
+            f.playOnce(atk.clip, { speed: atk.clipSpeed });
           }
-          this.waveR += 10.5 * dt;
-          if (
-            !this.waveHit &&
-            !player.iframes &&
-            Math.abs(dist - this.waveR) < 0.75
-          ) {
-            this.waveHit = true;
-            if (this.onPlayerHit) {
-              this.onPlayerHit(Math.round(12 * DMG_MULT[this.phase - 1]), this.pos, "shockwave");
+          const k = this.hitT - (hit.gap || 0);
+          if (hit.move) this.root.position.addScaledVector(this.strikeDir, hit.move * dt);
+          this._resolve(hit, atk, dist, k);
+          if (k >= hit.dur) {
+            if (this.hitIndex + 1 < atk.hits.length) {
+              this.hitIndex++;
+              this._beginHit(atk);
+            } else {
+              this._enter('RECOVER');
             }
           }
-          if (this.t >= WINDUP + 1.1) {
-            this.state = "pursue";
-            this.t = 0;
-            this.specialCd = 7;
-            this.waveR = -1;
-          }
         }
         break;
       }
-
-      case "ventcall": {
-        if (this.t < 0.6) {
-          this._faceTo(toPlayer, dt);
-        } else if (this.waveR < 0) {
-          this.waveR = 0; // reusing the flag as "already called"
-          const idx = arena.ventNear(playerPos, 99);
-          if (idx >= 0) arena.triggerVent(idx, false);
-          else arena.triggerVent(Math.floor(Math.random() * 4), false);
-        }
-        if (this.t >= 1.2) {
-          this.state = "pursue";
-          this.t = 0;
-          this.specialCd = 6.5;
-          this.waveR = -1;
+      case 'RECOVER': {
+        f.play('idle');
+        f.setLean(0.1);
+        f.setGlow(0, 0);
+        if (this.t >= atk.recover * p.pace) {
+          this._pickAttack();
+          this.restFor = p.rest[0] + Math.random() * (p.rest[1] - p.rest[0]);
+          this._enter('APPROACH');
         }
         break;
       }
-
-      case "stagger": {
-        if (this.t >= this.staggerDur) {
-          this.state = "pursue";
-          this.t = 0;
-          this.vulnerable = false;
-          this.atkCd = 0.4;
+      case 'STAGGER': {
+        f.play('idle', { speed: 0.5 });
+        if (this.t >= STAGGER_TIME) {
+          f.setGlow(0, 0);
+          this.restFor = 0.3;
+          this._enter('APPROACH');
+        }
+        break;
+      }
+      case 'TRANSITION': {
+        f.play('idle');
+        f.setLean(-0.2);
+        f.setGlow(0xff9a55, 0.8 + Math.sin(this.t * 14) * 0.3);
+        if (this.t >= TRANSITION_TIME) {
+          f.setGlow(0, 0);
+          this.restFor = 0.4;
+          this._enter('APPROACH');
         }
         break;
       }
     }
 
-    // hazards apply to him too — the pool is everybody's problem
-    arena.hazards(this.pos, dt, 0.85);
-
-    this.rig.group.rotation.y = this.facing;
-    this.rig.update(dt);
-    this._publish(state);
-  }
-
-  _publish(state) {
-    state.bossHealth = this.hp;
-    state.handlerState = this.state.toUpperCase();
-    state.phase = this.phase;
-  }
-
-  /* ---------------- attack starters ---------------- */
-
-  _startSwipe() {
-    this.state = "swipe";
-    this.t = 0;
-    this.lungeHit = false;
-    this.rig.play("swipe");
-    this.effects.spawnRing(this.pos, { maxR: 2.8, dur: 0.55, color: 0xff3020 });
-    this.effects.addTrauma(0.05);
-  }
-
-  _startLunge(playerPos) {
-    this.state = "lunge";
-    this.t = 0;
-    this.lungeHit = false;
-    this.rushLeft = this.phase === 3 && this.rushLeft === 0 ? 2 : this.rushLeft;
-    this.lungeTarget.copy(playerPos);
-    this.rig.play("lunge");
-    this.effects.spawnRing(playerPos, { maxR: 2.2, dur: 0.5, color: 0xffa030 });
-  }
-
-  _startShockwave() {
-    this.state = "shockwave";
-    this.t = 0;
-    this.waveR = -1;
-    this.rig.play("shockwave");
-    this.effects.spawnRing(this.pos, { maxR: 3.5, dur: 0.7, color: 0xff3020 });
-  }
-
-  _startVentCall() {
-    this.state = "ventcall";
-    this.t = 0;
-    this.waveR = -1;
-    this.rig.play("roar");
-  }
-
-  /* ---------------- movement helpers ---------------- */
-
-  _faceTo(dir, dt) {
-    const target = Math.atan2(dir.x, dir.z);
-    this.facing = this._lerpAngle(this.facing, target, Math.min(1, dt * 6));
-  }
-
-  _moveToward(target, speed, dt, arena) {
-    this._dir.subVectors(target, this.pos).setY(0);
-    const len = this._dir.length();
-    if (len < 0.05) return;
-    this._dir.divideScalar(len);
-    // pool avoidance — steer tangentially around the lava
-    const ax = this.pos.x - ARENA_CENTER.x;
-    const az = this.pos.z - ARENA_CENTER.z;
-    const distToPool = Math.hypot(ax, az);
-    if (distToPool < 8.2) {
-      const outward = this._tmp.set(ax, 0, az).normalize();
-      const blend = THREE.MathUtils.clamp((8.2 - distToPool) / 2.2, 0, 1);
-      this._dir.lerp(outward, blend * 0.85).normalize();
+    const r = Math.hypot(this.root.position.x, this.root.position.z);
+    if (r > this.arenaLimit) {
+      const k = this.arenaLimit / r;
+      this.root.position.x *= k;
+      this.root.position.z *= k;
     }
-    this.pos.addScaledVector(this._dir, Math.min(speed, len / dt) * dt);
-    arena.clampToWorld(this.pos, 0.85);
+    this.root.rotation.y = this.heading;
+    f.update(dt);
+    return { dist, state: this.state, phase: p.name };
   }
 
-  _dashToward(target, speed, dt, arena) {
-    this._dir.subVectors(target, this.pos).setY(0);
-    const len = this._dir.length();
-    if (len < 0.1) return;
-    this._dir.divideScalar(len);
-    this.pos.addScaledVector(this._dir, speed * dt);
-    arena.clampToWorld(this.pos, 0.85);
-    this.facing = Math.atan2(this._dir.x, this._dir.z);
+  _beginHit(atk) {
+    this._enter('STRIKE');
+    this.hitT = 0;
+    this.hitResolved = false;
+    this.hitStarted = false;
   }
 
-  _updateDeath(dt) {
-    this.deathT += dt;
-    const p = Math.min(1, this.deathT / 2.6);
-    for (const d of this.bodyDissolve) d.set(p * 0.98);
-    if (this.rig.parts.helmet && this.helmetT < 1) this.helmetT = 1;
-    if (this.deathT >= 2.8) {
-      this.rig.group.visible = false;
-      if (this.onDeath) {
-        const cb = this.onDeath;
-        this.onDeath = null;
-        cb();
-      }
+  _resolve(hit, atk, dist, k) {
+    if (this.hitResolved) return;
+    const inRange = hit.radius ? k > 0.1 && dist <= hit.radius : dist <= hit.reach;
+    if (!inRange) return;
+    this.hitResolved = true;
+    if (!this.onStrike) return;
+    const outcome = this.onStrike({
+      type: this.attackName,
+      damage: hit.damage,
+      blockMul: atk.blockMul ?? 0.25,
+    });
+    if (outcome === 'parried') this.stagger();
+  }
+
+  _updateHelmet(dt) {
+    const h = this.flying;
+    if (!h) return;
+    h.life -= dt;
+    h.vel.y -= 16 * dt;
+    h.mesh.position.addScaledVector(h.vel, dt);
+    h.mesh.rotation.x += h.spin.x * dt;
+    h.mesh.rotation.y += h.spin.y * dt;
+    h.mesh.rotation.z += h.spin.z * dt;
+    if (h.mesh.position.y < 0.2 && h.vel.y < 0) {
+      h.mesh.position.y = 0.2;
+      h.vel.y *= -0.35;
+      h.vel.x *= 0.6;
+      h.vel.z *= 0.6;
+      h.spin.multiplyScalar(0.5);
     }
-  }
-
-  /** Phase-2 helmet dissolve animation, driven from update by the level. */
-  updateHelmet(dt) {
-    if (this.helmetT < 0 || this.helmetT >= 1) return;
-    this.helmetT = Math.min(1, this.helmetT + dt / 1.8);
-    for (const d of this.helmetDissolve) d.set(this.helmetT * 0.99);
-    if (this.helmetT >= 1 && this.rig.parts.helmet) {
-      this.rig.parts.helmet.visible = false;
+    if (h.life <= 0) {
+      h.mesh.visible = false;
+      this.flying = null;
     }
-  }
-
-  _angleDiff(a, b) {
-    let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
-    if (d < -Math.PI) d += Math.PI * 2;
-    return d;
-  }
-
-  _lerpAngle(a, b, t) {
-    return a + this._angleDiff(a, b) * t;
   }
 }
