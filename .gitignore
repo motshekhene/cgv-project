@@ -23,7 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# raw downloads (zips, full packs). The cleaned, game-ready copies live in assets/jungle/
-_source/downloads/
+# raw source packs (blend files, 4K originals, zips) — keep these on the shared drive, not in git. The cleaned, game-ready copies live in assets/jungle/
+_source/
 # concept render output
 tools/concepts/out/

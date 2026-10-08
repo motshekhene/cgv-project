@@ -22,12 +22,24 @@ The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPL
 ```
 assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
 assets/characters/ kai.fbx, handler.fbx
+public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
-intros/            Level 1 and 2 intro and win scenes, one page each: npm run intros (docs/LEVEL1_2_INTROS_AND_WINS.md)
+intros/            the Level 1 intro on its own page: npm run intro:l1
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
-_source/           raw downloads (texture sets, original packs). Never load from here in game code.
 ```
+
+Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — `_source/` is in `.gitignore`. Keep them on the team's shared drive.
+
+### Playing the game
+
+`npm run dev` plays the whole thing in order:
+
+```
+level01-intro → level01 → level02 → level03
+```
+
+Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. The intro skips with Space / Enter / click. The order is set in `src/main.js`.
 
 ## A few rules (please follow these)
 
@@ -62,13 +74,45 @@ Same rule in `index.html`:
 
 Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitive (Windows/Mac aren't, so this bug hides during development and only appears once hosted).
 
-### 3. Commit and push often to your individual branches as usual
+### 3. Models and textures
+
+- Load them through `AssetRegistry` (`assets.model(...)`, `assets.fbx(...)`, `assets.texture(...)`), not your own loader, so they are cached and freed between levels.
+- Shared models (Kai, the Handler, the jungle kit) live in `assets/characters/` and `assets/jungle/`. Reuse them rather than adding copies.
+- A model only one level needs goes in that level's own folder, e.g. `public/assets/level2/`.
+- Prefer `.glb`, keep textures at 2K or smaller, and note where it came from in a `CREDITS.md` next to it.
+
+### 4. Win and defeat screens
+
+Every level ends on the same card from `src/ui/theme.js`. If your level has no FightHUD or StoryOverlay to show it on, use `showEndCard({ kind: 'win' | 'lose', title, sub, lines, action })` from `src/ui/EndCard.js`.
+
+### 5. Commit and push often to your individual branches as usual
 
 Small changes are fine, don't sit on big, unpushed changes for days.
 
-### 4. When in doubt, ask before pushing to `main`
+### 6. When in doubt, ask before pushing to `main`
 
 If you're not sure whether something will break the project for everyone, check with the group first.
+
+## Documentation
+
+### API documentation
+
+Our related Wits-Quest application (backend + frontend) has generated API documentation, deployed here:
+
+- **API docs:** https://nkadimengkgothatso.github.io/-wits-quest/development/api-reference/ (quick-start version: https://nkadimengkgothatso.github.io/-wits-quest/development/api-quickstart/)
+- **Docs source repo:** https://github.com/NkadimengKgothatso/-wits-quest (source on `main`, built site on `gh-pages`)
+
+The docs cover the backend REST and socket API (`backend/src/`) — battle socket handling, matchmaking lobby, ELO/leaderboard services, authentication, and the offline queue. Every new backend feature ships with API tests (supertest) and every UI feature with React Testing Library tests, so the docs and the test suite stay in step.
+
+### Performance
+
+Performance targets and how to measure them (per-frame, on a mid-range laptop):
+
+- **Frame rate:** the game must hold 60 FPS during normal driving and no less than 30 FPS with the police chase, traffic, and shadow-casting headlights all active. Measure with the browser DevTools Performance tab, or `renderer.info.render.calls` logged per frame.
+- **Draw calls / triangles:** keep the scene under ~300 draw calls. Shared traffic models are cached in the `AssetRegistry` and cloned with `SkeletonUtils.clone`, so all 12 vehicles reuse one set of geometry/materials.
+- **Memory:** nothing is created or destroyed while playing — vehicles, skid marks, and smoke use fixed pools recycled each frame. `Level.teardown()` / `AssetRegistry.dispose()` free GPU resources on level change; check for leaks with DevTools Memory heap snapshots before and after a 5-minute session.
+- **Asset loading:** all models/textures/audio load once through `AssetRegistry` and are cached, so a second lap or a car swap never re-downloads. Verify on the Network tab (first load pulls assets; picking V → DRIVE again should not).
+- **Test coverage as a quality gate:** CI reports coverage for the frontend and backend of our Wits-Quest application and fails below 60% (the rubric's advanced band), rising to 80% for the final submission. Run locally with `npm run test` in each of `frontend/` and `backend/`.
 
 ## Questions?
 
