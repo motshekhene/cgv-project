@@ -27,3 +27,6 @@ dist-ssr
 _source/
 # concept render output
 tools/concepts/out/
+
+# Claude Code local settings
+.claude/
