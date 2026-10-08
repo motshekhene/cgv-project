@@ -817,7 +817,10 @@ export class Level03 extends Level {
         }
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
-        kp.y = this.arena.groundHeight(kp.x, kp.z);
+        // the pool bed, until he reaches the path's last slab, which stands up to a third of a metre proud of it:
+        // ease him up onto it (a step out of the water) instead of walking him through it or popping him up
+        const y = Math.max(this.arena.groundHeight(kp.x, kp.z), this.arena.pavingY(kp.x, kp.z));
+        kp.y = y > kp.y ? kp.y + (y - kp.y) * (1 - Math.exp(-14 * dt)) : y;
       } else {
         // out on the path: stop, stand easy (not in his fighting stance), and get the water off:
         // shake the head, wipe the face and hair back, shake the hands out
