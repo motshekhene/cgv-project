@@ -34,13 +34,18 @@ import { StyleMeter } from './level3/StyleMeter.js';
  *             behind him, and they trade a few lines, typed out on screen,
  *             before it starts. Skippable; skipped on restarts. He stays soaked
  *             into the fight and dries over ~40 s (level3/Wetness.js).
- *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
- *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
- *             sky to dusk, lights the torches and runs the pool red. The fight
- *             isn't penned in: Kai can break for the jungle ring, where three
- *             shrines each give one gift (Awards.js), with the Handler after him.
- *   EPILOGUE  the camera circles the fallen Handler, then a plain VICTORY card
- *             ("You won") with PLAY AGAIN. No story text after the win.
+ *   FIGHT     a VS splash, then three health-gated phases. Phase II pops the
+ *             helmet (REVEAL: a slow-mo reaction shot over Kai's shoulder);
+ *             phase III turns the sky to dusk, lights the torches, runs the
+ *             pool red and brings a storm in (level3/Storm.js). A perfect
+ *             dodge bends time (FOCUS_*, drawn by level3/KeyVision.js). The
+ *             fight isn't penned in: Kai can break for the jungle ring, where
+ *             three shrines each give one gift (Awards.js), with the Handler
+ *             after him. Each loss makes the next attempt's Handler weaker.
+ *   FINAL     the killing blow in slow motion, the camera arcing round them.
+ *   EPILOGUE  the storm passes and fireflies come out while the camera circles
+ *             the fallen Handler, then a plain VICTORY card ("You won") with
+ *             PLAY AGAIN. No story text after the win.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
