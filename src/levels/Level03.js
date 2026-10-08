@@ -9,6 +9,8 @@ import { WaterFX, Wetness } from './level3/Wetness.js';
 import { Wreck } from './level3/Wreck.js';
 import { Storm } from './level3/Storm.js';
 import { KeyVision } from './level3/KeyVision.js';
+import { StrikeTrail, Shockwaves } from './level3/Trails.js';
+import { Fireflies } from './level3/Fireflies.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -149,6 +151,7 @@ const TELLS = {
   lunge: { name: 'LUNGE', advice: 'dodge sideways or block', color: '#ff9a4a' },
   sweep: { name: 'SWEEP', advice: 'dodge out \u2014 a block only halves it', color: '#ff5a6a' },
   combo: { name: 'COMBO', advice: 'two hits: block or parry both', color: '#c78bff' },
+  spin: { name: 'SPIN KICK', advice: 'two kicks all round him: back off, or dodge both', color: '#3fe0b4' },
 };
 const CREDITS =
   'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
@@ -211,6 +214,10 @@ export class Level03 extends Level {
     this.storm = new Storm(this.root, this.arena, this.water); // phase III's rain and lightning
     this.storm.onBolt = () => this._addShake(0.12);
     this.vision = new KeyVision(); // the look of bent time (a perfect dodge, the Key)
+    this.trail = new StrikeTrail(this.root); // the swoosh behind Kai's kicks and heavy punches
+    this.waves = new Shockwaves(this.root); // rings across the ground from heavy blows and parries
+    this.flies = new Fireflies(this.root, this.arena); // out once the storm has passed
+    this._fliesAmt = 0;
     if (this.handlerMeta?.clips.jump) {
       const bf = this.boss.fighter;
       const feet = bf.footTrack('jump');
@@ -365,6 +372,7 @@ export class Level03 extends Level {
         this._addShake(0.4);
         hud().popup('PARRY!', '#ffe066');
         this.style.add('parry');
+        this.waves.spawn(c.root.position.x, c.root.position.y, c.root.position.z, { size: 2.2, life: 0.35, color: 0xffe066 });
         return 'parried';
       }
       if (c.blocking) {
@@ -413,6 +421,7 @@ export class Level03 extends Level {
       this._endTimer = 2.6;
       this._endKind = 'win';
       this._startFinal();
+      this.storm.clear();
     };
   }
 
@@ -451,6 +460,31 @@ export class Level03 extends Level {
     const a = Math.atan2(v.x, -v.z); // 0 = dead ahead, +pi/2 = to the right, pi = behind
     const halfFov = Math.atan(Math.tan((cam.fov * Math.PI) / 360) * cam.aspect) * 0.92;
     this.hud.setPointer(Math.abs(a) < halfFov ? null : a);
+  }
+
+  /**
+   * The swoosh: while a kick or a heavy finisher is in its swing, the limb it
+   * lands with (by the build's measurements) sweeps a ribbon. Warm white;
+   * ember with the Power gift, cyan in bent time.
+   */
+  _updateTrail(dt, focus) {
+    const c = this.combat;
+    const a = c.attackDef;
+    const swing = a && this.mode === 'FIGHT' && (a.type === 'kick' || a.finisher)
+      && c.attackT >= a.windup - 0.12 && c.attackT <= a.windup + a.active + 0.06;
+    let bones = null;
+    if (swing) {
+      const limb = this.kaiMeta?.clips[a.clip]?.limb || (a.type === 'kick' ? 'RightFoot' : 'RightHand');
+      bones = (this._trailBones ||= {})[limb];
+      if (bones === undefined) {
+        const side = limb.startsWith('Left') ? 'Left' : 'Right';
+        const b = (n) => c.fighter.bones['mixamorig' + side + n];
+        const pair = limb.endsWith('Foot') ? [b('Leg'), b('ToeBase')] : [b('ForeArm'), b('HandMiddle1')];
+        bones = this._trailBones[limb] = pair[0] && pair[1] ? pair : null;
+      }
+      this.trail.setColor(focus ? 0x8ff0ff : this.power ? 0xffa040 : 0xffd88a);
+    }
+    this.trail.update(dt, bones);
   }
 
   /** A damage number off the Handler's head, wherever that is on screen. */
@@ -514,6 +548,11 @@ export class Level03 extends Level {
     this.kaiWet.update(dt, { still: idle, rain });
     if (this.boss.root.visible) this.bossWet.update(dt, { rain });
     this.wreck.update(dt, this.time, this.water);
+    this.waves.update(dt);
+    // the storm has passed: fireflies come out round the fallen Handler
+    const flies = this.mode === 'EPILOGUE' || this.mode === 'END' ? 1 : 0;
+    this._fliesAmt += (flies - this._fliesAmt) * (1 - Math.exp(-0.5 * real));
+    this.flies.update(this.time, this._fliesAmt);
     this.water.update(dt);
 
     // bent time (a perfect dodge, the Key's slow-mo) shows: KeyVision fades in and out
@@ -571,7 +610,9 @@ export class Level03 extends Level {
     if (this._focusT > 0) this._focusT -= real;
     const focus = this._focusT > 0 && this.mode === 'FIGHT';
     const stopped = performance.now() < this._hitStopUntil;
-    this.combat.update(focus && !stopped ? real * FOCUS_KAI : dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    const kaiDt = focus && !stopped ? real * FOCUS_KAI : dt;
+    this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    this._updateTrail(kaiDt, focus);
     this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
     // Kai's swing
@@ -592,6 +633,11 @@ export class Level03 extends Level {
           }
           this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
+          if (fin) {
+            this.waves.spawn(bp.x, bp.y, bp.z, {
+              size: this.power ? 4.2 : 3.2, color: focus ? 0x8ff0ff : this.power ? 0xffb347 : 0xffe2b0,
+            });
+          }
           const crit = this.boss.vulnerable;
           if (crit) this.hud.popup('CRITICAL', '#ffd23a');
           this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '');
@@ -876,6 +922,7 @@ export class Level03 extends Level {
         if (!lp) bf.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
         this._addShake(0.75);
         this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
+        this.waves.spawn(BOSS_LAND.x, L.landY, BOSS_LAND.z, { size: 5.5, life: 0.6, color: 0xffe2b0 });
         this.story.showCard('THE HANDLER', 'He never slows down.');
       }
       // Kai hears him land and turns round
@@ -1107,6 +1154,7 @@ export class Level03 extends Level {
 
   _startEpilogue() {
     this._enterBeat('EPILOGUE');
+    this.flies.centre(this.boss.root.position.x, this.boss.root.position.z);
     this.story.setCinematic(true, true);
     this.story.hideLetter();
     this.hud.setVisible(false);

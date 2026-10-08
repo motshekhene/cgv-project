@@ -7,7 +7,7 @@ import { Fighter } from './Fighter.js';
  * Phases are health-gated and each fights differently:
  *   PURSUIT      lunge only
  *   STAND        lunge + sweep (helmet comes off on entry)
- *   DESPERATION  sweep + 2-hit combo + lunge, faster
+ *   DESPERATION  sweep + 2-hit combo + lunge + spin kick (two kicks all round him), faster
  * Every attack telegraphs with its own colour: orange = lunge (dodge or block),
  * red = sweep (dodge — block only half-works), purple = combo (two hits). On
  * the monk it's only his mask's eye slits, burning up to the colour as he
@@ -30,7 +30,7 @@ import { Fighter } from './Fighter.js';
 const PHASES = [
   { name: 'PURSUIT', speed: 4.4, attacks: ['lunge'], pace: 1.0, rest: [0.3, 0.7] },
   { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.2, 0.5] },
-  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge'], pace: 0.64, rest: [0.1, 0.3] },
+  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge', 'spin'], pace: 0.64, rest: [0.1, 0.3] },
 ];
 
 const ATTACKS = {
@@ -41,6 +41,14 @@ const ATTACKS = {
   sweep: {
     tell: 0xff1133, telegraph: 0.9, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
     hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 22 }],
+  },
+  // the capoeira cartwheel kick: two kicks that catch anything round him as he comes on
+  spin: {
+    tell: 0x2fe0b0, telegraph: 0.8, recover: 1.0, engage: 3.0, clip: 'swordslash', clipSpeed: 2.4, blockMul: 0.5,
+    hits: [
+      { dur: 0.28, move: 5, radius: 2.6, damage: 12 },
+      { gap: 0.3, dur: 0.28, move: 5, radius: 2.6, damage: 14 },
+    ],
   },
   combo: {
     tell: 0xb04dff, telegraph: 0.62, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
@@ -186,11 +194,17 @@ function clipAttacks(meta) {
   const sweep = c.sweep ? ['sweep', c.sweep.hits?.find((h) => h.t > 1.2)?.t ?? c.sweep.hit] : ['capoeira', c.capoeira?.hit];
   const [p1, p2] = (c.combo?.hits || []).filter((h, i, all) => i === 0 || h.limb !== all[i - 1].limb);
   const gap = ATTACKS.combo.hits[0].dur + ATTACKS.combo.hits[1].gap; // strike time between the combo's two hits
+  // the spin: its first two kicks (by the clip) on the attack's two hits (each lands 0.1 s into its window)
+  const k1 = c.capoeira?.hits?.find((h) => h.t > 0.8);
+  const k2 = k1 && c.capoeira.hits.find((h) => h.t > k1.t + 0.5);
+  const spinGap = ATTACKS.spin.hits[0].dur + ATTACKS.spin.hits[1].gap;
   return {
     lunge: c.lunge && at('lunge', c.lunge.hit, 0.3, 1.2, closing('lunge')),
     sweep: sweep[1] !== undefined && at(sweep[0], sweep[1], 0.5, 1.4, closing('sweep')),
     // the second punch lands on its window, which opens on time whatever the first one's closing took: split it
     combo: p1 && p2 && at('combo', p1.t, 0.3, (p2.t - p1.t) / gap, closing('combo') / 2),
+    // with no Hurricane Kick the capoeira clip is the sweep, so the spin falls back to the hand-posed one
+    spin: c.sweep && k1 && k2 && at('capoeira', k1.t, 0.55, (k2.t - k1.t) / spinGap, 0.1),
   };
 }
 

@@ -12,7 +12,8 @@ import { POOL } from './ShrineArena.js';
  * kick the camera.
  *
  * The rain falls in game time, so the Key's slow-mo (and a perfect dodge)
- * hangs it in the air; the lightning keeps real time.
+ * hangs it in the air; the lightning keeps real time. clear() blows it over
+ * (the level calls it once the Handler is down).
  *
  *   const storm = new Storm(root, arena, waterFX);
  *   storm.update(gameDt, realDt, camera, kaiPosition);   // after arena.update()
@@ -36,6 +37,8 @@ export class Storm {
     this.boltAge = 99;
     this.double = false;
     this.onBolt = null;
+    this.easing = 1; // 1, falling to 0 once clear() is called: the storm passing
+    this.clearing = false;
 
     this.bolt = new THREE.Group();
     this.bolt.visible = false;
@@ -49,7 +52,8 @@ export class Storm {
 
   update(dt, real, camera, focus) {
     this.time += dt;
-    this.level = this.arena.dusk;
+    if (this.clearing) this.easing = Math.max(0, this.easing - real / 5); // ~5 s to blow over
+    this.level = this.arena.dusk * this.easing;
     const k = this.level;
     const on = k > 0.02;
     this.rain.lines.visible = on;
@@ -63,7 +67,7 @@ export class Storm {
 
     // lightning keeps real time: it shouldn't crawl when the fight slows down
     this.nextBolt -= real;
-    if (this.nextBolt <= 0 && k > 0.6) {
+    if (this.nextBolt <= 0 && k > 0.6 && !this.clearing) {
       this.nextBolt = 3.5 + Math.random() * 5;
       this._strike(camera);
     }
@@ -76,6 +80,11 @@ export class Storm {
     this.bolt.visible = a < 0.45 || (this.double && a > 0.2 && a < 0.5);
     this.boltMat.opacity = Math.min(1, f * 1.6);
     this.glowMat.opacity = Math.min(0.45, f * 0.6);
+  }
+
+  /** The storm passes: the rain eases off over a few seconds and the lightning stops. */
+  clear() {
+    this.clearing = true;
   }
 
   /** A fresh forked bolt somewhere in front of the camera, facing it. */
