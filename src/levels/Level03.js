@@ -30,7 +30,8 @@ import { loadRig } from '../player/rig.js';
  *
  * Beats (docs/JUNGLE_SHRINE_IMPLEMENTATION.md, section 6):
  *   INTRO     Kai wakes in the pool among his car's wreckage (level3/Wreck.js),
- *             wades out and gets the water off (level3/DustOff.js), runs
+ *             wades out, steps up onto the path (level3/FootPlant.js) and
+ *             gets the water off (level3/DustOff.js), runs
  *             through the gate dripping; the Handler jumps down off the arch
  *             behind him, and they trade a few lines, typed out on screen,
  *             before it starts. Skippable; skipped on restarts. He stays soaked
@@ -814,18 +815,22 @@ export class Level03 extends Level {
           const pace = (clip) => 1.35 / (this.kaiMeta?.clips[clip]?.speed || 1.35);
           if (kf.actions.walk) kf.play('walk', { fade: 0.25, speed: pace('walk') });
           else kf.play('walkback', { fade: 0.25, speed: -pace('walkback') });
+          // the path's last slab stands ~0.4 m proud of the pool bed: he steps up onto it, a foot at a time
+          kf.feet?.start((x, z) => Math.max(this.arena.groundHeight(x, z), this.arena.pavingY(x, z)));
         }
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
-        // the pool bed, until he reaches the path's last slab, which stands up to a third of a metre proud of it:
-        // ease him up onto it (a step out of the water) instead of walking him through it or popping him up
-        const y = Math.max(this.arena.groundHeight(kp.x, kp.z), this.arena.pavingY(kp.x, kp.z));
-        kp.y = y > kp.y ? kp.y + (y - kp.y) * (1 - Math.exp(-14 * dt)) : y;
+        if (!kf.feet) {
+          // the old Kai has no legs to place: the pool bed, then eased up onto the slab
+          const y = Math.max(this.arena.groundHeight(kp.x, kp.z), this.arena.pavingY(kp.x, kp.z));
+          kp.y = y > kp.y ? kp.y + (y - kp.y) * (1 - Math.exp(-14 * dt)) : y;
+        }
       } else {
         // out on the path: stop, stand easy (not in his fighting stance), and get the water off:
         // shake the head, wipe the face and hair back, shake the hands out
         if (this._pose !== 'shake') {
           this._pose = 'shake';
+          kf.feet?.stop();
           if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, 0.35);
           else kf.play('idle', { fade: 0.3 });
         }
@@ -1040,6 +1045,7 @@ export class Level03 extends Level {
 
     const k = this.combat;
     const b = this.boss;
+    k.fighter.feet?.stop(true); // a skipped intro can catch him stepping out of the pool
     k.root.position.copy(KAI_START);
     k.fighter.setGuard(false);
     b.root.visible = true;
