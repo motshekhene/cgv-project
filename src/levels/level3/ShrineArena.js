@@ -27,6 +27,7 @@ import { createLightShaft } from '../../shaders/lightshaft.js';
  * groups are merged (props.js) and the jungle is instanced.
  */
 const TILE = 199 * RU;
+const PAVE_TOP = 0.053; // floor-standard.fbx at RU: its walking surface sits this far above its origin
 export const GATE = new THREE.Vector3(-3, 0, -17);
 export const POOL = { x: -7, z: -28, r: 11, y: -0.18 };
 const FALL = { x: -7, z: -33.5, w: 7, h: 19 };
@@ -127,6 +128,7 @@ export class ShrineArena {
     this._c = new THREE.Color();
     this.bursts = [];
     this.obstacles = []; // { x, z, r } circles: trunks, columns, statues, cliff rocks, altars
+    this.paving = []; // { x, y, z } the path slabs out to the pool: they stand proud of the basin, so feet go on top of them
     this.plants = []; // solid trees and bushes: obstacles that also know their instance (occ, i), so a bump can rock it
     this.occluders = []; // instanced trees/bushes that shrink out of the camera's way
     this.swaying = new Set(); // plants still rocking from a bump
@@ -243,7 +245,10 @@ export class ShrineArena {
     this.obstacles.push({ x: -8.6, z: -14.2, r: 1.5 }, { x: 3.2, z: -14.4, r: 1.5 });
     this.templates = { pedestal: colShort };
     // paved path from the courtyard edge, under the arch, to the pool's rim
-    if (floor) scatter(this.root, floor, [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z, s: RU, ry: i * Math.PI / 2 })));
+    if (floor) {
+      this.paving = [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z }));
+      scatter(this.root, floor, this.paving.map((p, i) => ({ ...p, s: RU, ry: i * Math.PI / 2 })));
+    }
     for (const [src, x, z, s, ry] of [[pot, 8.9, -9.9, RU, 0], [potB, 9.9, -9.0, RU, 1], [pot, -12.6, 2.2, RU * 1.2, 0]]) {
       add(src, x, 0, z, { s, ry });
       const fp = src && footprintOf(src, { below: 1.8 / s }); // the urns are round: their base is their footprint
@@ -796,10 +801,18 @@ export class ShrineArena {
     return this.waterDepth(x, z) > 0 ? POOL.y : this.fighterY(x, z);
   }
 
-  /** Height a fighter stands at: the tiles in the courtyard, the real ground (hills, pool bed) outside. */
+  /** Top of the path slab under (x, z), or -Infinity off the path. The last slab overhangs the pool's sloping rim. */
+  pavingY(x, z) {
+    for (const p of this.paving) {
+      if (Math.abs(x - p.x) < TILE / 2 && Math.abs(z - p.z) < TILE / 2) return p.y + PAVE_TOP;
+    }
+    return -Infinity;
+  }
+
+  /** Height a fighter stands at: the tiles in the courtyard, the path slabs, the real ground (hills, pool bed) outside. */
   fighterY(x, z) {
     const k = smooth(12.4, 13.6, Math.hypot(x, z));
-    return k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0;
+    return Math.max(k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0, this.pavingY(x, z));
   }
 
   /**
