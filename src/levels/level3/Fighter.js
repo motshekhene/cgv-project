@@ -260,6 +260,22 @@ export class Fighter {
   }
 
   /**
+   * Make `name` a held pose: clip `from` as it is `at` seconds in, frozen (a
+   * still clip, so it plays like any other). For a move the rig has no clip
+   * for, built from one it has. False if there's no `from`.
+   */
+  pose(name, from, at) {
+    const clip = this.actions[from]?.getClip();
+    if (!clip) return false;
+    const tracks = clip.tracks.map((t) => {
+      const v = Array.from(t.createInterpolant().evaluate(at));
+      return new t.constructor(t.name, [0, 1], [...v, ...v]);
+    });
+    this.actions[name] = this.mixer.clipAction(new THREE.AnimationClip(`${name}-pose`, 1, tracks));
+    return true;
+  }
+
+  /**
    * How high the lower foot sits above `root` through a clip, every 1/fps s:
    * where a move stands, leaves the ground and lands. Plays the clip on its own
    * to measure it, so call it before the fight starts; leaves idle playing.

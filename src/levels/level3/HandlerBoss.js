@@ -208,6 +208,47 @@ function clipAttacks(meta) {
   };
 }
 
+/**
+ * The shrine mask the Mixamo Handler wears (here, and in the cutscenes before
+ * Site 7): a carved stone face like the gate's guardians, red ochre stripes
+ * like the paint on his face beneath, bound on with a leather band. Its eye
+ * slits smoulder (the material's emissive: HandlerBoss burns them with each
+ * attack's tell colour). Returns { mask, material }, or null with no head bone.
+ */
+export function attachMask(fighter) {
+  const head = fighter.bone('Head');
+  if (!head) return null;
+  const mask = new THREE.Group();
+  const { map, glow } = maskTextures();
+  const material = new THREE.MeshStandardMaterial({
+    map, emissiveMap: glow, emissive: new THREE.Color(0xff5a1a), emissiveIntensity: 0.5,
+    roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
+  });
+  // a slice of a sphere round the front of the head: brow to chin, cheek to cheek
+  const plate = new THREE.Mesh(
+    new THREE.SphereGeometry(0.125, 32, 20, Math.PI / 2 - 0.36 * Math.PI, 0.72 * Math.PI, 0.17 * Math.PI, 0.66 * Math.PI),
+    material,
+  );
+  plate.scale.set(1, 1.18, 1.12);
+  plate.castShadow = true;
+  mask.add(plate);
+  const band = new THREE.Mesh(
+    new THREE.TorusGeometry(0.118, 0.009, 6, 40),
+    new THREE.MeshStandardMaterial({ color: 0x3a2716, roughness: 0.8 }),
+  );
+  band.rotation.x = Math.PI / 2;
+  band.position.y = 0.085; // round the brow, above the eye slits
+  band.scale.set(1.04, 1.12, 1);
+  mask.add(band);
+
+  fighter.root.updateMatrixWorld(true);
+  const s = head.getWorldScale(new THREE.Vector3()).x;
+  mask.scale.setScalar(1 / s);
+  mask.position.set(0, 0.1 / s, 0.015 / s); // from the top of the neck up to the middle of the head
+  head.add(mask);
+  return { mask, material };
+}
+
 export class HandlerBoss {
   /** meta: tools/build-character.py's measurements when `source` is the Mixamo Handler, else null. */
   constructor(parent, target, source, meta = null) {
@@ -269,9 +310,10 @@ export class HandlerBoss {
   }
 
   _attachHelmet() {
-    const skull = this.fighter.rig === 'mixamo' && this.fighter.bone('Head');
-    if (skull) {
-      this._attachMask(skull);
+    const worn = this.fighter.rig === 'mixamo' && attachMask(this.fighter);
+    if (worn) {
+      this.helmet = worn.mask; // phase II knocks it off exactly as it did the old helmet
+      this.maskMat = worn.material; // its eye slits carry the tells (_glowMask)
       return;
     }
     const helmet = new THREE.Mesh(
@@ -295,44 +337,6 @@ export class HandlerBoss {
     }
   }
 
-  /**
-   * The shrine mask (the Mixamo Handler): a carved stone face like the gate's
-   * guardians, red ochre stripes like the paint on his face beneath, bound on
-   * with a leather band. Its eye slits smoulder, and burn with each attack's
-   * tell colour as he winds up (_glowMask). It's this.helmet, so phase II
-   * knocks it off exactly as it did the old helmet.
-   */
-  _attachMask(head) {
-    const mask = new THREE.Group();
-    const { map, glow } = maskTextures();
-    this.maskMat = new THREE.MeshStandardMaterial({
-      map, emissiveMap: glow, emissive: new THREE.Color(0xff5a1a), emissiveIntensity: 0.5,
-      roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
-    });
-    // a slice of a sphere round the front of the head: brow to chin, cheek to cheek
-    const plate = new THREE.Mesh(
-      new THREE.SphereGeometry(0.125, 32, 20, Math.PI / 2 - 0.36 * Math.PI, 0.72 * Math.PI, 0.17 * Math.PI, 0.66 * Math.PI),
-      this.maskMat,
-    );
-    plate.scale.set(1, 1.18, 1.12);
-    plate.castShadow = true;
-    mask.add(plate);
-    const band = new THREE.Mesh(
-      new THREE.TorusGeometry(0.118, 0.009, 6, 40),
-      new THREE.MeshStandardMaterial({ color: 0x3a2716, roughness: 0.8 }),
-    );
-    band.rotation.x = Math.PI / 2;
-    band.position.y = 0.085; // round the brow, above the eye slits
-    band.scale.set(1.04, 1.12, 1);
-    mask.add(band);
-
-    this.fighter.root.updateMatrixWorld(true);
-    const s = head.getWorldScale(new THREE.Vector3()).x;
-    mask.scale.setScalar(1 / s);
-    mask.position.set(0, 0.1 / s, 0.015 / s); // from the top of the neck up to the middle of the head
-    head.add(mask);
-    this.helmet = mask;
-  }
 
   /** The mask's eye slits: an ember while he watches, the attack's tell colour as he winds up. */
   _glowMask(hex, intensity) {

@@ -1,21 +1,26 @@
 import * as THREE from 'three';
 import { Fighter } from '../levels/level3/Fighter.js';
+import { attachMask } from '../levels/level3/HandlerBoss.js';
+import { loadRig } from '../player/rig.js';
 import { mergeGroups } from '../levels/jungle/props.js';
 import { createLightShaft } from '../shaders/lightshaft.js';
 import { dotTexture } from './fx.js';
 
 /**
- * Kai and the Handler for the cutscenes: the same Fighter rig and colours
- * Level 3 uses (CombatController / HandlerBoss), plus the props each one
- * carries before Site 7: the Key in Kai's hand, the Handler's helmet (it only
- * comes off in Level 3) and, in Level 1, his torch.
+ * Kai and the Handler for the cutscenes: the same characters Level 3 uses
+ * (the Mixamo builds, see player/rig.js; the old Quaternius FBXs if they're
+ * missing), on the same Fighter rig, plus the props each one carries before
+ * Site 7: the Key in Kai's hand, the Handler's face covering (the monk's
+ * carved stone mask, the old Handler's helmet: it only comes off in Level 3)
+ * and, in Level 1, his torch.
  *
- * Clips on both rigs: idle, walk, run, jump, runningjump, punch, sitting,
- * standing, death, clapping.
+ * Clips both builds have: idle, run, death. Kai also has walk; the old
+ * Quaternius rigs have walk, jump, punch, sitting, standing... as well.
  */
 export const KAI_LOOK = { Skin: 0x9a6538, Hair: 0x1c1512, Shirt: 0x2f8fb5, Pants: 0x8a7658, Socks: 0xe6dfd6, Shoes: 0x2a2320 };
 export const HANDLER_LOOK = { Skin: 0x7a5233, Hair: 0xb4b4bc, Shirt: 0x3a3d4d, Pants: 0x2f3240, Details: 0xefe9e0, TieTexture: 0xb02323, Shoes: 0x1a1a1e };
 export const KEY_CYAN = 0x2fd8ff;
+const LEAP_AT = 0.05; // s into the Mixamo run: both legs flung wide, mid-stride
 
 export async function loadCast(assets) {
   const safe = (p) =>
@@ -23,7 +28,10 @@ export async function loadCast(assets) {
       console.warn('[intros] character missing, using a capsule:', e?.message || e);
       return null;
     });
-  const [kai, handler] = await Promise.all([safe(assets.fbx('characters/kai.fbx')), safe(assets.fbx('characters/handler.fbx'))]);
+  const [kai, handler] = await Promise.all([
+    safe(loadRig(assets, 'kai-bryce', 'kai.fbx')),
+    safe(loadRig(assets, 'handler-monk', 'handler.fbx')),
+  ]);
   return { kai, handler };
 }
 
@@ -42,25 +50,34 @@ function mergeRig(src) {
   return src;
 }
 
-export function makeKai(parent, src) {
-  const f = new Fighter(parent, { source: mergeRig(src), capsuleColor: 0xdfe8ee, palette: KAI_LOOK });
+/** Fighter options for a loadRig() result (or a bare FBX scene, as older callers pass). */
+function rigOptions(rig) {
+  const { source, meta } = rig && rig.source !== undefined ? rig : { source: rig, meta: null };
+  // the Mixamo builds are in metres and already lean on draw calls; the FBXs need their groups merged
+  return meta ? { source, modelHeight: meta.height } : { source: mergeRig(source) };
+}
+
+export function makeKai(parent, rig) {
+  const f = new Fighter(parent, { ...rigOptions(rig), capsuleColor: 0xdfe8ee, palette: KAI_LOOK });
   f.key = attachKey(f);
+  // the Mixamo Kai was built for the fight. Out here he stands easy (the end of his 'relax' clip)
+  // instead of in his fighting stance, and, with no jump of his own, leaps in a held stride from
+  // his run (Level 1 plays 'jump' while he's in the air)
+  if (f.actions.relax && f.pose('idle', 'relax', f.clipDuration('relax'))) f.play('idle', { fade: 0 });
+  if (!f.actions.jump && !f.actions.runningjump) f.pose('jump', 'run', LEAP_AT);
   return f;
 }
 
-export function makeHandler(parent, src, { helmet = true } = {}) {
-  const f = new Fighter(parent, { source: mergeRig(src), capsuleColor: 0xff5533, palette: HANDLER_LOOK });
+export function makeHandler(parent, rig, { helmet = true } = {}) {
+  const f = new Fighter(parent, { ...rigOptions(rig), capsuleColor: 0xff5533, palette: HANDLER_LOOK });
   for (const m of f.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a1210);
-  if (helmet) attachHelmet(f);
+  if (helmet && !(f.rig === 'mixamo' && attachMask(f))) attachHelmet(f);
   return f;
 }
 
+/** A bone by its Quaternius name ('PalmR', 'Head'), on either rig. */
 function bone(fighter, name) {
-  let found = null;
-  fighter.pivot.traverse((o) => {
-    if (o.isBone && o.name === name) found = o;
-  });
-  return found;
+  return fighter.bone ? fighter.bone(name) : null;
 }
 
 /** The Key: a small dark slab in Kai's right palm with a cyan glow that reads from across a clearing. */

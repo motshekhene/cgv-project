@@ -16,6 +16,7 @@ import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { PauseMenu } from '../ui/PauseMenu.js';
 import { StyleMeter } from './level3/StyleMeter.js';
+import { loadRig } from '../player/rig.js';
 
 /**
  * Level 03 — FIGHT, "Site 7".
@@ -53,11 +54,6 @@ function shortestAngle(from, to) {
   if (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
-
-const safe = (p) => p.catch((e) => {
-  console.warn('[level03] asset missing, using fallback:', e?.message || e);
-  return null;
-});
 
 const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -129,7 +125,7 @@ const FOCUS_TIME = 1.6;
 const FOCUS_SCALE = 0.25;
 const FOCUS_KAI = 0.9;
 const FOCUS_DAMAGE = 1.5;
-// lost to him before (state.deaths)? he starts each new attempt this much weaker, down to EASE_MIN of his health
+// lost to him before (`losses`)? he starts each new attempt this much weaker, down to EASE_MIN of his health
 const EASE_PER_LOSS = 0.12;
 const EASE_MIN = 0.64;
 const VS_TIME = 1.75; // the VS splash, then FIGHT
@@ -164,6 +160,7 @@ const CREDITS =
   'Steering wheel: Poly by Google (CC-BY 3.0, via Poly Pizza) · Built with three.js';
 
 let introSeen = false; // restarts skip straight to the fight
+let losses = 0; // fights lost to him this session: each one starts the next with him weaker
 
 export class Level03 extends Level {
   constructor() {
@@ -195,8 +192,8 @@ export class Level03 extends Level {
     this.arena = new ShrineArena(this.root, scene);
     this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
-      this._loadFighter(assets, 'kai-bryce', 'kai.fbx'),
-      this._loadFighter(assets, 'handler-monk', 'handler.fbx'),
+      loadRig(assets, 'kai-bryce', 'kai.fbx'),
+      loadRig(assets, 'handler-monk', 'handler.fbx'),
       this.arena.build(assets),
       this.wreck.build(assets),
     ]);
@@ -208,7 +205,7 @@ export class Level03 extends Level {
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
-    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * state.deaths);
+    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * losses);
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
@@ -265,29 +262,6 @@ export class Level03 extends Level {
 
     if (introSeen) this._startFight();
     else this._startIntro();
-  }
-
-  /**
-   * A fighter: the Mixamo build (assets/characters/<name>.glb + .json, from
-   * tools/build-character.py: Kai is Bryce, the Handler the shrine monk) with
-   * real fight moves, or the old Quaternius model (`fallback`) if it hasn't
-   * been built. meta is the build's measurements of each move.
-   */
-  async _loadFighter(assets, name, fallback) {
-    try {
-      const [gltf, meta] = await Promise.all([
-        assets.model(`characters/${name}.glb`),
-        fetch(assets.resolve(`characters/${name}.json`)).then((r) => {
-          if (!r.ok) throw new Error(`${name}.json: ${r.status}`);
-          return r.json();
-        }),
-      ]);
-      gltf.scene.animations = gltf.animations;
-      return { source: gltf.scene, meta };
-    } catch (e) {
-      console.warn(`[level03] no ${name} build, using the Quaternius ${fallback}:`, e?.message || e);
-      return { source: await safe(assets.fbx(`characters/${fallback}`)), meta: null };
-    }
   }
 
   /** The Key: a shielded drive glowing cyan in Kai's right hand, in every level. */
@@ -518,6 +492,7 @@ export class Level03 extends Level {
     if (state.alive || this.combat.dead) return;
     this.combat.die();
     state.deaths++;
+    losses++;
     this._endTimer = 1.4;
     this._endKind = 'lose';
   }
