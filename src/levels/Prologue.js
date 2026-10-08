@@ -25,9 +25,10 @@ import {
  *      closest thing Kai has to family, and he is sitting at the fire when
  *      the scene opens — lit properly, face showing, the one clear look the
  *      player ever gets until the last two minutes of the game.
- *   2. There is a horn on a stone deep in the forest. While it stays there,
- *      nobody cuts the trees. Ingram pays Kai a year of the company's
- *      wages for one night's work to take it.
+ *   2. There is a horn on a stone deep in the forest. While it hangs there,
+ *      the company believes someone still tends the valley, so nobody comes
+ *      to cut the trees. Ingram pays Kai a year of the company's wages for
+ *      one night's work to take it down.
  *   3. The moment Kai lifts it off the stone, every sound in the forest stops
  *      at once. He understands what he has done, turns around, and runs it
  *      back. Level 01 is that run.
@@ -46,11 +47,15 @@ import {
  *            to take what he has not seen — then E takes it and Q gives him
  *            a moment of doubt and puts the prompt back, so taking it is
  *            always deliberate.
- *   taken    he lifts the horn. Every ambient sound cuts out at once. The
- *            horn glows — the only cyan in the game.
- *   wide     a lamp moves in the trees behind him. The pull-back holds the
- *            lamp and the way out in the same frame, so the player works out
- *            the problem by looking at it.
+ *   take     E lifts the horn on camera — it leaves the cap, the glow wakes
+ *            as it comes up into his hand, and the forest stops at the
+ *            moment his grip closes.
+ *   taken    it is in his hand and every ambient sound has stopped. The horn
+ *            glows — the only cyan in the game.
+ *   wide     the pull-back holds him alone at the stone with the lit horn,
+ *            and the way out in the same frame, so the player works out the
+ *            problem by looking at it. No pursuer is shown here — whoever
+ *            the silence woke first appears in level 01, mid-run.
  *   flee     control returns and he runs, the night dying into level 01's
  *            morning around him — he is racing the sun, and loses.
  *
@@ -84,18 +89,18 @@ const INGRAM_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire li
 const WALKOFF = { x: -10.8, z: -4.5 };     // where Ingram leaves the fire
 const STONE = { x: 4.2, z: -2.6 };         // the low stone, horn on it
 const TRAIL = { x: 0, z: -16 };            // the way out; level 01 starts there
-const LAMP_SPOT = { x: -8.8, z: -10.8 };   // where the lamp shows in the trees
 const CLEARING_R = 15.5;  // walkable radius
-const CORRIDOR_X = 2.3;   // half-width of the trail mouth gap
+const CORRIDOR_X = 3.4;   // half-width of the trail mouth gap — wide enough
+                          // to hit at a dead run without threading a needle
 const STAND_EYE = 1.7;
 const WALK = 3.0;
 const RUN = 4.6;          // once he has the horn — he is not strolling out
 const LOOK = 0.0022;
 
 // the pull-back vantage: high in the south-east, looking north-west — Kai
-// foreground at the stone with the horn lit, the lamp burning in the tree
-// line at the left, and the trail mouth open behind it. One frame, the whole
-// problem.
+// foreground at the stone with the horn lit, the trail mouth open in the
+// middle distance, and the whole silent valley around him. One frame, the
+// whole problem.
 const WIDE_POS = new THREE.Vector3(12.2, 5.8, 5.2);
 const WIDE_LOOK = new THREE.Vector3(-1.8, 0.8, -8.8);
 
@@ -138,12 +143,12 @@ const SCRIPT = [
   { who: 'INGRAM', text: 'You know the stone up past the ridge?' },
   { who: 'KAI', text: 'Everyone knows it.' },
   { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
-  { who: 'KAI', text: 'That horn is the only reason this valley is still standing.' },
-  { who: 'INGRAM', text: 'I know what it is.' },
+  { who: 'KAI', text: 'That horn is the only thing keeping the company out of this forest.' },
+  { who: 'INGRAM', text: 'I know. While it hangs there, the company believes someone still tends this valley.' },
+  { who: 'INGRAM', text: 'Take it down, and they will know nobody is left to stop them.' },
   { who: 'INGRAM', text: "One night. I'll pay you a year of the company's wages for it." },
   { who: 'KAI', text: 'Why me?' },
-  { who: 'INGRAM', text: 'Because I picked you.' },
-  { who: 'INGRAM', text: "I've watched you walk that path since you were small." },
+  { who: 'INGRAM', text: 'Because a guide out at night is a normal thing. Anyone else would be noticed.' },
   { who: 'INGRAM', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
 ];
 const SPEAK_COLOR = { INGRAM: INGRAM_AMBER, KAI: KAI_GREEN };
@@ -441,6 +446,13 @@ export class Prologue extends Level {
     this._kaiSeated = false;      // told the rig to sit to the fire
     this._kaiRose = false;        // told the rig to stand at the cut
 
+    // the take: where the horn leaves, and where it lands in his hand
+    this._takeFromPos = new THREE.Vector3();
+    this._takeFromQuat = new THREE.Quaternion();
+    this._takeLightPos = new THREE.Vector3();
+    this._carryQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0.3, 0.2));
+    this._takeFromPitch = 0;
+
     this.blockers = [];
     this.sfx = new Sfx();
   }
@@ -596,9 +608,9 @@ export class Prologue extends Level {
     ground.receiveShadow = true;
     this.root.add(ground);
 
-    const path = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 28), this.mats.trail);
+    const path = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 28), this.mats.trail);
     path.rotation.x = -Math.PI / 2;
-    path.position.set(0, 0.01, -3.4); // fire (z 8) to trail mouth (z -17)
+    path.position.set(0, 0.01, -3.4); // fire (z 8) to trail mouth (z -17.4)
     path.receiveShadow = true;
     this.root.add(path);
 
@@ -608,6 +620,21 @@ export class Prologue extends Level {
     apron.position.set(FIRE.x, 0.02, FIRE.z);
     apron.receiveShadow = true;
     this.root.add(apron);
+
+    // the path keeps going past the mouth, so the way out reads as a road
+    // that continues and not a hole that ends
+    const out = new THREE.Mesh(new THREE.CircleGeometry(4.5, 20), this.mats.trail);
+    out.rotation.x = -Math.PI / 2;
+    out.position.set(0, 0.01, -19.5);
+    out.receiveShadow = true;
+    this.root.add(out);
+
+    // moonlight through the gap. The exit has to be findable at night from
+    // the stone, with no lamp and no chase yet — the mouth is the one cold
+    // bright thing on the far side of the dark, and his feet go to it.
+    this.mouthLight = new THREE.PointLight(0x9fb4cc, 1.4, 13, 2);
+    this.mouthLight.position.set(0, 2.8, -15);
+    this.root.add(this.mouthLight);
   }
 
   /* ---------------------------------------------------- the fire */
@@ -818,16 +845,16 @@ export class Prologue extends Level {
       const a = (i / COUNT) * Math.PI * 2 + rnd() * 0.12;
       const x = Math.cos(a), z = Math.sin(a);
       // leave the gap: north, within the corridor width
-      if (z < -0.86 && Math.abs(x) < 3.2) continue;
+      if (z < -0.86 && Math.abs(x) < 4.0) continue;
       const r = CLEARING_R + 3.5 + rnd() * 11;
       const proto = trees[i % trees.length];
       placeProp(this.root, cloneProp(proto), Math.cos(a) * r, -0.05, Math.sin(a) * r, {
         s: 0.021 + rnd() * 0.014, ry: rnd() * Math.PI * 2, shadow: false,
       });
     }
-    // two trunks framing the mouth, so the gap reads as a gap and not a hole
-    placeProp(this.root, cloneProp(this.kit.tree2), -3.4, -0.05, -15.2, { s: 0.03, ry: 0.6 });
-    placeProp(this.root, cloneProp(this.kit.tree3), 3.5, -0.05, -14.8, { s: 0.032, ry: 2.4 });
+    // two trunks framing the mouth, clear of the running lane
+    placeProp(this.root, cloneProp(this.kit.tree2), -4.3, -0.05, -15.2, { s: 0.03, ry: 0.6 });
+    placeProp(this.root, cloneProp(this.kit.tree3), 4.4, -0.05, -14.8, { s: 0.032, ry: 2.4 });
 
     // undergrowth between the ring and the clearing
     const bushes = [this.kit.bush1, this.kit.bush2, this.kit.bush3];
@@ -836,7 +863,7 @@ export class Prologue extends Level {
       const a = rnd() * Math.PI * 2;
       const r = CLEARING_R - 1.5 + rnd() * 6;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (z < -0.8 && Math.abs(x) < 3.0) continue;         // keep the mouth clear
+      if (z < -0.8 && Math.abs(x) < 3.8) continue;         // keep the mouth clear
       const set = i % 3 === 0 ? grasses : bushes;
       placeProp(this.root, cloneProp(set[i % set.length]), x, 0, z, {
         s: 0.01 + rnd() * 0.006, ry: rnd() * Math.PI * 2, shadow: false,
@@ -913,22 +940,6 @@ export class Prologue extends Level {
         }
       },
     });
-
-    // ---- the pursuer's lamp, for after. The same amber, moving in the
-    //      trees, with a beam that reads through the mist. ----
-    this.lamp = new THREE.Group();
-    this.lampMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.22, 10), this.matLamp.clone());
-    this.lamp.add(this.lampMesh);
-    this.lampLight = new THREE.PointLight(0xffb03a, 0, 22, 1.6);
-    this.lamp.add(this.lampLight);
-    this.lampBeam = createLightShaft(0.9, 0xffd9a0, 0.14);
-    this.lampBeam.position.y = -0.9;
-    this.lampBeam.rotation.x = Math.PI;     // points down through the mist
-    this.lampBeam.visible = false;
-    this.lamp.add(this.lampBeam);
-    this.lamp.position.set(LAMP_SPOT.x, 1.5, LAMP_SPOT.z);
-    this.lamp.visible = false;
-    this.root.add(this.lamp);
 
     // ---- Kai himself. On screen in the fire two-shot and in the wide
     //      pull-back; hidden whenever the camera is his own eyes. ----
@@ -1264,42 +1275,31 @@ export class Prologue extends Level {
     }
     for (const m of this.mist) m.material.opacity = 0.05 * (1 - k);
     this.fireflyMat.opacity = 0.8 * (1 - k);
+    if (this.mouthLight) this.mouthLight.intensity = 1.4 * (1 - k);
   }
 
   /* ==================================================== key moments */
-  /** THE HORN, off the stone and into his hand. */
+  /**
+   * THE HORN, taken on camera. E starts the lift: the horn leaves the cap
+   * and comes up into his hand over about a second, the glow waking as it
+   * goes. The silence lands when the take lands — the last full second of
+   * forest sound is under his reaching for it.
+   */
   _takeHorn(state) {
-    this.phase = 'taken';
+    this.phase = 'take';
     this.t = 0;
+    this.standing = false;                    // the take has the controls
     this._prompt('');
     this._hush();
-    this.carried.add(this.horn);              // off the stone, into his hand
-    this.carried.add(this.hornLight);
-    this.horn.position.set(0, 0, 0);
-    this.horn.rotation.set(0.5, 0.3, 0.2);
-    this.hornLight.position.set(0, 0.12, 0);
+    this._takeFromPitch = this.pitch;
+    this.horn.getWorldPosition(this._takeFromPos);
+    this.horn.getWorldQuaternion(this._takeFromQuat);
+    this.hornLight.getWorldPosition(this._takeLightPos);
+    this.root.attach(this.horn);              // off the stone; world pose kept
+    this.root.attach(this.hornLight);
     this.matHorn.emissive.setHex(HORN_CYAN);
-    this.matHorn.emissiveIntensity = 0.85;
-    this.hornLight.intensity = 4.5;
-    // THE SILENCE. Wind, insects, frogs, fire — all of it, at once.
-    this.sfx.silence();
-    state.hasKey = true;                      // what he carries through the game
-  }
-
-  /** The lamp, in the trees behind him. */
-  _showLamp() {
-    this.lamp.visible = true;
-    this.lampLight.intensity = 3.6;
-    this.lampBeam.visible = true;
-    // the man under it: the same one who sat at the fire, face gone now.
-    // Whatever load state the model is in, it must not show a face.
-    this.ingram.position.set(LAMP_SPOT.x - 0.6, 0, LAMP_SPOT.z + 0.8);
-    this.ingram.rotation.y = Math.PI * 0.12;
-    this.ingramLamp.visible = false;          // the hand lamp IS the tree lamp now
-    this.ingramLampLight.intensity = 0;
-    this.ingram.visible = true;
-    this._silenceIngram();
-    if (this.ingramModel) this.ingramModel.play('idle');
+    this.matHorn.emissiveIntensity = 0;
+    this.hornLight.intensity = 0;
   }
 
   _exit(state) {
@@ -1401,7 +1401,7 @@ export class Prologue extends Level {
     if (this.input.pressed('mute')) this.sfx.setMuted(!this.sfx.muted);
     if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
-    if (!this._inFireShot() && this.cine <= 0) this._look();
+    if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
     this._tickSay(dt);
     if (this.standing && this.phase !== 'done') this._move(dt);
 
@@ -1424,8 +1424,8 @@ export class Prologue extends Level {
       );
     }
 
-    // heartbeat, from the moment the horn is lit
-    if (this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
+    // heartbeat, from the first touch of the horn
+    if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
       this.beatT -= dt;
       if (this.beatT <= 0) { this.sfx.thump(); this.beatT = 0.84; }
     }
@@ -1590,7 +1590,50 @@ export class Prologue extends Level {
         break;
       }
 
-      // He lifts it. The valley holds its breath.
+      // THE TAKE, ON CAMERA. The horn leaves the cap and comes up into his
+      // hand, his eyes following it in — and at the moment his grip closes,
+      // every sound in the forest stops.
+      case 'take': {
+        const k = Math.min(1, this.t / 1.3);
+        const ease = k * k * (3 - 2 * k);
+        // the point he carries it: just in front of him, chest height
+        const cx = this.px - Math.sin(this.yaw) * 0.42;
+        const cz = this.pz - Math.cos(this.yaw) * 0.42;
+        this.horn.position.set(
+          this._takeFromPos.x + (cx - this._takeFromPos.x) * ease,
+          this._takeFromPos.y + (1.08 - this._takeFromPos.y) * ease +
+            Math.sin(ease * Math.PI) * 0.16,       // lifted, not slid
+          this._takeFromPos.z + (cz - this._takeFromPos.z) * ease,
+        );
+        this.horn.quaternion.slerpQuaternions(this._takeFromQuat, this._carryQuat, ease);
+        this.hornLight.position.set(
+          this._takeLightPos.x + (cx - this._takeLightPos.x) * ease,
+          this._takeLightPos.y + (1.2 - this._takeLightPos.y) * ease,
+          this._takeLightPos.z + (cz - this._takeLightPos.z) * ease,
+        );
+        // the glow wakes as it leaves the stone
+        this.matHorn.emissiveIntensity = 0.85 * Math.min(1, k / 0.6);
+        this.hornLight.intensity = 4.5 * Math.min(1, k / 0.6);
+        // his eyes follow it: down to the cap, then in to his hand
+        this.pitch = THREE.MathUtils.lerp(
+          this._takeFromPitch, Math.atan2(1.08 - this.eye, 0.5), ease,
+        );
+        if (k >= 1) {
+          this.carried.add(this.horn, this.hornLight);
+          this.horn.position.set(0, 0, 0);
+          this.horn.quaternion.copy(this._carryQuat);
+          this.hornLight.position.set(0, 0.12, 0);
+          this.carried.position.set(cx, 1.08, cz);
+          // THE SILENCE. Wind, insects, frogs, fire — all of it, at once.
+          this.sfx.silence();
+          state.hasKey = true;                    // what he carries through the game
+          this.phase = 'taken';
+          this.t = 0;
+        }
+        break;
+      }
+
+      // It is in his hand. The valley holds its breath.
       case 'taken': {
         this.matHorn.emissiveIntensity = 0.85 + Math.sin(this.t * 7) * 0.3;
         this.hornLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
@@ -1603,14 +1646,15 @@ export class Prologue extends Level {
           this.phase = 'wide';
           this.t = 0;
           this.standing = false;            // the shot takes the controls back
-          this._showLamp();
           // the last of the fire settles to embers behind him
           this.sfx.firePower = 0.3;
         }
         break;
       }
 
-      // THE PULL-BACK — the lamp in the trees and the way out, one frame
+      // THE PULL-BACK — him alone at the stone with the lit horn, and the
+      // way out in the same frame, one held breath. Nobody is shown coming;
+      // whatever the silence woke is level 01's opening image.
       case 'wide': {
         if (this.t < 1.1) this.cine = this.t / 1.1;
         else if (this.t < 4.4) this.cine = 1;
@@ -1624,37 +1668,21 @@ export class Prologue extends Level {
           if (this.kaiModel) this.kaiModel.play('run');
           this._onLockChange();
         }
-        // the lamp drifts through the trunks while the shot holds
-        if (this.lamp.visible) {
-          this.lamp.position.x = LAMP_SPOT.x + Math.sin(this.t * 0.5) * 1.3;
-          this.lamp.position.y = 1.5 + Math.sin(this.t * 1.7) * 0.14;
-          this.lampLight.intensity = 3.4 + Math.sin(this.t * 9) * 0.7;
-        }
         // the first grey of morning creeps in while he stands there — the
         // night is already dying, and Ingram said "before morning"
         this.dawnK = Math.max(this.dawnK, Math.min(0.16, this.t * 0.045));
         this._applyDawn(this.dawnK);
-        if (!this._lampSaid && this.t > 1.9) {
-          this._lampSaid = true;
-          this._say("Someone's out there.", null, true);
+        if (!this._wideSaid && this.t > 1.9) {
+          this._wideSaid = true;
+          this._say('The whole valley is holding its breath.', null, true);
         }
         break;
       }
 
       case 'flee': {
         // he runs the only line there is: across the open ground, through the
-        // mouth, out onto the trail. The lamp comes through the trees behind
-        // him, slower than him, and never once in a hurry.
-        if (this.ingramModel) this.ingramModel.play('walk');
-        const toward = Math.sign(this.px - this.ingram.position.x) || 1;
-        this.ingram.position.x = THREE.MathUtils.clamp(
-          this.ingram.position.x + toward * 1.7 * dt, -2.6, 2.6);
-        this.ingram.position.z = Math.min(-4.2, this.ingram.position.z + 1.05 * dt);
-        // the lamp detaches from the man and haunts the gap between trunks
-        this.lamp.position.set(
-          this.ingram.position.x, 1.5 + Math.sin(this.t * 2.1) * 0.13, this.ingram.position.z + 0.6,
-        );
-        this.lampLight.intensity = 3.4 + Math.sin(this.t * 13) * 0.9;
+        // mouth, out onto the trail. Nothing is shown behind him — whoever
+        // the silence woke does not appear until level 01, mid-run.
 
         // dawn coming up while he runs — the night is ending around him, and
         // Ingram said "before morning". The run IS the night ending; by the
@@ -1671,9 +1699,7 @@ export class Prologue extends Level {
           '<span style="font-size:24px;color:' + KAI_GREEN + '">' + this._trailArrow() + '</span>',
         );
         const atTrail = this.pz < -17.4 && Math.abs(this.px) < CORRIDOR_X;
-        const caught = Math.hypot(this.px - this.ingram.position.x,
-                                  this.pz - this.ingram.position.z) < 0.8;
-        if (atTrail || caught) this._exit(state);
+        if (atTrail) this._exit(state);
         break;
       }
     }
