@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { DustOff } from './DustOff.js';
+import { FootPlant } from './FootPlant.js';
 
 /**
  * Fighter — visual + animation layer shared by Kai and the Handler.
@@ -149,6 +150,7 @@ export class Fighter {
     this.rig = byName.mixamorigHips ? 'mixamo' : 'quaternius';
     this.headBone = this.bone('Head');
     this.dust = this.rig === 'mixamo' ? DustOff.for(this) : null;
+    this.feet = this.rig === 'mixamo' ? FootPlant.for(this) : null;
     if (byName.FootR && byName.UpperLegR && byName.LowerLegR && byName.LowerLegR_end) {
       this.kickRig = {};
       for (const side of ['R', 'L']) {
@@ -407,6 +409,7 @@ export class Fighter {
     }
     this._modified.length = 0;
     if (this.mixer) this.mixer.update(dt);
+    if (this.feet) this.feet.apply(dt);
     this.guard += (this.guardTarget - this.guard) * (1 - Math.exp(-18 * dt));
     if (this.kickRig && this.kickWeight > 0.005) this._applyKick();
     if (this.guard > 0.01) {
