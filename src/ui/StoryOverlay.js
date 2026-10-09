@@ -2,8 +2,8 @@ import { THEME_CSS, END_CSS, showEndScreen, hideEndScreen } from './theme.js';
 
 /**
  * StoryOverlay — the cinematic layer for Level 3 (3B, story/UI): letterbox
- * bars, title cards, the skip hint, letter and shrine-gift pop-ups, and the
- * VICTORY card with credits. Same rules as FightHUD: lives in
+ * bars, title cards, the skip hint, typed dialogue lines, letter and
+ * shrine-gift pop-ups, and the VICTORY card with credits. Same rules as FightHUD: lives in
  * #hud, injects scoped styles, removes everything on dispose().
  */
 const CSS = THEME_CSS + END_CSS + `
@@ -38,6 +38,19 @@ const CSS = THEME_CSS + END_CSS + `
 .so-award small { display:block; font-size:9px; font-weight:600; letter-spacing:.32em; color:var(--ink-dim); }
 .so-award b { display:block; font-family:var(--serif); font-size:20px; letter-spacing:.22em; color:var(--c); margin:1px 0 2px; }
 .so-award span { display:block; font-size:12px; color:var(--ink); letter-spacing:.04em; }
+.so-flash { position:absolute; inset:0; background:var(--c, #fff6e0); opacity:0; pointer-events:none; }
+.so-flash.go { animation:soFlash .7s ease-out forwards; }
+@keyframes soFlash { 0% { opacity:.85; } 100% { opacity:0; } }
+.so-talk { position:absolute; left:50%; bottom:calc(11vh + 48px); width:min(780px, 90vw); transform:translate(-50%, 10px); opacity:0;
+  transition:opacity .35s ease, transform .35s ease; padding:14px 26px 16px; text-align:left; }
+.so-talk.show { opacity:1; transform:translate(-50%, 0); }
+.so-talk small { display:block; font-size:11px; font-weight:700; letter-spacing:.34em; color:var(--who, var(--gold)); margin-bottom:7px;
+  text-shadow:0 0 12px var(--who, transparent); }
+.so-talk p { margin:0; font-family:var(--serif); font-size:clamp(16px, 2vw, 22px); line-height:1.4; letter-spacing:.02em; color:var(--ink); }
+.so-talk .rest { visibility:hidden; }
+.so-talk .caret { display:inline-block; width:.5em; height:1.05em; margin:0 1px -0.18em; background:var(--who, var(--gold)); opacity:.85; }
+.so-talk.typed .caret { animation:soBlink 1s steps(1) infinite; }
+@keyframes soBlink { 50% { opacity:0; } }
 @keyframes soTrack { from { opacity:0; letter-spacing:.9em; text-indent:.9em; filter:blur(6px); } to { opacity:1; } }
 @keyframes soLine { to { transform:scaleX(1); } }
 @keyframes soUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
@@ -52,9 +65,11 @@ export class StoryOverlay {
     this.el = document.createElement('div');
     this.el.className = 'so';
     this.el.innerHTML = `
+      <div class="so-flash"></div>
       <div class="so-bar top"></div><div class="so-bar bot"></div>
       <div class="so-card"><h2></h2><hr><p></p></div>
       <div class="so-skip">SPACE / CLICK TO SKIP &#9656;</div>
+      <div class="so-talk plaque"><small></small><p><span class="typed-part"></span><i class="caret"></i><span class="rest"></span></p></div>
       <div class="so-letter"><small></small><q></q></div>
       <div class="so-award plaque"><i></i><div><small>SHRINE GIFT · ONCE ONLY</small><b></b><span></span></div></div>
       <div class="end"></div>`;
@@ -65,15 +80,81 @@ export class StoryOverlay {
     this.skipEl = q('.so-skip');
     this.letterEl = q('.so-letter');
     this.awardEl = q('.so-award');
+    this.talkEl = q('.so-talk');
+    this.flashEl = q('.so-flash');
     this.end = q('.end');
     this.onSkip = null;
     this.skipEl.addEventListener('pointerdown', () => this.onSkip && this.onSkip());
+    this.skipEl.addEventListener('mousedown', (e) => e.stopPropagation()); // not also a click on the game (Input listens on window)
+    this.line = null;
   }
 
   /** Letterbox bars on/off; skip shows the "skip" hint while they're up. */
   setCinematic(on, skip = false) {
     this.el.classList.toggle('cine', on);
     this.skipEl.classList.toggle('on', on && skip);
+  }
+
+  /** A white flash over the whole frame (the final blow). */
+  flash(color = '#fff6e0') {
+    this.flashEl.style.setProperty('--c', color);
+    this.flashEl.classList.remove('go');
+    void this.flashEl.offsetWidth;
+    this.flashEl.classList.add('go');
+  }
+
+  /** The skip hint's wording (it always skips the whole cutscene when clicked). */
+  setSkipLabel(text = 'SPACE / CLICK TO SKIP') {
+    this.skipEl.innerHTML = `${text} &#9656;`;
+  }
+
+  /**
+   * A line of dialogue, typed out letter by letter like a film's subtitle
+   * terminal: who's speaking (in their colour) over the line. The full line
+   * is laid out from the start (the untyped rest is invisible), so the words
+   * never jump as they wrap. Driven by updateLine(dt) with game time, so it
+   * pauses with the game.
+   */
+  showLine(who, text, color, cps = 38) {
+    this.line = { text, t: 0, cps, shown: -1 };
+    this.talkEl.style.setProperty('--who', color);
+    this.talkEl.querySelector('small').textContent = who;
+    this.talkEl.classList.remove('typed');
+    this._typeTo(0);
+    this.talkEl.classList.add('show');
+  }
+
+  /** Advance the typing; true once the whole line is out. */
+  updateLine(dt) {
+    const l = this.line;
+    if (!l) return true;
+    l.t += dt;
+    this._typeTo(Math.min(l.text.length, Math.floor(l.t * l.cps)));
+    return this.lineDone;
+  }
+
+  get lineDone() {
+    return !this.line || this.line.shown >= this.line.text.length;
+  }
+
+  /** Type the rest of the line at once (the player is reading ahead). */
+  finishLine() {
+    if (this.line) this._typeTo(this.line.text.length);
+  }
+
+  hideLine() {
+    this.line = null;
+    this.talkEl.classList.remove('show');
+  }
+
+  _typeTo(n) {
+    const l = this.line;
+    if (n === l.shown) return;
+    l.shown = n;
+    l.t = Math.max(l.t, n / l.cps);
+    this.talkEl.querySelector('.typed-part').textContent = l.text.slice(0, n);
+    this.talkEl.querySelector('.rest').textContent = l.text.slice(n);
+    this.talkEl.classList.toggle('typed', n >= l.text.length); // the caret only blinks once it's waiting
   }
 
   showCard(title, sub = '') {

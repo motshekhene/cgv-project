@@ -112,6 +112,7 @@ export class Game {
 
   /** Same level, fresh state, no page reload. */
   restart() {
+    if (this.paused) this.setPaused(false); // or the fresh level would start frozen
     return this.setLevel(this.levelName);
   }
 
@@ -129,6 +130,7 @@ export class Game {
   setPaused(v) {
     this.paused = v;
     this.state.paused = v;
+    if (this.level && this.level.onPause) this.level.onPause(v); // e.g. show a pause menu
     if (this.onPaused) this.onPaused(v);
   }
 
@@ -158,7 +160,9 @@ export class Game {
     if (!this.paused && this.level) this.level.update(dt, this.state);
     this.input.endFrame();
 
-    this.renderer.render(this.scene, this.camera);
+    // a level can take over drawing (e.g. a post-processing pass); most just let Game render
+    if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
+    else this.renderer.render(this.scene, this.camera);
 
     // secondary cameras — rendered as small overlays on top of the main view
     if (this.secondaryCameras.size > 0) {

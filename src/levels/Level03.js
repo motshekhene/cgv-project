@@ -5,9 +5,18 @@ import { HandlerBoss } from './level3/HandlerBoss.js';
 import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
+import { WaterFX, Wetness } from './level3/Wetness.js';
+import { Wreck } from './level3/Wreck.js';
+import { Storm } from './level3/Storm.js';
+import { KeyVision } from './level3/KeyVision.js';
+import { StrikeTrail, Shockwaves } from './level3/Trails.js';
+import { Fireflies } from './level3/Fireflies.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
+import { PauseMenu } from '../ui/PauseMenu.js';
+import { StyleMeter } from './level3/StyleMeter.js';
+import { loadRig } from '../player/rig.js';
 
 /**
  * Level 03 — FIGHT, "Site 7".
@@ -20,15 +29,25 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
  * handlerHelmetOff, letters, timeScale).
  *
  * Beats (docs/JUNGLE_SHRINE_IMPLEMENTATION.md, section 6):
- *   INTRO     Kai wakes in the pool, walks through the gate; the Handler drops
- *             off the arch behind him. Skippable; skipped on restarts.
- *   FIGHT     three health-gated phases. Phase II pops the helmet (REVEAL:
- *             a slow-mo reaction shot over Kai's shoulder); phase III turns the
- *             sky to dusk, lights the torches and runs the pool red. The fight
- *             isn't penned in: Kai can break for the jungle ring, where three
- *             shrines each give one gift (Awards.js), with the Handler after him.
- *   EPILOGUE  the camera circles the fallen Handler, then a plain VICTORY card
- *             ("You won") with PLAY AGAIN. No story text after the win.
+ *   INTRO     Kai wakes in the pool among his car's wreckage (level3/Wreck.js),
+ *             wades out, steps up onto the path (level3/FootPlant.js) and
+ *             gets the water off (level3/DustOff.js), runs
+ *             through the gate dripping; the Handler jumps down off the arch
+ *             behind him, and they trade a few lines, typed out on screen,
+ *             before it starts. Skippable; skipped on restarts. He stays soaked
+ *             into the fight and dries over ~40 s (level3/Wetness.js).
+ *   FIGHT     a VS splash, then three health-gated phases. Phase II pops the
+ *             helmet (REVEAL: a slow-mo reaction shot over Kai's shoulder);
+ *             phase III turns the sky to dusk, lights the torches, runs the
+ *             pool red and brings a storm in (level3/Storm.js). A perfect
+ *             dodge bends time (FOCUS_*, drawn by level3/KeyVision.js). The
+ *             fight isn't penned in: Kai can break for the jungle ring, where
+ *             three shrines each give one gift (Awards.js), with the Handler
+ *             after him. Each loss makes the next attempt's Handler weaker.
+ *   FINAL     the killing blow in slow motion, the camera arcing round them.
+ *   EPILOGUE  the storm passes and fireflies come out while the camera circles
+ *             the fallen Handler, then a plain VICTORY card ("You won") with
+ *             PLAY AGAIN. No story text after the win.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -37,15 +56,40 @@ function shortestAngle(from, to) {
   return d;
 }
 
-const safe = (p) => p.catch((e) => {
-  console.warn('[level03] asset missing, using fallback:', e?.message || e);
-  return null;
-});
-
 const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+
+/**
+ * The Handler's leap off the arch, read from his jump clip's foot track
+ * (Fighter.footTrack, sampled at 30 fps). Mixamo's Jumping Down starts on a
+ * ledge and the build keeps it, so the clip stands him ~1.1 m above his root:
+ * `lower(t)` is how far to drop the model at clip time t so a planted foot
+ * is on the ground (the arch before the leap, the courtyard after it); in the
+ * air it slides evenly from one to the other. off/on: when his feet leave
+ * and when they land.
+ */
+function leapProfile(feet, rest) {
+  const at = (t) => {
+    const i = Math.min(feet.length - 1, Math.max(0, t * 30));
+    const i0 = Math.floor(i), i1 = Math.min(feet.length - 1, i0 + 1);
+    return feet[i0] + (feet[i1] - feet[i0]) * (i - i0);
+  };
+  const lift = feet.findIndex((y) => y > feet[0] + 0.03);
+  if (lift < 0) return null;
+  let land = lift;
+  for (let i = lift; i < feet.length; i++) if (feet[i] < feet[land]) land = i;
+  const off = (lift - 1) / 30, on = land / 30;
+  return {
+    off, on,
+    lower(t) {
+      if (t <= off || t >= on) return at(t) - rest;
+      const k = (t - off) / (on - off);
+      return at(off) - rest + (at(on) - at(off)) * k;
+    },
+  };
+}
 
 /** What CombatController sees while a cutscene owns Kai. */
 const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
@@ -53,6 +97,53 @@ const NO_INPUT = { axis: () => 0, isDown: () => false, pressed: () => false };
 const FIGHT_FOV = 62;
 const KAI_START = new THREE.Vector3(-0.4, 0, -0.6); // where the intro leaves Kai
 const BOSS_LAND = new THREE.Vector3(-3.0, 0, -11.2); // where the Handler lands off the arch
+// intro shot A: Kai is out of the water and up on the path at WADE_OUT, stands easy, and gets the water off (DustOff, ~2.45 s)
+const WADE_OUT = 5.55;
+const SHAKE_AT = 5.8;
+const A_END = 8.5;
+const SHAKE_BEAT = A_END - 5.6; // how much longer that made the intro (shot A used to end at 5.6)
+// intro shot C: the Handler on the keystone from C_AT, his leap clip already under way (from LEAP_FROM s in, as he crouches)
+const C_AT = 9.7;
+const LEAP_FROM = 0.3;
+const LEAP_G = 13; // m/s²: a touch more than gravity, or a man falling 9 m reads as floating on screen
+// intro shot D: face to face before the fight, each line typed out on screen. pose: what the speaker does with it
+const WHO = {
+  handler: { name: 'THE HANDLER', color: '#f2934f' },
+  kai: { name: 'KAI', color: '#6fe3ff' },
+};
+const TALK = [
+  { who: 'handler', text: 'Twelve kilometres. A river. A waterfall. And you’re still holding it.' },
+  { who: 'kai', text: 'You ran me off a bridge. What did you think would happen?' },
+  { who: 'handler', text: 'Give me the Key, Kai. You don’t even know what it opens.', pose: 'angry' },
+  { who: 'kai', text: 'Then I guess I’ll find out.' },
+  { who: 'handler', text: 'Not today.' },
+];
+const TALK_AFTER = 1.6; // shot D starts this long after he lands
+// a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
+// the world runs at FOCUS_SCALE, Kai at FOCUS_KAI, and his hits do FOCUS_DAMAGE x (KeyVision draws it)
+const PERFECT_DODGE = 0.2;
+const FOCUS_TIME = 1.6;
+const FOCUS_SCALE = 0.25;
+const FOCUS_KAI = 0.9;
+const FOCUS_DAMAGE = 1.5;
+// lost to him before (`losses`)? he starts each new attempt this much weaker, down to EASE_MIN of his health
+const EASE_PER_LOSS = 0.12;
+const EASE_MIN = 0.64;
+const VS_TIME = 1.75; // the VS splash, then FIGHT
+/** Esc: the pause menu's list of controls. */
+const CONTROLS = [
+  ['W S', 'walk forward / back'],
+  ['A D', 'turn (follow view) \u00b7 strafe (lock-on)'],
+  ['ENTER', 'punch, three in a chain (or left click)'],
+  ['K', 'kick, three in a chain'],
+  ['B', 'block (or right click) \u00b7 tap it just before a hit to parry'],
+  ['C', 'dodge (hold a direction to pick the side)'],
+  ['V', 'the Key: slow time down'],
+  ['TAB', 'camera: follow \u00b7 lock-on \u00b7 360\u00b0 view'],
+  ['R', 'restart the fight'],
+  ['ESC', 'pause / resume'],
+];
+const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
@@ -62,12 +153,15 @@ const TELLS = {
   lunge: { name: 'LUNGE', advice: 'dodge sideways or block', color: '#ff9a4a' },
   sweep: { name: 'SWEEP', advice: 'dodge out \u2014 a block only halves it', color: '#ff5a6a' },
   combo: { name: 'COMBO', advice: 'two hits: block or parry both', color: '#c78bff' },
+  spin: { name: 'SPIN KICK', advice: 'two kicks all round him: back off, or dodge both', color: '#3fe0b4' },
 };
 const CREDITS =
   'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
-  'Props: Poly by Google (CC0) · Built with three.js';
+  'Props: Poly by Google (CC0) · Car parts: Kenney (CC0) · ' +
+  'Steering wheel: Poly by Google (CC-BY 3.0, via Poly Pizza) · Built with three.js';
 
 let introSeen = false; // restarts skip straight to the fight
+let losses = 0; // fights lost to him this session: each one starts the next with him weaker
 
 export class Level03 extends Level {
   constructor() {
@@ -87,6 +181,7 @@ export class Level03 extends Level {
     this._ended = false;
     this._abilityWas = false;
 
+    this._focusT = 0; // seconds of bent time left after a perfect dodge
     this.mode = 'LOADING'; // INTRO | FIGHT | REVEAL | EPILOGUE | END
     this.beatT = 0; // seconds into the current beat (real time, not slowed)
     this.cine = null; // { pos, look, fov, rate } while a cutscene owns the camera
@@ -96,18 +191,41 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
-    const [kaiSrc, handlerSrc] = await Promise.all([
-      safe(assets.fbx('characters/kai.fbx')),
-      safe(assets.fbx('characters/handler.fbx')),
+    this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
+    const [kai, handler] = await Promise.all([
+      loadRig(assets, 'kai-bryce', 'kai.fbx'),
+      loadRig(assets, 'handler-monk', 'handler.fbx'),
       this.arena.build(assets),
+      this.wreck.build(assets),
     ]);
     if (!this.scene) return; // level was torn down while loading
 
-    this.combat = new CombatController(this.root, kaiSrc);
-    this.boss = new HandlerBoss(this.root, this.combat, handlerSrc);
+    this.kaiMeta = kai.meta;
+    this.handlerMeta = handler.meta;
+    this.combat = new CombatController(this.root, kai.source, kai.meta);
+    this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
+    // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
+    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * losses);
+    this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
     this.keyItem = this._attachKey(this.combat.fighter);
     this._wireBoss(state);
+    // Kai comes out of the pool soaked; either of them gets soaked again wading back in
+    this.water = new WaterFX(this.root, this.arena);
+    this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
+    this.bossWet = new Wetness(this.boss.fighter, this.water);
+    this.storm = new Storm(this.root, this.arena, this.water); // phase III's rain and lightning
+    this.storm.onBolt = () => this._addShake(0.12);
+    this.vision = new KeyVision(); // the look of bent time (a perfect dodge, the Key)
+    this.trail = new StrikeTrail(this.root); // the swoosh behind Kai's kicks and heavy punches
+    this.waves = new Shockwaves(this.root); // rings across the ground from heavy blows and parries
+    this.flies = new Fireflies(this.root, this.arena); // out once the storm has passed
+    this._fliesAmt = 0;
+    if (this.handlerMeta?.clips.jump) {
+      const bf = this.boss.fighter;
+      const feet = bf.footTrack('jump');
+      this.leap = feet && leapProfile(feet, Math.min(...bf.footTrack('idle')));
+    }
 
     this._baseMaxHealth = state.maxHealth;
     this._baseParry = this.combat.parryWindow;
@@ -119,6 +237,13 @@ export class Level03 extends Level {
     });
 
     this.hud = new FightHUD();
+    this.style = new StyleMeter(this.hud);
+    this.pause = new PauseMenu({
+      controls: CONTROLS,
+      tip: PAUSE_TIP,
+      onResume: () => this.game.setPaused(false),
+      onRestart: () => this.game.restart(),
+    });
     this.touch = new TouchControls(input, {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
@@ -133,6 +258,8 @@ export class Level03 extends Level {
     this._camLook = new THREE.Vector3(0, 1.4, 0);
     this._tmp = new THREE.Vector3();
     this._toBoss = new THREE.Vector3();
+    this._kaiBody = { prev: null, plant: null }; // last position + the tree or bush each fighter is touching
+    this._bossBody = { prev: null, plant: null };
 
     if (introSeen) this._startFight();
     else this._startIntro();
@@ -140,10 +267,7 @@ export class Level03 extends Level {
 
   /** The Key: a shielded drive glowing cyan in Kai's right hand, in every level. */
   _attachKey(fighter) {
-    let palm = null;
-    fighter.model?.traverse((o) => {
-      if (o.isBone && o.name === 'PalmR') palm = o;
-    });
+    const palm = fighter.bone('PalmR');
     if (!palm) return null;
     fighter.root.updateMatrixWorld(true);
     const s = palm.getWorldScale(new THREE.Vector3()).x;
@@ -189,9 +313,10 @@ export class Level03 extends Level {
     if (!this._fists) {
       if (!on) return;
       this._fists = [];
-      this.combat.fighter.root.updateMatrixWorld(true);
-      this.combat.fighter.model?.traverse((o) => {
-        if (!o.isBone || (o.name !== 'PalmL' && o.name !== 'PalmR')) return;
+      const f = this.combat.fighter;
+      f.root.updateMatrixWorld(true);
+      for (const o of [f.bone('PalmL'), f.bone('PalmR')]) {
+        if (!o) continue;
         const s = o.getWorldScale(new THREE.Vector3()).x;
         const glow = new THREE.Sprite(new THREE.SpriteMaterial({
           map: this.arena.dot, color: 0xffa040, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85,
@@ -200,7 +325,7 @@ export class Level03 extends Level {
         glow.position.set(0, 0.06 / s, 0);
         o.add(glow);
         this._fists.push(glow);
-      });
+      }
     }
     for (const f of this._fists) f.visible = on;
   }
@@ -214,7 +339,11 @@ export class Level03 extends Level {
       const c = this.combat;
       if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
       if (c.dodging) {
-        hud().popup('DODGE', '#8fe8ff');
+        if (c.dodgeDuration - c.dodgeT <= PERFECT_DODGE) this._perfectDodge(state);
+        else {
+          hud().popup('DODGE', '#8fe8ff');
+          this.style.add('dodge');
+        }
         return 'dodged';
       }
       if (c.parryReady()) {
@@ -222,18 +351,27 @@ export class Level03 extends Level {
         this._hitStop(0.09);
         this._addShake(0.4);
         hud().popup('PARRY!', '#ffe066');
+        this.style.add('parry');
+        this.waves.spawn(c.root.position.x, c.root.position.y, c.root.position.z, { size: 2.2, life: 0.35, color: 0xffe066 });
         return 'parried';
       }
       if (c.blocking) {
         state.damage(info.damage * info.blockMul);
         state.spendStamina(info.damage * 0.7);
         this._addShake(0.14);
+        // the blow lands on his forearms: he rocks back with it, and it sparks off the guard
+        const bp = this.boss.root.position, cp = c.root.position;
+        c.onBlocked(bp.x, bp.z);
+        this.arena.burst(cp.x + (bp.x - cp.x) * 0.25, cp.z + (bp.z - cp.z) * 0.25, {
+          color: 0xffe2a8, count: 18, speed: 2.6, size: 0.14, y: cp.y + 1.35, lift: 1.2, additive: true,
+        });
         hud().popup('BLOCKED', '#c9d6e0');
         this._checkPlayerDeath(state);
         return 'blocked';
       }
       state.damage(info.damage);
       c.onHurt();
+      this.style.hurt();
       this._hitStop(0.035);
       this._addShake(0.32);
       hud().damageFlash();
@@ -241,6 +379,10 @@ export class Level03 extends Level {
       return 'hit';
     };
 
+    this.boss.onCounter = () => {
+      hud().popup('COUNTER!', '#ff5a3a');
+      this._addShake(0.15);
+    };
     this.boss.onHelmetOff = () => {
       this._hitStop(0.12);
       this._addShake(0.5);
@@ -254,10 +396,12 @@ export class Level03 extends Level {
       } else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
     };
     this.boss.onDefeated = () => {
-      this._hitStop(0.2);
-      this._addShake(0.5);
-      this._endTimer = 1.6;
+      this._hitStop(0.12);
+      this._addShake(0.55);
+      this._endTimer = 2.6;
       this._endKind = 'win';
+      this._startFinal();
+      this.storm.clear();
     };
   }
 
@@ -298,10 +442,58 @@ export class Level03 extends Level {
     this.hud.setPointer(Math.abs(a) < halfFov ? null : a);
   }
 
+  /**
+   * The swoosh: while a kick or a heavy finisher is in its swing, the limb it
+   * lands with (by the build's measurements) sweeps a ribbon. Warm white;
+   * ember with the Power gift, cyan in bent time.
+   */
+  _updateTrail(dt, focus) {
+    const c = this.combat;
+    const a = c.attackDef;
+    const swing = a && this.mode === 'FIGHT' && (a.type === 'kick' || a.finisher)
+      && c.attackT >= a.windup - 0.12 && c.attackT <= a.windup + a.active + 0.06;
+    let bones = null;
+    if (swing) {
+      const limb = this.kaiMeta?.clips[a.clip]?.limb || (a.type === 'kick' ? 'RightFoot' : 'RightHand');
+      bones = (this._trailBones ||= {})[limb];
+      if (bones === undefined) {
+        const side = limb.startsWith('Left') ? 'Left' : 'Right';
+        const b = (n) => c.fighter.bones['mixamorig' + side + n];
+        const pair = limb.endsWith('Foot') ? [b('Leg'), b('ToeBase')] : [b('ForeArm'), b('HandMiddle1')];
+        bones = this._trailBones[limb] = pair[0] && pair[1] ? pair : null;
+      }
+      this.trail.setColor(focus ? 0x8ff0ff : this.power ? 0xffa040 : 0xffd88a);
+    }
+    this.trail.update(dt, bones);
+  }
+
+  /** A damage number off the Handler's head, wherever that is on screen. */
+  _damageNumber(amount, kind) {
+    const bp = this.boss.root.position;
+    const v = (this._dmgV ||= new THREE.Vector3()).set(bp.x, bp.y + 1.8, bp.z).project(this.game.camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) return; // behind the camera or off screen
+    this.hud.damageNumber((v.x * 0.5 + 0.5) * window.innerWidth, (-v.y * 0.5 + 0.5) * window.innerHeight, amount, kind);
+  }
+
+  /** Game.setPaused: Esc brings up the pause menu. */
+  onPause(on) {
+    if (this.pause) this.pause.show(on);
+  }
+
+  /** Dodged at the last instant: time bends round Kai. The world slows right down; he barely does. */
+  _perfectDodge(state) {
+    this._focusT = FOCUS_TIME;
+    state.stamina = Math.min(state.maxStamina, state.stamina + 20);
+    this.hud.popup('PERFECT DODGE', '#7fe8ff');
+    this.style.add('perfect');
+    this._addShake(0.12);
+  }
+
   _checkPlayerDeath(state) {
     if (state.alive || this.combat.dead) return;
     this.combat.die();
     state.deaths++;
+    losses++;
     this._endTimer = 1.4;
     this._endKind = 'lose';
   }
@@ -322,16 +514,39 @@ export class Level03 extends Level {
     this.beatT += real;
     const input = this.input;
 
-    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) this._skip();
+    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) {
+      if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
+      else this._skip();
+    }
 
     if (this.mode === 'INTRO') this._updateIntro(dt);
     else if (this.mode === 'EPILOGUE' || this.mode === 'END') this._updateEpilogue(dt);
     else this._updateFight(dt, real, state);
 
+    // dripping, prints, splashes; left idle in the fight, a soaked Kai shakes himself off
+    const idle = this.mode === 'FIGHT' && !this._ended ? this.combat.still : null;
+    const rain = this.storm.level;
+    this.kaiWet.update(dt, { still: idle, rain });
+    if (this.boss.root.visible) this.bossWet.update(dt, { rain });
+    this.wreck.update(dt, this.time, this.water);
+    this.waves.update(dt);
+    // the storm has passed: fireflies come out round the fallen Handler
+    const flies = this.mode === 'EPILOGUE' || this.mode === 'END' ? 1 : 0;
+    this._fliesAmt += (flies - this._fliesAmt) * (1 - Math.exp(-0.5 * real));
+    this.flies.update(this.time, this._fliesAmt);
+    this.water.update(dt);
+
+    // bent time (a perfect dodge, the Key's slow-mo) shows: KeyVision fades in and out
+    const bent = this.mode === 'FIGHT' && !this._ended && (this._focusT > 0 || this.combat.abilityActive);
+    this.vision.strength += ((bent ? 1 : 0) - this.vision.strength) * (1 - Math.exp(-(bent ? 12 : 5) * real));
+    if (!bent && this.vision.strength < 0.003) this.vision.strength = 0;
+
     this._updateCamera(real);
     this._updatePointer();
-    this.arena.updateOcclusion(real, this.game.camera.position, this._camLook);
+    this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
+    this.storm.update(dt, real, this.game.camera, this.combat.root.position);
+    this.hud.lightning(this.arena.flash);
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
@@ -372,7 +587,14 @@ export class Level03 extends Level {
     // the reveal shot holds Kai still for a beat; the key that skipped the intro doesn't also punch
     const controls = this.mode === 'FIGHT' && !this._muteInput ? input : NO_INPUT;
     this._muteInput = false;
-    this.combat.update(dt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    // after a perfect dodge Kai keeps (nearly) his own pace while everything else crawls; hit-stop still freezes him
+    if (this._focusT > 0) this._focusT -= real;
+    const focus = this._focusT > 0 && this.mode === 'FIGHT';
+    const stopped = performance.now() < this._hitStopUntil;
+    const kaiDt = focus && !stopped ? real * FOCUS_KAI : dt;
+    this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    this._updateTrail(kaiDt, focus);
+    this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
     // Kai's swing
     if (this.combat.consumeHit() && this.boss.state !== 'DOWN') {
@@ -382,7 +604,7 @@ export class Level03 extends Level {
       const facing = Math.sin(this.combat.heading) * this._toBoss.x + Math.cos(this.combat.heading) * this._toBoss.z;
       if (dist <= this.combat.attackRange && facing > 0.2) {
         const fin = this.combat.comboFinisher;
-        const dealt = this.boss.takeDamage(this.combat.attackDamage);
+        const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1));
         if (dealt > 0) {
           this.boss.root.position.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1));
           if (this.power) {
@@ -392,16 +614,25 @@ export class Level03 extends Level {
           }
           this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
-          if (this.boss.vulnerable) this.hud.popup('CRITICAL', '#ffd23a');
+          if (fin) {
+            this.waves.spawn(bp.x, bp.y, bp.z, {
+              size: this.power ? 4.2 : 3.2, color: focus ? 0x8ff0ff : this.power ? 0xffb347 : 0xffe2b0,
+            });
+          }
+          const crit = this.boss.vulnerable;
+          if (crit) this.hud.popup('CRITICAL', '#ffd23a');
+          this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '');
+          this.style.add(fin ? 'finisher' : 'hit');
+          if (crit) this.style.add('crit');
         }
       }
     }
 
     const b = this.boss.update(dt);
     this._separate();
-    // out in the jungle: trees, statues and walls are solid, and the ground isn't flat
-    this.arena.collide(cp, 0.4);
-    this.arena.collide(bp, 0.45);
+    // out in the jungle: trees, bushes, statues and walls are solid, and the ground isn't flat
+    this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
+    this._collide(this._bossBody, bp, 0.45, dt, false);
     cp.y = this.arena.fighterY(cp.x, cp.z);
     bp.y = this.arena.fighterY(bp.x, bp.z);
     // HandlerBoss glows orange through his phase transition; for the reveal close-up
@@ -413,15 +644,26 @@ export class Level03 extends Level {
       }
     }
 
+    // the VS splash clears, then FIGHT
+    if (this._fightCall > 0 && (this._fightCall -= real) <= 0) {
+      this.hud.popup('FIGHT', '#ffd9a8');
+      for (const t of this._fightToasts) this.hud.toast(...t, { queue: true });
+    }
+    this.style.update(real);
+    this.touch.setKey(1 - this.combat.abilityCD / this.combat.abilityRecharge);
+
     // the Key: popup on activation
     if (this.combat.abilityActive && !this._abilityWas) this.hud.popup('THE KEY', '#7fd8ff');
     this._abilityWas = this.combat.abilityActive;
 
     if (this.mode === 'REVEAL') this._updateReveal();
+    else if (this.mode === 'FINAL') this._updateFinal();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
-    state.timeScale = performance.now() < this._hitStopUntil ? 0.12
+    state.timeScale = stopped ? 0.12
+      : this.mode === 'FINAL' ? 0.15 + 0.85 * smooth(0.5, 2.3, this.beatT)
       : this.mode === 'REVEAL' ? 0.45
+      : focus ? FOCUS_SCALE
       : this.combat.abilityActive ? 0.35 : 1;
 
     this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
@@ -437,6 +679,22 @@ export class Level03 extends Level {
       this._endTimer -= real;
       if (this._endTimer < 0) this._finish(state);
     }
+  }
+
+  /**
+   * Keep one fighter out of the scenery. Running into a tree or bush (a fresh contact,
+   * not leaning on it) rocks it and shakes leaves loose; Kai rolling into
+   * one also thumps the camera.
+   */
+  _collide(body, pos, rad, dt, rolling) {
+    const speed = body.prev ? Math.hypot(pos.x - body.prev.x, pos.z - body.prev.z) / Math.max(dt, 1e-4) : 0;
+    const plant = this.arena.collide(pos, rad);
+    if (plant && plant !== body.plant && speed > 1.5) {
+      this.arena.shakePlant(plant, pos.x, pos.z, Math.min(1, speed / 6) * (rolling ? 1.5 : 1));
+      if (rolling) this._addShake(0.22);
+    }
+    body.plant = plant;
+    (body.prev ||= new THREE.Vector3()).copy(pos);
   }
 
   /** Fighters are solid: never let them stand inside each other. */
@@ -508,23 +766,29 @@ export class Level03 extends Level {
     k.root.position.copy(this.arena.anchors.wake);
     k.heading = 0.36; // facing the gate
     k.root.rotation.y = k.heading;
-    k.fighter.play('sitting', { fade: 0 });
+    // the Mixamo Kai lies washed up in the shallows (the first frame of his getting-up clip); the old one sits
+    if (this.kaiMeta) k.fighter.playOnce('standing', { fade: 0, speed: 0 });
+    else k.fighter.play('sitting', { fade: 0 });
+    this.kaiWet.setWet(1); // soaked even if the intro is skipped on its first frame
   }
 
   /**
-   * ~12 s, four shots: (A) Kai sits up in the pool, seen from inside the gate;
-   * (B) cut to the courtyard as he runs through the arch toward camera;
-   * (C) the Handler drops off the arch behind him, Kai turns; (D) settle into
+   * Five shots, ~30 s if you let the talk play out: (A) Kai sits up in the
+   * pool, seen from inside the gate, wades out and gets the water off as the
+   * camera backs through the arch; (B) cut to the courtyard as he runs through
+   * the arch toward camera; (C) the Handler leaps off the arch behind him, Kai
+   * turns; (D) face to face, the dialogue (Space moves it on a line); then
    * the fight camera.
    */
   _updateIntro(dt) {
-    const t = this.beatT;
+    // shot A runs on its own clock; B and C keep their timings, just SHAKE_BEAT later
+    const t = this.beatT < A_END ? this.beatT : this.beatT - SHAKE_BEAT;
     const k = this.combat;
     const kf = k.fighter;
     const a = this.arena.anchors;
     const kp = k.root.position;
 
-    if (t < 5.6) {
+    if (this.beatT < A_END) {
       // ---- A: the wake-up
       if (this._shot !== 'A') {
         this._shot = 'A';
@@ -532,29 +796,59 @@ export class Level03 extends Level {
         this.story.showCard('SITE 7', 'The current carried him over the falls.');
       }
       const floor = this.arena.groundHeight(kp.x, kp.z);
+      const sink = this.kaiMeta ? 0 : 0.45; // the old Kai's sitting clip sits on thin air: lower him onto the bed
       if (t < 2.2) {
-        kp.y = floor - 0.45; // sitting on the pool bed
+        kp.y = floor - sink; // on the pool bed
       } else if (t < 3.6) {
         if (this._pose !== 'stand') {
           this._pose = 'stand';
-          kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
+          if (this.kaiMeta) kf.setSpeed(1.6); // the getting-up clip, held on its first frame till now
+          else kf.playOnce('standing', { fade: 0.15, speed: 0.6 });
+          this.kaiWet.stream(1.6); // the pool pours off him as he gets up
+          this.water.ripple(kp.x, kp.z, 2.2, 0.55, 2.4);
         }
-        kp.y = floor - 0.45 * (1 - smooth(2.2, 3.5, t));
-      } else {
+        kp.y = floor - sink * (1 - smooth(2.2, 3.5, t));
+      } else if (t < WADE_OUT) {
         if (this._pose !== 'walk') {
           this._pose = 'walk';
-          kf.play('walk', { fade: 0.25 });
+          // paced to the 1.35 m/s he wades at; no walk clip? walking backwards, played in reverse, walks forwards
+          const pace = (clip) => 1.35 / (this.kaiMeta?.clips[clip]?.speed || 1.35);
+          if (kf.actions.walk) kf.play('walk', { fade: 0.25, speed: pace('walk') });
+          else kf.play('walkback', { fade: 0.25, speed: -pace('walkback') });
+          // the path's last slab stands ~0.4 m proud of the pool bed: he steps up onto it, a foot at a time
+          kf.feet?.start((x, z) => Math.max(this.arena.groundHeight(x, z), this.arena.pavingY(x, z)));
         }
         kp.x += Math.sin(k.heading) * 1.35 * dt;
         kp.z += Math.cos(k.heading) * 1.35 * dt;
-        kp.y = this.arena.groundHeight(kp.x, kp.z);
+        if (!kf.feet) {
+          // the old Kai has no legs to place: the pool bed, then eased up onto the slab
+          const y = Math.max(this.arena.groundHeight(kp.x, kp.z), this.arena.pavingY(kp.x, kp.z));
+          kp.y = y > kp.y ? kp.y + (y - kp.y) * (1 - Math.exp(-14 * dt)) : y;
+        }
+      } else {
+        // out on the path: stop, stand easy (not in his fighting stance), and get the water off:
+        // shake the head, wipe the face and hair back, shake the hands out
+        if (this._pose !== 'shake') {
+          this._pose = 'shake';
+          kf.feet?.stop();
+          if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, 0.35);
+          else kf.play('idle', { fade: 0.3 });
+        }
+        if (t >= SHAKE_AT && !this._shook) this._shook = this.kaiWet.shakeOff('full');
       }
       if (t > 3.6) this.story.hideCard();
-      // slow push-in, then lift to follow him up
-      this.cine.pos.set(-3.25 + smooth(0, 5.6, t) * 0.15, 1.0 + smooth(1.5, 5.0, t) * 0.55, -17.7 + smooth(0, 5.6, t) * 0.5);
+      // slow push-in, lift to follow him up, then back out through the arch as he comes out of the water
+      const back = smooth(3.9, 6.0, t);
+      this.cine.pos.set(
+        -3.25 + smooth(0, 5.6, t) * 0.15 + back * 1.3,
+        1.0 + smooth(1.5, 5.0, t) * 0.55,
+        -17.7 + smooth(0, 5.6, t) * 0.5 + back * 2.4,
+      );
+      // ...and ease back in a little once he stops, so the spray reads
+      this.cine.pos.lerp(this._tmp.set(kp.x, this.cine.pos.y, kp.z), smooth(5.8, 7.6, t) * 0.3);
       this.cine.look.set(kp.x, kp.y + 0.55 + smooth(2.2, 3.6, t) * 0.75, kp.z);
       this.cine.rate = 4;
-    } else if (t < 9.7) {
+    } else if (t < C_AT) {
       // ---- B: through the gate and down the path, running toward camera
       if (this._shot !== 'B') {
         this._shot = 'B';
@@ -567,52 +861,151 @@ export class Level03 extends Level {
       this._tmp.set(kp.x, 1.5, kp.z);
       this.cine.look.set(-2.6, 1.6, -12).lerp(this._tmp, 0.55);
       this.cine.rate = 5;
+    } else if (this._shot === 'D') {
+      // ---- D: face to face, a few words before it starts
+      this._updateTalk(dt);
     } else {
-      // ---- C: he lands
+      // ---- C: he jumps down off the arch and lands behind Kai
+      const b = this.boss;
+      const bf = b.fighter;
+      const lp = this.leap;
       if (this._shot !== 'C') {
         this._shot = 'C';
         kp.copy(KAI_START);
         kf.play('idle', { fade: 0.3 });
-        const b = this.boss;
         b.root.visible = true;
         b.root.position.copy(a.gateTop);
         b.heading = Math.atan2(KAI_START.x - a.gateTop.x, KAI_START.z - a.gateTop.z);
         b.root.rotation.y = b.heading;
-        b.fighter.play('idle', { fade: 0 });
+        // the leap clip, scrubbed by hand below; no clip to read, the old Handler stands and plays his jump on take-off
+        if (lp) bf.hold('jump', LEAP_FROM, 0);
+        else bf.play('idle', { fade: 0 });
         this._landed = false;
+        const landY = this.arena.fighterY(BOSS_LAND.x, BOSS_LAND.z);
+        const fall = Math.sqrt((2 * (a.gateTop.y - landY)) / LEAP_G);
+        const takeoff = C_AT + (lp ? lp.off - LEAP_FROM : 0.3);
+        this._leapAt = { takeoff, fall, land: takeoff + fall, landY };
       }
-      const b = this.boss;
-      const drop = smooth(10.0, 10.75, t);
-      if (t >= 10.0 && !this._jumped) {
+      const L = this._leapAt;
+      // in the air: carried forward evenly, falling from a standstill (y = top - g t²/2)
+      const air = Math.min(1, Math.max(0, (t - L.takeoff) / L.fall));
+      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, air);
+      b.root.position.y = a.gateTop.y + (L.landY - a.gateTop.y) * air * air;
+      if (lp) {
+        // the clip's own crouch and spring play at their speed; its time in the air is stretched over the fall
+        const s = t - C_AT;
+        const pre = lp.off - LEAP_FROM;
+        const clipT = s < pre ? LEAP_FROM + s
+          : s < pre + L.fall ? lp.off + ((s - pre) / L.fall) * (lp.on - lp.off)
+          : lp.on + (s - pre - L.fall);
+        const act = bf.actions.jump;
+        act.time = Math.min(clipT, act.getClip().duration);
+        if (clipT > act.getClip().duration - 0.4 && bf.current === act) bf.play('idle', { fade: 0.4 }); // up out of the crouch: into his stance
+      } else if (t >= L.takeoff && !this._jumped) {
         this._jumped = true;
-        b.fighter.playOnce('jump', { speed: 1.3 });
+        bf.playOnce('jump', { speed: 1.3 });
       }
-      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, drop);
-      b.root.position.y = (1 - drop) * a.gateTop.y + Math.sin(drop * Math.PI) * 1.2;
-      if (drop >= 1 && !this._landed) {
+      if (air >= 1 && !this._landed) {
         this._landed = true;
-        b.root.position.y = 0;
-        b.fighter.play('idle', { fade: 0.2 });
+        if (!lp) bf.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
         this._addShake(0.75);
         this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
+        this.waves.spawn(BOSS_LAND.x, L.landY, BOSS_LAND.z, { size: 5.5, life: 0.6, color: 0xffe2b0 });
         this.story.showCard('THE HANDLER', 'He never slows down.');
       }
-      // Kai hears it and turns round
-      if (t > 10.5) {
+      // Kai hears him land and turns round
+      if (t > L.land - 0.25) {
         const want = Math.atan2(BOSS_LAND.x - kp.x, BOSS_LAND.z - kp.z);
         k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-6 * dt));
-        kf.setGuard(t > 10.9, 0.8);
+        kf.setGuard(t > L.land + 0.15, 0.8);
       }
-      // the camera, already behind Kai's stop point, re-aims at the gate
+      // the camera, already behind Kai's stop point, re-aims at the gate and follows him down
       this.cine.pos.set(2.6, 2.1, 7.4);
-      this.cine.look.set(-1.4, 1.6 + (1 - drop) * 3.5, -6.5);
+      this.cine.look.set(-1.4, 1.6 + (1 - air * air) * 3.5, -6.5);
       this.cine.fov = 55;
       this.cine.rate = 2.6;
-      b.fighter.update(dt);
-      if (t > 12.6) this._startFight();
+      bf.update(dt);
+      // lowered after the pose is applied: the clip's ledge, faded out as it hands over to idle
+      if (lp) bf.visual.position.y = -lp.lower(bf.actions.jump.time) * bf.actions.jump.getEffectiveWeight();
+      if (t > L.land + TALK_AFTER) this._startTalk();
     }
     k.root.rotation.y = k.heading;
     kf.update(dt);
+  }
+
+  /** Shot D: the two of them face to face, a few lines each, typed out on screen as they're said. */
+  _startTalk() {
+    this._shot = 'D';
+    this.story.hideCard();
+    this.story.setSkipLabel('SPACE: NEXT LINE · CLICK HERE: SKIP');
+    const b = this.boss;
+    b.fighter.visual.position.y = 0; // well off the leap clip by now
+    b.root.position.copy(BOSS_LAND);
+    b.root.position.y = this._leapAt.landY;
+    this._line = -1;
+    this._nextLine();
+  }
+
+  /** On to the next line (the player pressing on while one is still typing just finishes it); after the last, fight. */
+  _nextLine(player = false) {
+    if (player && !this.story.lineDone) {
+      this.story.finishLine();
+      return;
+    }
+    this._line++;
+    const line = TALK[this._line];
+    if (!line) {
+      this._startFight();
+      return;
+    }
+    this._lineT = 0;
+    this._lineHold = 0;
+    const who = WHO[line.who];
+    this.story.showLine(who.name, line.text, who.color);
+    const bf = this.boss.fighter;
+    if (line.pose && bf.actions[line.pose]) bf.playOnce(line.pose, { fade: 0.25 });
+    const prev = TALK[this._line - 1];
+    this._talkShot(line.who, !prev || prev.who !== line.who);
+  }
+
+  _updateTalk(dt) {
+    const line = TALK[this._line];
+    const k = this.combat;
+    const kp = k.root.position;
+    const bp = this.boss.root.position;
+    const bf = this.boss.fighter;
+    k.heading += shortestAngle(k.heading, Math.atan2(bp.x - kp.x, bp.z - kp.z)) * (1 - Math.exp(-6 * dt));
+    const b = this.boss;
+    b.heading += shortestAngle(b.heading, Math.atan2(kp.x - bp.x, kp.z - bp.z)) * (1 - Math.exp(-6 * dt));
+    b.root.rotation.y = b.heading;
+    if (bf.currentName !== 'idle' && !bf.current?.isRunning()) bf.play('idle', { fade: 0.35 }); // the point done: back in his stance
+    // his mask's eyes smoulder brighter while he talks
+    b._glowMask(0xff5a1a, line?.who === 'handler' ? 1.3 : 0.6);
+    bf.update(dt);
+    if (!line) return;
+    // the shot creeps in over the line
+    this._lineT += dt;
+    this.cine.fov = 14 - Math.min(1, this._lineT / 4) * 1.6;
+    if (this.story.updateLine(dt)) {
+      this._lineHold += dt;
+      if (this._lineHold > 0.9 + line.text.length * 0.028) this._nextLine();
+    }
+  }
+
+  /**
+   * Over the listener's shoulder onto whoever's talking, on a long lens (they
+   * stand ~11 m apart). Both set-ups sit on the same side of the line between
+   * them, so they stay screen left and right as it cuts back and forth.
+   */
+  _talkShot(who, cut) {
+    const kp = this.combat.root.position;
+    const bp = this.boss.root.position;
+    const d = new THREE.Vector3(bp.x - kp.x, 0, bp.z - kp.z).normalize(); // Kai -> Handler
+    const right = new THREE.Vector3(-d.z, 0, d.x);
+    const [near, far, back] = who === 'handler' ? [kp, bp, -1.8] : [bp, kp, 1.8];
+    const pos = near.clone().addScaledVector(d, back).addScaledVector(right, 0.8);
+    pos.y = near.y + 1.78;
+    this._setCine(pos, new THREE.Vector3(far.x, far.y + 1.52, far.z), { fov: 14, rate: 6, cut });
   }
 
   /** Put Kai at fraction s along a polyline, facing along it. */
@@ -645,25 +1038,37 @@ export class Level03 extends Level {
     this.cine = null;
     this.story.setCinematic(false);
     this.story.hideCard();
+    this.story.hideLine();
+    this.story.setSkipLabel();
     this.hud.setVisible(true);
     this.touch.setVisible(true);
 
     const k = this.combat;
     const b = this.boss;
+    k.fighter.feet?.stop(true); // a skipped intro can catch him stepping out of the pool
     k.root.position.copy(KAI_START);
     k.fighter.setGuard(false);
     b.root.visible = true;
     b.root.position.copy(BOSS_LAND);
+    b.fighter.visual.position.y = 0; // off the leap clip's ledge (a skipped intro can catch him mid-leap)
+    if (b.fighter.currentName === 'jump') b.fighter.play('idle', { fade: 0 });
     k.heading = Math.atan2(BOSS_LAND.x - KAI_START.x, BOSS_LAND.z - KAI_START.z);
     k.root.rotation.y = k.heading;
     b.heading = k.heading + Math.PI;
     b.root.rotation.y = b.heading;
-    b.restFor = 0.9;
+    b.restFor = VS_TIME + 0.5; // he waits out the splash
     this.camYaw = k.heading;
-    this.hud.popup('FIGHT', '#ffd9a8');
+    this.hud.versus(WHO.kai.name, WHO.handler.name);
+    this._fightCall = VS_TIME;
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
+    // notes for the player, once FIGHT has been called
+    this._fightToasts = [];
     const left = this.gifts.remaining;
-    if (left > 0) this.hud.toast('SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5);
+    if (left > 0) this._fightToasts.push(['SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5]);
+    if (this._eased < 1) {
+      const pct = Math.round((1 - this._eased) * 100);
+      this._fightToasts.push(['WEAKENED', `he still feels the last fight \u00b7 ${pct}% less health this time`, 4.5]);
+    }
   }
 
   /** Phase II: the helmet comes off. A slow-mo look at his face over Kai's shoulder. */
@@ -701,8 +1106,44 @@ export class Level03 extends Level {
     }
   }
 
+  /**
+   * The blow that drops him: a white flash, the bars come in and time all but
+   * stops, then eases back up while the camera, low and side-on to the two of
+   * them, drifts round. The epilogue's slow circle takes over from there.
+   */
+  _startFinal() {
+    this._enterBeat('FINAL');
+    this._focusT = 0;
+    this.story.setCinematic(true, false);
+    this.story.flash();
+    this.hud.setVisible(false);
+    this.hud.setTell('');
+    this.touch.setVisible(false);
+    const kp = this.combat.root.position;
+    const bp = this.boss.root.position;
+    const d = new THREE.Vector3(bp.x - kp.x, 0, bp.z - kp.z).normalize();
+    const side = new THREE.Vector3(-d.z, 0, d.x);
+    // from whichever side the camera was already on, so the cut doesn't flip them round
+    const mid = kp.clone().lerp(bp, 0.55);
+    const cam = this.game.camera.position;
+    if ((cam.x - mid.x) * side.x + (cam.z - mid.z) * side.z < 0) side.negate();
+    const sep = Math.hypot(bp.x - kp.x, bp.z - kp.z);
+    this._final = { mid, d, side, dist: Math.max(3.4, sep * 0.9 + 2.2) };
+    this._updateFinal(true);
+  }
+
+  _updateFinal(cut = false) {
+    const { mid, d, side, dist } = this._final;
+    const a = -0.35 + this.beatT * 0.22; // a slow arc round them
+    const out = side.clone().multiplyScalar(Math.cos(a)).addScaledVector(d, Math.sin(a));
+    const pos = mid.clone().addScaledVector(out, dist);
+    pos.y = mid.y + 1.05;
+    this._setCine(pos, new THREE.Vector3(mid.x, mid.y + 0.95, mid.z), { fov: 36, rate: 9, cut });
+  }
+
   _startEpilogue() {
     this._enterBeat('EPILOGUE');
+    this.flies.centre(this.boss.root.position.x, this.boss.root.position.z);
     this.story.setCinematic(true, true);
     this.story.hideLetter();
     this.hud.setVisible(false);
@@ -722,12 +1163,16 @@ export class Level03 extends Level {
     if (this._shot !== 'E0') {
       this._shot = 'E0';
       this._orbitFrom = this.time;
+      // start across him from Kai: the Handler down in front, Kai standing over him beyond
+      const kp = k.root.position;
+      this._orbitA0 = Math.atan2(kp.z - bp.z, kp.x - bp.x) + Math.PI + 0.55;
       k.fighter.play('idle', { fade: 0.3 });
       k.fighter.setGuard(false);
-      this._setCine(new THREE.Vector3(bp.x + 3.4, bp.y + 1.5, bp.z + 2.6), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
+      const a0 = this._orbitA0;
+      this._setCine(new THREE.Vector3(bp.x + Math.cos(a0) * 3.8, bp.y + 1.4, bp.z + Math.sin(a0) * 3.8), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
     }
     const s = this.time - this._orbitFrom;
-    const a = 0.65 + s * 0.18;
+    const a = this._orbitA0 + s * 0.18;
     this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
     this.cine.rate = 3;
     if (this.mode === 'EPILOGUE' && this.beatT > 3) this._showEnd();
@@ -791,6 +1236,7 @@ export class Level03 extends Level {
       // slowed with the game during hit-stop, so impacts freeze the camera too
       const gameDt = dt * Math.max(this.state.timeScale, 0.05);
       this._tmp.set(fx - Math.sin(this.camYaw) * dist, height + fy, fz - Math.cos(this.camYaw) * dist);
+      this.arena.pullCamera(cp, this._tmp); // a trunk right behind Kai: come in front of it rather than hide it
       cam.position.lerp(this._tmp, 1 - Math.exp(-15 * gameDt));
       this._tmp.set(fx, 1.4 + fy, fz);
       this._camLook.lerp(this._tmp, 1 - Math.exp(-10 * gameDt));
@@ -811,7 +1257,14 @@ export class Level03 extends Level {
     cam.position.add(this._shakeOff);
   }
 
+  /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
+  render(renderer, scene, camera) {
+    if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);
+    else renderer.render(scene, camera);
+  }
+
   teardown() {
+    if (this.vision) this.vision.dispose();
     if (this.touch) this.touch.dispose();
     if (this.input) this.input.ignored.delete('mouse0');
     // skinned meshes own a bone texture that disposeObject() does not free
@@ -819,6 +1272,7 @@ export class Level03 extends Level {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
     });
     if (this.hud) this.hud.dispose();
+    if (this.pause) this.pause.dispose();
     if (this.story) this.story.dispose();
     if (this.letters) this.letters.dispose();
     if (this.gifts) this.gifts.dispose();

@@ -4,7 +4,7 @@ import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders
 import { AudioSystem } from "../audio/audioSystem.js";
 import { showEndCard } from "../ui/EndCard.js";
 import { Hud } from "../core/Hud.js";
-import { loadCast, makeKai } from "../intros/cast.js";
+import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -591,6 +591,7 @@ export class Level01 extends Level {
     this.body = body;
     this.player.add(body);
     await this._buildKai();
+    await this._buildHandlerModel();
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
@@ -2638,6 +2639,9 @@ export class Level01 extends Level {
 
     group.position.set(0, 0, HANDLER_START_GAP);
     group.userData.isHandler = true;
+    this._handlerStub = [coat, head]; // the stand-in, hidden once the monk loads (_buildHandlerModel)
+    this._handlerTorch = torch;
+    this._handlerBeam = beam;
     this.handler = group;
     this.handlerLight = glow;
     this._handlerLightBase = 2.8;
@@ -3327,6 +3331,7 @@ export class Level01 extends Level {
 
     // the pursuit reads this.z, so it has to run after the clip is applied
     this._updateHandler(dt, state);
+    this._updateHandlerModel(dt);
     this._updateHandlerPressure(dt);
 
     // pooled scenery and obstacle meshes follow him; this also advances the
@@ -3470,6 +3475,51 @@ export class Level01 extends Level {
     this._kaiWasAirborne = false;
   }
 
+  /**
+   * The Handler himself: the same monk Kai fights at Site 7 (intros/cast.js),
+   * in his carved stone mask, so his face stays hidden till Level 3. He goes
+   * inside the pursuit group, so the chase above moves him exactly as it moved
+   * the capsule, which stays as the stand-in if he fails to load. His torch
+   * goes into his right hand and the beam with it, still aimed down the trail.
+   */
+  async _buildHandlerModel() {
+    const { handler } = await loadCast(this.assets);
+    if (!handler?.source || !this.handler) return;
+    const monk = makeHandler(this.handler, handler);
+    monk.root.rotation.y = Math.PI; // running down the trail (-z), like Kai
+    monk.root.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    for (const m of this._handlerStub) m.visible = false;
+    this._handlerTorch.scale.setScalar(0.65); // a hand-held torch, not the stand-in's lamp
+    this._handlerPalm = monk.bone("PalmR");
+    this._handlerHand = new THREE.Vector3();
+    this.handlerMonk = monk;
+  }
+
+  /** Runs with the chase; stopped at the bars, or over a caught Kai, he rounds on him and points. */
+  _updateHandlerModel(dt) {
+    const monk = this.handlerMonk;
+    if (!monk) return;
+    const stopped = this.caught || (this._handlerSealed && this.handler.position.z <= this._handlerBarZ + 0.05);
+    if (stopped) {
+      if (monk.currentName === "run") {
+        if (monk.actions.angry) monk.playOnce("angry", { fade: 0.25 });
+        else monk.play("idle", { fade: 0.25 });
+      }
+    } else {
+      monk.play("run", { fade: 0.2 });
+      const v = this.baseSpeed + (this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0);
+      monk.current.timeScale = 0.85 + 0.6 * THREE.MathUtils.clamp(v / SPEED_TOP, 0, 1.2);
+    }
+    monk.update(dt);
+    if (this._handlerPalm) {
+      this.handler.worldToLocal(this._handlerPalm.getWorldPosition(this._handlerHand));
+      this._handlerTorch.position.copy(this._handlerHand);
+      this._handlerBeam.position.copy(this._handlerHand);
+    }
+  }
+
   _updateKai(dt) {
     const kai = this.kai;
     if (!kai) return;
@@ -3503,9 +3553,11 @@ export class Level01 extends Level {
       this.hud.unmount();
       this.hud = null;
     }
-    this.kai?.root.traverse((o) => {
-      if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
-    });
+    for (const f of [this.kai, this.handlerMonk]) {
+      f?.root.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
+      });
+    }
     this._removeCaughtOverlay();
     this._removeEscapedCard();
     this._removeTempleRunHUD();

@@ -18,13 +18,16 @@ assets/
 │   ├── models/
 │   │   ├── nature/        13 FBX   trees, bushes, grass, rocks
 │   │   ├── ruins/         91 FBX   stone shrine kit + leaf/bark textures
-│   │   └── props/         16 glTF/GLB   logs, crates, barrels, stones, the bridge
+│   │   ├── props/         16 glTF/GLB   logs, crates, barrels, stones, the bridge
+│   │   └── wreck/          5 GLB   Kai's car in the pool at Site 7: wheel, tyre, bumper, axle, steering wheel
 │   ├── textures/          6 PBR sets (colour / normal / roughness / ao)
 │   └── environment/       sky-light.exr (lighting only)
 └── textures/              (empty: the old Deephold lava textures went when the shrine landed)
 ```
 
-All source packs are CC0 (Quaternius, ambientCG, Poly by Google). No credit is legally required, but list them on the credits screen anyway.
+All source packs are CC0 (Quaternius, ambientCG, Poly by Google, Kenney) except one: `wreck/steering-wheel.glb` is "Steering wheel" by Poly by Google, **CC-BY 3.0** (via [Poly Pizza](https://poly.pizza/m/bIYbhKwE4L0)), so it must stay in the credits. For the rest no credit is legally required, but list them on the credits screen anyway.
+
+The other `wreck/` pieces are from Kenney's [Car Kit](https://kenney.nl/assets/car-kit) (`wheel-truck`, `debris-tire`, `debris-bumper`, `debris-drivetrain-axle`), with the kit's colour map embedded in each GLB so there's no separate `Textures/` folder.
 
 ---
 
@@ -41,6 +44,7 @@ The packs use different units. Use these scale factors so everything matches Kai
 | `models/nature/rock-*.fbx` | cm | **0.005 – 0.015** (obstacle), **0.1** (cliff) | 1 – 3 m boulders, or cliff chunks |
 | `models/props/*.gltf` | tiny (≈0.1 = 1 crate) | **14** crates/barrels, **4** logs, **3** stones, **8** small trees | Real-world size |
 | `models/props/bridge.glb` | metres | **1 – 1.5** | 31 m span (Interlude II) |
+| `models/wreck/*.glb` | mixed | Sized by `level3/Wreck.js` (longest side in metres) | 0.8 m wheel, 1.7 m bumper |
 | `characters/*.fbx` | 482.7 units tall | Handled by `Fighter.js` | 1.8 m |
 
 Most models stand on their base at y = 0. The exceptions are `ruins/floor-standard.fbx` (its top surface is at about y = 0, and the slab extends downward), `ruins/torch.fbx` (origin at the wall bracket) and the nature rocks (which sink a few cm, which looks fine).

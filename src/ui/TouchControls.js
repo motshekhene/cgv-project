@@ -34,6 +34,17 @@ const CSS = THEME_CSS + `
 .tc-block { right:44px; bottom:148px; width:72px; height:72px; font-size:12px; }
 .tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:rgba(111,227,255,.65); color:var(--key); }
 .tc-key.on, .tc-key:active { background:radial-gradient(circle at 35% 30%, #e6fbff, var(--key) 60%, #2a8fae); color:#062430; }
+/* the Key's recharge: a ring fills round its button; full, it glows and pings once */
+.tc-key::before { content:''; position:absolute; inset:-7px; border-radius:50%; pointer-events:none;
+  background:conic-gradient(var(--key) calc(var(--k, 1) * 1turn), rgba(111,227,255,.14) 0);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+          mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px)); }
+.tc-key.charging { color:rgba(111,227,255,.45); border-color:rgba(111,227,255,.22); }
+.tc-key.ready { animation:tcReady 1.8s ease-in-out infinite; }
+.tc-key.ping::after { content:''; position:absolute; inset:-7px; border-radius:50%; border:2px solid var(--key); pointer-events:none;
+  animation:tcPing .7s ease-out forwards; }
+@keyframes tcReady { 50% { box-shadow:0 0 18px rgba(111,227,255,.65), 0 4px 12px rgba(0,0,0,.45); } }
+@keyframes tcPing { from { transform:scale(1); opacity:1; } to { transform:scale(1.7); opacity:0; } }
 
 /* the lock indicator: one round icon in the HUD grid's right-hand column */
 .tc-view { position:absolute; top:12px; right:12px; width:38px; height:38px; padding:0; border-radius:50%; pointer-events:auto; cursor:pointer;
@@ -85,6 +96,8 @@ export class TouchControls {
       <div class="tc-btn tc-key" data-a="ability">KEY<small>V</small></div>`;
     host.appendChild(this.el);
 
+    this.keyBtn = this.el.querySelector('.tc-key');
+    this._key = 1;
     this._initJoystick();
     for (const b of this.el.querySelectorAll('.tc-btn')) this._initButton(b);
     this._initArrows();
@@ -222,6 +235,23 @@ export class TouchControls {
     }[mode] || ['◎', ''];
     this.viewBtn.querySelector('i').textContent = icon;
     this.viewBtn.title = title;
+  }
+
+  /** The Key's recharge, 0..1: the ring round its button fills; full, it glows (and pings as it gets there). */
+  setKey(frac) {
+    const k = Math.min(1, Math.max(0, frac));
+    const was = this._key;
+    if (Math.abs(k - was) < 0.01 && (k >= 1) === (was >= 1)) return;
+    this._key = k;
+    const b = this.keyBtn;
+    b.style.setProperty('--k', k.toFixed(3));
+    b.classList.toggle('charging', k < 1);
+    b.classList.toggle('ready', k >= 1);
+    if (k >= 1 && was < 1) {
+      b.classList.remove('ping');
+      void b.offsetWidth;
+      b.classList.add('ping');
+    }
   }
 
   /** Hide every widget during cutscenes (and let go of anything held). */

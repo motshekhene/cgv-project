@@ -1,0 +1,181 @@
+{
+  "fps": 30,
+  "clips": {
+    "idle": {
+      "duration": 2.2,
+      "loop": true
+    },
+    "run": {
+      "duration": 0.7,
+      "loop": true,
+      "speed": 4.41
+    },
+    "lunge": {
+      "duration": 0.867,
+      "loop": false,
+      "start": 0.067,
+      "hit": 0.367,
+      "settle": 0.667,
+      "limb": "RightHand",
+      "hits": [
+        {
+          "t": 0.367,
+          "limb": "RightHand"
+        }
+      ]
+    },
+    "sweep": {
+      "duration": 1.833,
+      "loop": false,
+      "start": 0.233,
+      "hit": 1.6,
+      "settle": 1.733,
+      "limb": "LeftFoot",
+      "hits": [
+        {
+          "t": 0.2,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 0.7,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 1.133,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 1.333,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 1.6,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 1.833,
+          "limb": "LeftFoot"
+        }
+      ],
+      "travel": 0.0
+    },
+    "capoeira": {
+      "duration": 3.433,
+      "loop": false,
+      "start": 0.233,
+      "hit": 0.967,
+      "settle": 2.267,
+      "limb": "RightFoot",
+      "hits": [
+        {
+          "t": 0.533,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 0.967,
+          "limb": "RightFoot"
+        },
+        {
+          "t": 1.4,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 1.633,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 2.6,
+          "limb": "LeftFoot"
+        },
+        {
+          "t": 2.767,
+          "limb": "RightFoot"
+        }
+      ],
+      "travel": 0.0
+    },
+    "combo": {
+      "duration": 2.967,
+      "loop": false,
+      "start": 1.467,
+      "hit": 1.667,
+      "settle": 1.833,
+      "limb": "LeftHand",
+      "hits": [
+        {
+          "t": 0.367,
+          "limb": "LeftHand"
+        },
+        {
+          "t": 0.633,
+          "limb": "LeftHand"
+        },
+        {
+          "t": 0.933,
+          "limb": "RightHand"
+        },
+        {
+          "t": 1.233,
+          "limb": "RightHand"
+        },
+        {
+          "t": 1.667,
+          "limb": "LeftHand"
+        },
+        {
+          "t": 1.867,
+          "limb": "RightHand"
+        },
+        {
+          "t": 2.167,
+          "limb": "LeftHand"
+        },
+        {
+          "t": 2.367,
+          "limb": "RightHand"
+        }
+      ]
+    },
+    "jump": {
+      "duration": 3.067,
+      "loop": false,
+      "takeoff": 1.233,
+      "land": 1.8,
+      "drop": 1.063,
+      "travel": 0.0
+    },
+    "stunned": {
+      "duration": 4.267,
+      "loop": true
+    },
+    "angry": {
+      "duration": 2.433,
+      "loop": false,
+      "start": 0.0,
+      "hit": 0.467,
+      "settle": 0.767,
+      "limb": "RightHand",
+      "hits": [
+        {
+          "t": 0.467,
+          "limb": "RightHand"
+        }
+      ]
+    },
+    "hit": {
+      "duration": 2.0,
+      "loop": false,
+      "peak": 0.733,
+      "settle": 1.5,
+      "lean": 0.535
+    },
+    "death": {
+      "duration": 3.333,
+      "loop": false,
+      "travel": 0.0
+    }
+  },
+  "ankle": 0.012,
+  "hips": 0.078,
+  "height": 1.777
+}

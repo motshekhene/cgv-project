@@ -21,7 +21,7 @@ The team picked the **Jungle Shrine** theme. Start with [docs/JUNGLE_SHRINE_IMPL
 
 ```
 assets/jungle/     every model and texture the game uses (index: assets/jungle/README.md)
-assets/characters/ kai.fbx, handler.fbx
+assets/characters/ kai-bryce.glb, handler-monk.glb (+ .json), built by tools/build-character.py; kai.fbx, handler.fbx are the old fallbacks
 public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
 intros/            the Level 1 intro on its own page: npm run intro:l1
@@ -77,7 +77,7 @@ Use `rock-texture.png`, not `Rock Texture.PNG`. The real server is case-sensitiv
 ### 3. Models and textures
 
 - Load them through `AssetRegistry` (`assets.model(...)`, `assets.fbx(...)`, `assets.texture(...)`), not your own loader, so they are cached and freed between levels.
-- Shared models (Kai, the Handler, the jungle kit) live in `assets/characters/` and `assets/jungle/`. Reuse them rather than adding copies.
+- Shared models (Kai, the Handler, the jungle kit) live in `assets/characters/` and `assets/jungle/`. Reuse them rather than adding copies. For Kai or the Handler, use `loadRig(assets, 'kai-bryce', 'kai.fbx')` from `src/player/rig.js` (or `loadCast` / `makeKai` / `makeHandler` from `src/intros/cast.js`), so every level shows the same characters.
 - A model only one level needs goes in that level's own folder, e.g. `public/assets/level2/`.
 - Prefer `.glb`, keep textures at 2K or smaller, and note where it came from in a `CREDITS.md` next to it.
 

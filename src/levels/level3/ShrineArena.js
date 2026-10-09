@@ -17,7 +17,7 @@ import { createLightShaft } from '../../shaders/lightshaft.js';
  * Owns its lights, sky and fog. Knows nothing about the fight: Level03 calls
  * update() each frame, setFocus() so the sun's shadow box follows the fight,
  * setDuskTarget(1) when phase III starts, and collide()/fighterY() to keep
- * both fighters on the ground and out of trees, statues and walls when the
+ * both fighters on the ground and out of trees, bushes, statues and walls when the
  * fight spills out of the courtyard into the jungle.
  *
  * Budget notes (measured on an Intel UHD 620 at 720p): every light is paid
@@ -27,12 +27,18 @@ import { createLightShaft } from '../../shaders/lightshaft.js';
  * groups are merged (props.js) and the jungle is instanced.
  */
 const TILE = 199 * RU;
+const PAVE_TOP = 0.053; // floor-standard.fbx at RU: its walking surface sits this far above its origin
 export const GATE = new THREE.Vector3(-3, 0, -17);
 export const POOL = { x: -7, z: -28, r: 11, y: -0.18 };
 const FALL = { x: -7, z: -33.5, w: 7, h: 19 };
 const WALL_Z = -17.2;
 const GATE_S = RU * 1.6;
 export const WALK_R = 34; // how far into the jungle Kai (and the Handler after him) can go
+const KEEP_R = 2.0; // a tree or bush whose edge is this close to Kai stays on screen (never shrinks for the camera)
+
+const _mat = new THREE.Matrix4();
+const _rot = new THREE.Matrix4();
+const _axis = new THREE.Vector3();
 
 /** Clearings in the jungle ring where the shrine gifts stand (level3/Awards.js). */
 export const GIFT_SPOTS = {
@@ -45,6 +51,55 @@ const smooth = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
+
+const BARK = /bark|trunk|^tree$/i;
+
+/**
+ * Where a model stands, measured from its own geometry (in the model's units, so
+ * it scales with each copy): the centre and radius of its vertices between
+ * heights `above` and `below`, optionally only those of materials matching
+ * `match`, and its full height `top`. `pct` < 1 ignores the outermost few
+ * vertices (a stray leaf shouldn't widen a bush). Null if nothing matched.
+ *
+ * Trees: the bark between knee and hip height. The five jungle trees range from
+ * ~17 to ~32 units, 0.5 m to 1.2 m once placed, and the bushes from 0.5 m to
+ * over 2 m, which no fixed collision circle can cover.
+ */
+function footprintOf(prop, { above = -Infinity, below = Infinity, match = null, pct = 1 } = {}) {
+  prop.updateMatrixWorld(true);
+  const inv = prop.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const pts = [];
+  let top = 0;
+  prop.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = [].concat(o.material);
+    const pos = o.geometry.attributes.position;
+    const idx = o.geometry.index;
+    const groups = o.geometry.groups.length ? o.geometry.groups : [{ start: 0, count: idx ? idx.count : pos.count, materialIndex: 0 }];
+    m.multiplyMatrices(inv, o.matrixWorld);
+    for (const g of groups) {
+      const wanted = !match || match.test(mats[g.materialIndex]?.name || '');
+      for (let i = g.start; i < g.start + g.count; i++) {
+        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m);
+        top = Math.max(top, v.y);
+        if (wanted && v.y > above && v.y < below) pts.push(v.x, v.z);
+      }
+    }
+  });
+  if (!pts.length) return null;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]);
+    z0 = Math.min(z0, pts[i + 1]); z1 = Math.max(z1, pts[i + 1]);
+  }
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  const ds = [];
+  for (let i = 0; i < pts.length; i += 2) ds.push(Math.hypot(pts[i] - cx, pts[i + 1] - cz));
+  ds.sort((a, b) => a - b);
+  return { cx, cz, r: ds[Math.floor((ds.length - 1) * pct)], top };
+}
 
 function dotTexture() {
   const c = document.createElement('canvas');
@@ -67,12 +122,17 @@ export class ShrineArena {
     this.scene = scene;
     this.dusk = 0;
     this.duskTarget = 0;
+    this.flash = 0; // a lightning flash on top of the light (Storm.js), 0..1
     this.flowTime = 0;
     this.dot = dotTexture();
     this._c = new THREE.Color();
     this.bursts = [];
     this.obstacles = []; // { x, z, r } circles: trunks, columns, statues, cliff rocks, altars
+    this.paving = []; // { x, y, z } the path slabs out to the pool: they stand proud of the basin, so feet go on top of them
+    this.plants = []; // solid trees and bushes: obstacles that also know their instance (occ, i), so a bump can rock it
     this.occluders = []; // instanced trees/bushes that shrink out of the camera's way
+    this.swaying = new Set(); // plants still rocking from a bump
+    this.leaves = null; // falling-leaf particles, built on the first bump
     this.walls = [ // the gate wall line, open under the arch
       { ax: -22.4, bx: -5.1, z: WALL_Z - 0.25, r: 0.5 },
       { ax: -0.9, bx: 13.2, z: WALL_Z - 0.25, r: 0.5 },
@@ -82,7 +142,7 @@ export class ShrineArena {
     this.anchors = {
       wake: new THREE.Vector3(-4.6, 0, -21.2), // where the current left Kai (in the pool)
       gate: GATE.clone(),
-      gateTop: new THREE.Vector3(GATE.x, 9.0, GATE.z + 0.2), // top of the arch: the Handler drops from here
+      gateTop: new THREE.Vector3(GATE.x, 9.04, GATE.z - 0.2), // on the arch's keystone: the Handler drops from here
       box: new THREE.Vector3(1.45, 1.25, -16.45), // junction box beside the gate's right column
     };
   }
@@ -169,12 +229,14 @@ export class ShrineArena {
       const x = Math.cos(a) * 13.6, z = Math.sin(a) * 13.6;
       const broken = k % 3 === 1;
       add(broken ? colShort : col, x, 0, z, { s: RU * (broken ? 1.25 : 1.1), rz: k === 4 ? 0.14 : 0, rx: k === 8 ? -0.1 : 0 });
-      this.obstacles.push({ x, z, r: 0.6 });
+      this.obstacles.push({ x, z, r: broken ? 0.62 : 0.72 }); // square plinths: 0.49 / 0.58 to a side, more to a corner
       if (!broken && k !== 4 && k !== 8) this.torchSpots.push(a);
     }
 
     // ---- shrine gate, overgrown walls either side, guardians, steps
     add(arch, GATE.x, 0, GATE.z, { s: GATE_S });
+    // the arch's two columns stand ~0.3 m proud of the wall line: give them their own footing
+    this.obstacles.push({ x: GATE.x - 3.38, z: GATE.z - 0.3, r: 0.72 }, { x: GATE.x + 3.38, z: GATE.z - 0.3, r: 0.72 });
     for (const [x, piece] of [[-10.2, wallA], [4.2, wallAB], [-16.6, wallO], [10.6, wallO], [-19.8, wallO]]) {
       add(piece, x, 0, WALL_Z, { s: GATE_S });
     }
@@ -183,10 +245,15 @@ export class ShrineArena {
     this.obstacles.push({ x: -8.6, z: -14.2, r: 1.5 }, { x: 3.2, z: -14.4, r: 1.5 });
     this.templates = { pedestal: colShort };
     // paved path from the courtyard edge, under the arch, to the pool's rim
-    if (floor) scatter(this.root, floor, [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z, s: RU, ry: i * Math.PI / 2 })));
-    add(pot, 8.9, 0, -9.9, { s: RU });
-    add(potB, 9.9, 0, -9.0, { s: RU, ry: 1 });
-    add(pot, -12.6, 0, 2.2, { s: RU * 1.2 });
+    if (floor) {
+      this.paving = [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z }));
+      scatter(this.root, floor, this.paving.map((p, i) => ({ ...p, s: RU, ry: i * Math.PI / 2 })));
+    }
+    for (const [src, x, z, s, ry] of [[pot, 8.9, -9.9, RU, 0], [potB, 9.9, -9.0, RU, 1], [pot, -12.6, 2.2, RU * 1.2, 0]]) {
+      add(src, x, 0, z, { s, ry });
+      const fp = src && footprintOf(src, { below: 1.8 / s }); // the urns are round: their base is their footprint
+      if (fp) this.obstacles.push({ x: x + fp.cx * s, z: z + fp.cz * s, r: fp.r * s });
+    }
 
     this._buildSite7();
     this._buildTorches(torch);
@@ -202,6 +269,8 @@ export class ShrineArena {
     this._buildWater();
 
     // ---- jungle ring (instanced: one draw call per model, not per tree)
+    // Trees and bushes are solid like the columns: collision circles measured
+    // from each model (_solidify), and the camera never shrinks one Kai is next to.
     const treeSrc = [tree1, tree2, tree3, tree4, treeR];
     const treeSpots = treeSrc.map(() => []);
     for (let k = 0; k < 80; k++) {
@@ -213,9 +282,14 @@ export class ShrineArena {
       const t = Math.floor(r() * treeSrc.length);
       const s = (t === 4 ? 0.03 : 0.028) * (0.8 + r() * 0.6);
       treeSpots[t].push({ x, y: this.groundHeight(x, z) - 0.15, z, s, ry: r() * 6.28 });
-      if (d < WALK_R + 1) this.obstacles.push({ x, z, r: 0.55 });
     }
-    treeSrc.forEach((src, t) => src && this._occluder(scatter(this.root, src, treeSpots[t]), treeSpots[t], () => 1.9));
+    treeSrc.forEach((src, t) => {
+      if (!src) return;
+      const occ = this._occluder(scatter(this.root, src, treeSpots[t]), treeSpots[t], () => 1.9);
+      // the trunk: bark between knee and hip height; the furthest vertices are the polygon's corners, so sit just inside them
+      const trunk = footprintOf(src, { match: BARK, above: 12, below: 50 });
+      this._solidify(occ, trunk, { fit: 0.92, leaves: (p) => ({ y: [2.6, 5], r: [p.r + 0.3, p.r + 2.1], n: 1 }) });
+    });
 
     const bushSpots = [[], []];
     const ringSpots = [[], []];
@@ -234,10 +308,16 @@ export class ShrineArena {
       const big = r() < 0.5;
       bushSpots[big ? 1 : 0].push({ x, y: this.groundHeight(x, z) - 0.1, z, s: (big ? RU : 0.016) * (0.8 + r() * 0.7), ry: r() * 6.28 });
     }
-    if (bush) this._occluder(scatter(this.root, bush, bushSpots[0], { shadow: true }), bushSpots[0], (sp) => sp.s * 54 + 0.3);
-    if (bushL) this._occluder(scatter(this.root, bushL, bushSpots[1], { shadow: true }), bushSpots[1], (sp) => sp.s * 100 + 0.3);
-    if (bush) this._occluder(scatter(this.root, bush, ringSpots[0]), ringSpots[0], (sp) => sp.s * 54 + 0.3);
-    if (bushL) this._occluder(scatter(this.root, bushL, ringSpots[1]), ringSpots[1], (sp) => sp.s * 100 + 0.3);
+    // bushes: as wide as their foliage below head height (90% of it: a stray leaf shouldn't count),
+    // a touch inside that, so Kai brushes the edge of the leaves as they stop him
+    const bushFit = { fit: 0.9, give: 1.6, leaves: (p) => ({ y: [p.top * 0.35, p.top * 0.85], r: [0, p.r * 1.1], n: 0.6 }) };
+    for (const [src, spots, shadow, reach] of [
+      [bush, bushSpots[0], true, 54], [bushL, bushSpots[1], true, 100], [bush, ringSpots[0], false, 54], [bushL, ringSpots[1], false, 100],
+    ]) {
+      if (!src) continue;
+      const occ = this._occluder(scatter(this.root, src, spots, { shadow }), spots, (sp) => sp.s * reach + 0.3);
+      this._solidify(occ, footprintOf(src, { below: 100, pct: 0.9 }), bushFit);
+    }
 
     const grassSpots = [[], []];
     for (let k = 0; k < 560; k++) {
@@ -318,6 +398,7 @@ export class ShrineArena {
     this.root.add(this.led);
     const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, b.y, 6), new THREE.MeshStandardMaterial({ color: 0x15181b }));
     cable.position.set(b.x - 0.12, b.y / 2 - 0.3, b.z);
+    this.obstacles.push({ x: b.x - 0.12, z: b.z, r: 0.08 }); // it runs down to the ground, just proud of the wall
     this.root.add(cable);
 
     // tiny screen on the box: blank until the epilogue's upload
@@ -468,11 +549,62 @@ export class ShrineArena {
 
   _occluder(group, spots, radius) {
     const meshes = group.children.filter((m) => m.isInstancedMesh);
-    if (!meshes.length) return;
-    this.occluders.push({
+    if (!meshes.length) return null;
+    const n = spots.length;
+    const o = {
       meshes, spots, radius: spots.map(radius),
       base: meshes.map((m) => m.instanceMatrix.array.slice()),
-      k: new Float32Array(spots.length).fill(1),
+      k: new Float32Array(n).fill(1),
+      keep: new Float32Array(n), // > 0 for solid ones: never shrink while Kai is this close to the root
+      // bump sway: tilt angle, its rate, and the (unit) direction the top leans
+      tilt: new Float32Array(n), spin: new Float32Array(n), dirX: new Float32Array(n), dirZ: new Float32Array(n),
+    };
+    this.occluders.push(o);
+    return o;
+  }
+
+  /**
+   * Make the copies in an occluder solid wherever the fight can reach them: a
+   * collision circle from the model's footprint (`fp`, model units, times
+   * `fit`), linked back to its instance so a bump can rock it (`give`: how
+   * much), kept on screen while Kai is next to it, and `leaves(plant)` saying
+   * where a bump shakes leaves loose from ({ y, r } ranges, n = how many).
+   */
+  _solidify(occ, fp, { fit = 1, give = 1, leaves }) {
+    if (!occ) return;
+    occ.spots.forEach((sp, i) => {
+      const c = Math.cos(sp.ry || 0), sn = Math.sin(sp.ry || 0);
+      const p = {
+        x: fp ? sp.x + (fp.cx * c + fp.cz * sn) * sp.s : sp.x,
+        z: fp ? sp.z + (-fp.cx * sn + fp.cz * c) * sp.s : sp.z,
+        r: fp ? fp.r * fit * sp.s : 0.55,
+        top: fp ? fp.top * sp.s : 4,
+        occ, i, give,
+      };
+      if (Math.hypot(p.x, p.z) - p.r > WALK_R + 0.5) return; // beyond the walkable ring: nothing reaches it
+      p.leaves = leaves(p);
+      occ.keep[i] = p.r + KEEP_R;
+      this.plants.push(p);
+      this.obstacles.push(p);
+    });
+  }
+
+  /** Write instance i of an occluder: its base matrix, shrunk by k and leaning by its tilt. */
+  _pose(o, i) {
+    const k = o.k[i], tilt = o.tilt[i], sp = o.spots[i];
+    if (tilt) _rot.makeRotationAxis(_axis.set(o.dirZ[i], 0, -o.dirX[i]), tilt);
+    o.meshes.forEach((m, mi) => {
+      const j = i * 16;
+      const e = _mat.fromArray(o.base[mi], j).elements;
+      for (const c of [0, 1, 2, 4, 5, 6, 8, 9, 10]) e[c] *= k;
+      if (tilt) {
+        // lean about the plant's root, not the world origin
+        e[12] -= sp.x; e[13] -= sp.y; e[14] -= sp.z;
+        _mat.premultiply(_rot);
+        e[12] += sp.x; e[13] += sp.y; e[14] += sp.z;
+      }
+      _mat.toArray(m.instanceMatrix.array, j);
+      m.instanceMatrix.needsUpdate = true;
     });
   }
 
@@ -481,65 +613,251 @@ export class ShrineArena {
    * looks at shrinks away (and grows back once the camera has passed), so the
    * fight stays visible when it spills into the jungle. Only the 3x3 part of
    * each instance matrix is scaled, so it shrinks about its own root.
+   *
+   * A solid tree or bush within KEEP_R of `keep` (Kai) never shrinks: those
+   * are the ones he can walk into, and one that vanishes as he reaches it reads
+   * as walking through it. If one of them is behind him, pullCamera() brings
+   * the camera in front of it instead.
    */
-  updateOcclusion(dt, from, to) {
+  updateOcclusion(dt, from, to, keep = null) {
     const ax = from.x, az = from.z;
     const dx = to.x - ax, dz = to.z - az;
     const len2 = dx * dx + dz * dz || 1e-6;
     const len = Math.sqrt(len2);
     for (const o of this.occluders) {
-      let dirty = false;
       for (let i = 0; i < o.spots.length; i++) {
         const sp = o.spots[i];
         const t = Math.min(1, Math.max(0, ((sp.x - ax) * dx + (sp.z - az) * dz) / len2));
         const px = ax + dx * t - sp.x, pz = az + dz * t - sp.z;
-        const blocks = px * px + pz * pz < o.radius[i] * o.radius[i] && (1 - t) * len > 0.8;
+        const kept = keep && o.keep[i] > 0 && (sp.x - keep.x) ** 2 + (sp.z - keep.z) ** 2 < o.keep[i] * o.keep[i];
+        const blocks = !kept && px * px + pz * pz < o.radius[i] * o.radius[i] && (1 - t) * len > 0.8;
         const k = o.k[i];
         const nk = blocks ? Math.max(0.0001, k - dt * 6) : Math.min(1, k + dt * 3);
         if (nk === k) continue;
         o.k[i] = nk;
-        dirty = true;
-        o.meshes.forEach((m, mi) => {
-          const a = m.instanceMatrix.array, b = o.base[mi], j = i * 16;
-          for (const e of [0, 1, 2, 4, 5, 6, 8, 9, 10]) a[j + e] = b[j + e] * nk;
-        });
+        if (!o.tilt[i]) this._pose(o, i); // a swaying plant is re-posed every frame anyway
       }
-      if (dirty) for (const m of o.meshes) m.instanceMatrix.needsUpdate = true;
     }
   }
 
-  /** Height a fighter stands at: the tiles in the courtyard, the real ground (hills, pool bed) outside. */
+  /**
+   * Keep the camera (`cam`, moved in place) on Kai's side of any tree or bush
+   * standing between him (`from`) and it: the third-person-camera answer to
+   * one behind him, instead of hiding it. Only the ones updateOcclusion() keeps
+   * on screen are checked (the rest get out of the way themselves), and a bush
+   * low enough for the camera to see over is left alone.
+   */
+  pullCamera(from, cam, minDist = 1.2) {
+    const dx = cam.x - from.x, dz = cam.z - from.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) return;
+    const ux = dx / len, uz = dz / len;
+    let near = len;
+    for (const o of this.plants) {
+      const ox = o.x - from.x, oz = o.z - from.z;
+      const keep = o.r + KEEP_R;
+      if (ox * ox + oz * oz > keep * keep) continue;
+      const along = ox * ux + oz * uz;
+      if (along <= 0) continue;
+      const R = o.r + 0.35;
+      const perp2 = ox * ox + oz * oz - along * along;
+      if (perp2 > R * R) continue;
+      const sight = 1.4 + (cam.y - from.y - 1.4) * Math.min(1, along / len); // the line from Kai's chest to the camera, there
+      if (o.top < sight - 0.15) continue;
+      near = Math.min(near, along - Math.sqrt(R * R - perp2));
+    }
+    if (near >= len) return;
+    const f = Math.max(minDist, near) / len;
+    cam.x = from.x + dx * f;
+    cam.z = from.z + dz * f;
+    cam.y = from.y + 1.9 + (cam.y - from.y - 1.9) * f; // drop a little as it comes in, so it isn't looking straight down
+  }
+
+  /**
+   * Something ran into a tree or bush: it rocks away from (fromX, fromZ) on a
+   * damped spring (a bush gives more than a trunk) and drops a few leaves.
+   * strength 0..~1.6 (a roll hits hardest).
+   */
+  shakePlant(plant, fromX, fromZ, strength = 1) {
+    const o = plant.occ;
+    if (!o) return;
+    const i = plant.i;
+    let dx = plant.x - fromX, dz = plant.z - fromZ;
+    const d = Math.hypot(dx, dz) || 1;
+    dx /= d; dz /= d;
+    // add the kick along the new direction to whatever sway is still going
+    const kick = 0.65 * strength * plant.give;
+    const vx = o.dirX[i] * o.spin[i] + dx * kick;
+    const vz = o.dirZ[i] * o.spin[i] + dz * kick;
+    const tx = o.dirX[i] * o.tilt[i], tz = o.dirZ[i] * o.tilt[i];
+    const v = Math.hypot(vx, vz) || 1;
+    o.dirX[i] = vx / v; o.dirZ[i] = vz / v;
+    o.spin[i] = Math.min(1.1 * plant.give, v);
+    o.tilt[i] = tx * o.dirX[i] + tz * o.dirZ[i];
+    this.swaying.add(plant);
+    this._dropLeaves(plant, Math.round((8 + 10 * Math.min(1.5, strength)) * plant.leaves.n));
+  }
+
+  _updateSway(dt) {
+    const w = 10, zeta = 0.17; // ~1.6 Hz, rings for a second or two
+    const h = Math.min(dt, 1 / 30);
+    for (const plant of this.swaying) {
+      const o = plant.occ, i = plant.i;
+      o.spin[i] += (-w * w * o.tilt[i] - 2 * zeta * w * o.spin[i]) * h;
+      o.tilt[i] += o.spin[i] * h;
+      if (Math.abs(o.tilt[i]) < 2e-4 && Math.abs(o.spin[i]) < 2e-3) {
+        o.tilt[i] = o.spin[i] = 0;
+        this.swaying.delete(plant);
+      }
+      this._pose(o, i);
+    }
+  }
+
+  _buildLeaves() {
+    const n = 220;
+    const c = document.createElement('canvas');
+    c.width = c.height = 32;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.ellipse(16, 16, 6, 13, 0.6, 0, Math.PI * 2);
+    g.fill();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3).fill(-999), 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      map: tex, size: 0.16, vertexColors: true, transparent: true, alphaTest: 0.4, depthWrite: true,
+    }));
+    pts.frustumCulled = false;
+    this.root.add(pts);
+    this.leaves = {
+      pts, tex, n, next: 0,
+      life: new Float32Array(n), vel: new Float32Array(n * 3), phase: new Float32Array(n),
+      floor: new Float32Array(n),
+    };
+  }
+
+  _dropLeaves(plant, count) {
+    if (!this.leaves) this._buildLeaves();
+    const L = this.leaves;
+    const pos = L.pts.geometry.attributes.position;
+    const col = L.pts.geometry.attributes.color;
+    const greens = [0x5f8a2a, 0x7da03a, 0x4a6e22, 0x9a8f3c, 0x86a843];
+    const { y: [y0, y1], r: [r0, r1] } = plant.leaves;
+    for (let k = 0; k < count; k++) {
+      const i = L.next;
+      L.next = (L.next + 1) % L.n;
+      const a = Math.random() * Math.PI * 2, d = r0 + Math.random() * (r1 - r0);
+      const x = plant.x + Math.cos(a) * d, z = plant.z + Math.sin(a) * d;
+      pos.setXYZ(i, x, y0 + Math.random() * (y1 - y0) + this.groundHeight(x, z), z);
+      this._c.setHex(greens[Math.floor(Math.random() * greens.length)]);
+      col.setXYZ(i, this._c.r, this._c.g, this._c.b);
+      L.vel.set([(Math.random() - 0.5) * 0.6, -(0.55 + Math.random() * 0.5), (Math.random() - 0.5) * 0.6], i * 3);
+      L.phase[i] = Math.random() * 10;
+      L.life[i] = 7;
+      L.floor[i] = this.groundHeight(x, z) + 0.03;
+    }
+    col.needsUpdate = true;
+  }
+
+  _updateLeaves(dt, time) {
+    const L = this.leaves;
+    if (!L) return;
+    const pos = L.pts.geometry.attributes.position;
+    let moved = false;
+    for (let i = 0; i < L.n; i++) {
+      if (L.life[i] <= 0) continue;
+      moved = true;
+      L.life[i] -= dt;
+      let y = pos.getY(i);
+      if (y <= L.floor[i]) {
+        // settled: lie on the ground a moment, then go
+        if (L.life[i] > 1.2) L.life[i] = 1.2;
+        if (L.life[i] <= 0) pos.setY(i, -999);
+        continue;
+      }
+      // flutter: side to side as they fall, a little faster on the down-swing
+      const p = L.phase[i];
+      const sway = Math.sin(time * 3.1 + p);
+      pos.setX(i, pos.getX(i) + (L.vel[i * 3] + sway * 0.9) * dt);
+      pos.setZ(i, pos.getZ(i) + (L.vel[i * 3 + 2] + Math.cos(time * 2.3 + p) * 0.6) * dt);
+      y += L.vel[i * 3 + 1] * (1 + Math.abs(sway) * 0.5) * dt;
+      pos.setY(i, Math.max(L.floor[i], y));
+      if (L.life[i] <= 0) pos.setY(i, -999);
+    }
+    if (moved) pos.needsUpdate = true;
+  }
+
+  /** How deep the pool is at (x, z): 0 outside it, or where its bed is above the surface. */
+  waterDepth(x, z) {
+    if ((x - POOL.x) ** 2 + (z - POOL.z) ** 2 >= POOL.r * POOL.r) return 0;
+    return Math.max(0, POOL.y - this.groundHeight(x, z));
+  }
+
+  /** What a falling drop lands on: the pool's surface, or the floor a fighter stands on. */
+  surfaceY(x, z) {
+    return this.waterDepth(x, z) > 0 ? POOL.y : this.fighterY(x, z);
+  }
+
+  /** Top of the path slab under (x, z), or -Infinity off the path. The last slab overhangs the pool's sloping rim. */
+  pavingY(x, z) {
+    for (const p of this.paving) {
+      if (Math.abs(x - p.x) < TILE / 2 && Math.abs(z - p.z) < TILE / 2) return p.y + PAVE_TOP;
+    }
+    return -Infinity;
+  }
+
+  /** Height a fighter stands at: the tiles in the courtyard, the path slabs, the real ground (hills, pool bed) outside. */
   fighterY(x, z) {
     const k = smooth(12.4, 13.6, Math.hypot(x, z));
-    return k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0;
+    return Math.max(k > 0 ? (this.groundHeight(x, z) + 0.04) * k : 0, this.pavingY(x, z));
   }
 
-  /** Push a fighter at `pos` (radius `rad`) out of every obstacle and back inside the walkable ring. */
+  /**
+   * Push a fighter at `pos` (radius `rad`) out of every obstacle and back inside
+   * the walkable ring. Returns the tree or bush it was pushed off, if any (for shakePlant()).
+   *
+   * Repeated until nothing overlaps (a few passes at most): with things close
+   * together, being pushed out of one can push a fighter into the next, e.g.
+   * between a bush and the pot beside it, and a single pass would leave him there.
+   */
   collide(pos, rad = 0.4) {
-    for (const o of this.obstacles) {
-      const dx = pos.x - o.x, dz = pos.z - o.z;
-      const min = o.r + rad;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= min * min) continue;
-      const d = Math.sqrt(d2) || 0.0001;
-      pos.x = o.x + (dx / d) * min;
-      pos.z = o.z + (dz / d) * min;
+    let plant = null;
+    for (let pass = 0; pass < 4; pass++) {
+      let pushed = false;
+      for (const o of this.obstacles) {
+        const dx = pos.x - o.x, dz = pos.z - o.z;
+        const min = o.r + rad;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= min * min - 1e-6) continue;
+        const d = Math.sqrt(d2) || 0.0001;
+        pos.x = o.x + (dx / d) * min;
+        pos.z = o.z + (dz / d) * min;
+        pushed = true;
+        if (o.occ !== undefined) plant = o;
+      }
+      for (const w of this.walls) {
+        const cx = Math.min(w.bx, Math.max(w.ax, pos.x));
+        const dx = pos.x - cx, dz = pos.z - w.z;
+        const min = w.r + rad;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= min * min - 1e-6) continue;
+        const d = Math.sqrt(d2) || 0.0001;
+        pos.x = cx + (dx / d) * min;
+        pos.z = w.z + (d2 > 1e-8 ? dz / d : 1) * min;
+        pushed = true;
+      }
+      const r = Math.hypot(pos.x, pos.z);
+      if (r > WALK_R + 1e-6) {
+        pos.x *= WALK_R / r;
+        pos.z *= WALK_R / r;
+        pushed = true;
+      }
+      if (!pushed) break;
     }
-    for (const w of this.walls) {
-      const cx = Math.min(w.bx, Math.max(w.ax, pos.x));
-      const dx = pos.x - cx, dz = pos.z - w.z;
-      const min = w.r + rad;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= min * min) continue;
-      const d = Math.sqrt(d2) || 0.0001;
-      pos.x = cx + (dx / d) * min;
-      pos.z = w.z + (d2 > 1e-8 ? dz / d : 1) * min;
-    }
-    const r = Math.hypot(pos.x, pos.z);
-    if (r > WALK_R) {
-      pos.x *= WALK_R / r;
-      pos.z *= WALK_R / r;
-    }
+    return plant;
   }
 
   _updateBursts(dt) {
@@ -614,6 +932,27 @@ export class ShrineArena {
       this.fireMat.emissiveIntensity = 4 * this.torchLevel;
     }
     if (this.flameMat) this.flameMat.opacity = this.torchLevel;
+
+    // lightning: the whole courtyard lit cold white for a beat, the sky and the haze with it
+    if (this.flash > 0) {
+      const f = this.flash;
+      this._c.setHex(0xdde6ff);
+      this.hemi.intensity += f * 5;
+      this.hemi.color.lerp(this._c, f * 0.8);
+      this.hemi.groundColor.lerp(this._c, f * 0.4);
+      this.fill.intensity += f * 2.5;
+      this.fill.color.lerp(this._c, f);
+      u.uTop.value.lerp(this._c, f * 0.6);
+      u.uHorizon.value.lerp(this._c, f * 0.8);
+      this.scene.fog.color.lerp(this._c, f * 0.5);
+    }
+  }
+
+  /** A lightning flash, 0..1, on top of the day/dusk light (Storm.js drives it). */
+  setFlash(k) {
+    if (k === this.flash) return;
+    this.flash = k;
+    this.setDusk(this.dusk);
   }
 
   update(dt, time, camera) {
@@ -665,11 +1004,14 @@ export class ShrineArena {
     mp.needsUpdate = true;
 
     this._updateBursts(dt);
+    this._updateSway(dt);
+    this._updateLeaves(dt, time);
     this.led.visible = Math.sin(time * 5) > -0.6;
   }
 
   dispose() {
     if (this.scene) this.scene.fog = null;
     this.dot.dispose();
+    if (this.leaves) this.leaves.tex.dispose();
   }
 }
