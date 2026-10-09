@@ -23,6 +23,7 @@ import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
+import { Rain } from './level2/rain.js';
 
 /**
  * Level 02 — Redline.
@@ -78,6 +79,14 @@ export class Level02 extends Level {
     this.root.add(sun, sun.target);
     this._sun = sun;
     this._sunOffset = new THREE.Vector3(-35, 55, 75);     // Level 1: (x - 35, 55, z - 75)
+
+    // a jungle shower over the whole drive (rain.js); the light dims and the
+    // haze greys under it, and the pollen and light shafts go
+    this._rain = new Rain(this.root);
+    this._fogClear = new THREE.Color(FOG);
+    this._fogRain = new THREE.Color(0xa9b2a6);
+    this._camPrev = new THREE.Vector3();
+    this._camVel = new THREE.Vector3();
 
     this._pollen = createPollen(500);
     this._pollen.scale.x = 2.2;                            // the road is wider than Kai's trail
@@ -395,6 +404,8 @@ export class Level02 extends Level {
   /* ======================== per frame ======================== */
 
   update(dt, state) {
+    dt = this._steady(dt);
+
     // car picker orbit camera
     if (this._selectingCar) {
       this._updateCarPicker(dt);
@@ -582,8 +593,17 @@ export class Level02 extends Level {
     this._sky.position.copy(this.game.camera.position);
     this._pollen.position.set(p.x, 0, p.z + 30);
     this._shafts.position.set(p.x * 0.3, 0, p.z + 18);
+    // the shower: the camera's own speed slants the streaks at you
+    const cam = this.game.camera.position;
+    if (dt > 0) this._camVel.subVectors(cam, this._camPrev).divideScalar(dt).clampLength(0, 60);
+    this._camPrev.copy(cam);
+    this._rain.update(dt, this.game.camera, p, this._camVel);
+    const wet = this._rain.level;
+    this._pollen.material.opacity = 0.75 * (1 - wet);
+    this._pollen.visible = wet < 0.95;
+    this._sun.intensity = 4.5 * (1 - 0.35 * wet);
     for (const sh of this._shafts.children) {
-      sh.material.uniforms.uOpacity.value = 0.11 + Math.sin(this._time * 0.7 + sh.position.z) * 0.03;
+      sh.material.uniforms.uOpacity.value = (0.11 + Math.sin(this._time * 0.7 + sh.position.z) * 0.03) * (1 - 0.8 * wet);
     }
     // Level 1's wildlife update, in its mirrored frame (it runs toward -z);
     // then pushed out past our wider road and down to our flat ground
@@ -596,10 +616,23 @@ export class Level02 extends Level {
     }
     // the gorge opens up ahead: thinner haze, so you can see the drop
     const roar = this.course.roar(p.z);
-    this.scene.fog.density = 0.014 - 0.0095 * roar;
+    this.scene.fog.density = (0.014 - 0.0095 * roar) * (1 + 0.3 * wet);
+    this.scene.fog.color.copy(this._fogClear).lerp(this._fogRain, 0.7 * wet);
+    this.scene.background.copy(this.scene.fog.color);
     this.course.update(dt);
     this._sun.position.copy(p).add(this._sunOffset);
     this._sun.target.position.copy(p);
+  }
+
+  /**
+   * Keeps the drive smooth: frame times jitter by a few ms even at a steady
+   * frame rate, and stepping the car and camera by that jitter reads as
+   * stutter, so dt is eased towards the real delta (it adds up the same).
+   */
+  _steady(dt) {
+    if (this._dtS === undefined) this._dtS = dt;
+    this._dtS += (dt - this._dtS) * 0.3;
+    return this._dtS;
   }
 
   /** A pickup was driven through. */
@@ -983,6 +1016,7 @@ export class Level02 extends Level {
       this.game.camera.updateProjectionMatrix();
     }
     this.sound?.dispose();
+    this._rain?.dispose();
     this._flashEl = null;
     if (this.road) this.road.dispose();
     super.teardown();
