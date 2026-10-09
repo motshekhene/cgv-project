@@ -559,7 +559,7 @@ export class HandlerBoss {
       if (this.meta) this.fighter.playOnce('angry', { speed: 1.2, fade: 0.15 }); // he rounds on Kai and points
       this.attackName = null;
       this._pickAttack();
-      if (wanted === 1 && !this.helmetOff) {
+      if (wanted >= 1 && !this.helmetOff) { // even if one heavy blow skips phase II, the mask still comes off
         this.helmetOff = true;
         this._popHelmet();
         if (this.onHelmetOff) this.onHelmetOff();

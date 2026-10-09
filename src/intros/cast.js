@@ -181,12 +181,13 @@ export function makeHorn({ glow = 0.02 } = {}) {
 /**
  * Where the horn rides on Kai once it is his, in metres from the bone:
  *   SLING  at his left hip on its strap like a powder horn, the base up by
- *          the belt and the curl running forward along his thigh
+ *          the belt and the curl running forward along his thigh (at 70%,
+ *          so it rides neatly instead of swinging at his knee)
  *   HAND   gripped by the base in his right fist, curl up and forward
  * The prologue eases the horn from the stone into HAND and then into SLING;
  * the levels start with it slung.
  */
-export const HORN_SLING = { bone: 'Hips', pos: [0.21, 0.03, -0.12], rot: [0, -Math.PI / 2 + 0.35, -0.6] };
+export const HORN_SLING = { bone: 'Hips', pos: [0.2, 0.03, -0.09], rot: [0, -Math.PI / 2 + 0.35, -0.6], scale: 0.7 };
 export const HORN_HAND = { bone: 'PalmR', pos: [0.0, 0.07, 0.03], rot: [0, 0, Math.PI / 2 - 0.35] };
 
 /** Put `horn` (already a child of `bone`) at a HORN_* pose; k < 1 eases it part of the way from where it is. */
@@ -196,7 +197,7 @@ export function poseHorn(horn, bone, spec, k = 1) {
   _hq.setFromEuler(_he.set(spec.rot[0], spec.rot[1], spec.rot[2]));
   horn.position.lerp(_hp, k);
   horn.quaternion.slerp(_hq, k);
-  horn.scale.lerp(_hv.setScalar(1 / s), k);
+  horn.scale.lerp(_hv.setScalar((spec.scale ?? 1) / s), k); // slung, it rides a little smaller than it lies on the stone
 }
 const _hv = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Quaternion(), _he = new THREE.Euler();
 

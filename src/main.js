@@ -148,8 +148,8 @@ async function begin(name) {
 // ?level=<name> goes straight there (development, and the chapter links);
 // otherwise the game opens on its title screen
 const wanted = new URLSearchParams(location.search).get("level");
-game.start();
-await begin(game.levels.has(wanted) ? wanted : "title");
-
 // handy while developing — open the console and poke at it
 window.game = game;
+
+game.start();
+await begin(game.levels.has(wanted) ? wanted : "title");

@@ -116,6 +116,7 @@ const WALK_PTS = [[-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4], [0,
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
+const STONE_CLEAR = 1.15;                  // how close his feet may come to its middle (it is ~1.5 x 1.05 m)
 const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, halfway up
 const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it
 const GATE_ZS = [-1.5, -24, PATH_END_Z];   // the three gates on the way up
@@ -1140,7 +1141,7 @@ export class Prologue extends Level {
     const horn = new THREE.Mesh(hornGeo, this.matHorn);
     horn.castShadow = true;
     // lying along the cap on its curl, the open base toward the path
-    horn.position.set(-0.22, 0.86 - hornGeo.boundingBox.min.y, -0.02);
+    horn.position.set(-0.3, 0.86 - hornGeo.boundingBox.min.y, 0.3); // near the cap's front edge, toward the path: in reach without leaning into the stone
     horn.rotation.set(0, 0.25, 0);
     g.add(horn);
     this.horn = horn;
@@ -1990,7 +1991,7 @@ export class Prologue extends Level {
     this.horn.getWorldPosition(this._takeFromPos);
     const dx = this.px - this._takeFromPos.x, dz = this.pz - this._takeFromPos.z;
     const d = Math.hypot(dx, dz) || 1;
-    const reach = 0.85;
+    const reach = 0.95; // the horn lies at the cap's front edge: he reaches it from in front of the stone, never in it
     this._take = {
       fromX: this.px, fromZ: this.pz,
       toX: this._takeFromPos.x + (dx / d) * reach, toZ: this._takeFromPos.z + (dz / d) * reach,
@@ -2009,7 +2010,7 @@ export class Prologue extends Level {
       const b = this.kaiF.bones['mixamorig' + name];
       if (!b) continue;
       this.kaiF._stash(b);
-      b.quaternion.multiply(this._reachQ.setFromAxisAngle(this._reachX, 0.27 * k));
+      b.quaternion.multiply(this._reachQ.setFromAxisAngle(this._reachX, 0.33 * k));
     }
   }
 
@@ -2356,8 +2357,14 @@ export class Prologue extends Level {
             palm.getWorldPosition(this._palmAt);
             const ex = this._takeFromPos.x - this._palmAt.x, ez = this._takeFromPos.z - this._palmAt.z;
             const step = Math.min(1, 6 * dt) * k;
-            this.px += THREE.MathUtils.clamp(ex, -0.4, 0.4) * step;
-            this.pz += THREE.MathUtils.clamp(ez, -0.4, 0.4) * step;
+            this.px += THREE.MathUtils.clamp(ex, -0.25, 0.25) * step;
+            this.pz += THREE.MathUtils.clamp(ez, -0.25, 0.25) * step;
+            // ...but never into the stone: his feet stay outside its footprint
+            const sx = this.px - STONE.x, sz = this.pz - STONE.z, sd = Math.hypot(sx, sz);
+            if (sd < STONE_CLEAR) {
+              this.px = STONE.x + (sx / (sd || 1)) * STONE_CLEAR;
+              this.pz = STONE.z + (sz / (sd || 1)) * STONE_CLEAR;
+            }
           }
         } else {
           if (!T.gripped) {

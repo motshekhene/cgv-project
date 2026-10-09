@@ -17,7 +17,7 @@ import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
-import { attachHorn } from '../intros/cast.js';
+import { attachHorn, poseHorn } from '../intros/cast.js';
 import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
 
 /**
@@ -137,18 +137,49 @@ const TALK = [
 const REVEAL_TALK = [
   { who: 'kai', text: 'Baba Zwane\u2026?' },
   { who: 'zwane', text: 'You were never meant to see this face again, Kai.' },
-  { who: 'kai', text: 'You sent me up that ridge. You knew what would wake.' },
-  { who: 'zwane', text: 'The company paid me to put that horn in their hands. If I had lifted it myself, the forest would have woken on me.' },
+  { who: 'kai', text: 'You taught me every path in this forest. Last night you sat with me at the fire.' },
+  { who: 'zwane', text: 'And you listened. You always listened. That is why it had to be you.' },
+  { who: 'kai', text: 'You sent me up that ridge knowing what would wake.' },
+  { who: 'zwane', text: 'The company paid me to put that horn in their hands. If I had lifted it myself, the forest would have come for me.' },
   { who: 'zwane', text: 'A guide on the paths at dawn \u2014 nobody looks twice. You drew it off. You were the bait.', pose: 'angry' },
+  { who: 'kai', text: 'The last crew. The ones who went past the stone and never came back.' },
+  { who: 'kai', text: 'Did you send them too?' },
+  { who: 'zwane', text: '\u2026They didn\u2019t listen.' },
   { who: 'kai', text: 'A year\u2019s wages. That\u2019s what this whole forest was worth to you?' },
-  { who: 'zwane', text: 'Give me the horn, and walk away.' },
-  { who: 'kai', text: 'It\u2019s going back on the stone.' },
+  { who: 'zwane', text: 'Everything is worth something, boy. Give me the horn, and walk away.' },
+  { who: 'kai', text: 'It\u2019s going back on the stone. Even if I have to go through you.' },
 ];
 // a retry: he has seen the face before, so just the beat of it
 const REVEAL_AGAIN = [
   { who: 'kai', text: 'Baba Zwane.' },
   { who: 'zwane', text: 'The horn, Kai.' },
 ];
+// He is down. Last words, then Kai blows the horn and the forest answers
+const EPILOGUE_TALK = [
+  { who: 'zwane', text: 'The company\u2026 will only send others.' },
+  { who: 'kai', text: 'Let them come. They\u2019ll find the horn back on its stone.' },
+  { who: 'zwane', text: 'And the forest awake. You always did believe the old stories.' },
+  { who: 'kai', text: 'Someone had to.' },
+];
+// mid-fight, without stopping it: what they shout at each other (once each)
+const BARKS = {
+  desperation: [{ who: 'zwane', text: 'I taught you every path in this forest! I know where you\u2019ll step before you do!' }],
+  kaiLow: [
+    { who: 'zwane', text: 'Give it up, Kai. The forest won\u2019t thank you.' },
+    { who: 'kai', text: 'It doesn\u2019t have to.' },
+  ],
+  kaiLowMasked: [{ who: 'handler', text: 'Hand it over, guide, and this ends here.' }],
+  bossLow: [
+    { who: 'zwane', text: 'Wait! Half \u2014 I\u2019ll give you half of it!' },
+    { who: 'kai', text: 'Keep your money.' },
+  ],
+};
+// the zip line he comes down on, from the cliff edge beside the falls to the keystone of the arch
+const ROPE_TOP = new THREE.Vector3(-3.9, 18.3, -33.0); // on the lip of the falls, where Level 2 left him
+const ROPE_HANG = 2.15; // the pulley rides this far above his feet
+const ROPE_T = 2.6; // seconds down the line
+// the horn raised to his lips: the base end in his fist up by his mouth, the curl out in front of him
+const HORN_BLOW = { bone: 'PalmR', pos: [0.0, 0.06, 0.04], rot: [0, 0.6, Math.PI / 2 + 0.5] };
 const TALK_AFTER = 1.6; // shot D starts this long after he lands
 // a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
 // the world runs at FOCUS_SCALE, Kai at FOCUS_KAI, and his hits do FOCUS_DAMAGE x (KeyVision draws it)
@@ -235,6 +266,7 @@ export class Level03 extends Level {
     this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
     this.bossWet = new Wetness(this.boss.fighter, this.water);
     this.storm = new Storm(this.root, this.arena, this.water); // phase III's rain and lightning
+    this._buildZipLine();
     this.storm.onBolt = () => this._addShake(0.12);
     this.vision = new KeyVision(); // the look of bent time (a perfect dodge, the Key)
     this.trail = new StrikeTrail(this.root); // the swoosh behind Kai's kicks and heavy punches
@@ -281,6 +313,92 @@ export class Level03 extends Level {
 
     if (introSeen) this._startFight();
     else this._startIntro();
+  }
+
+  /**
+   * How the Marshal gets down to the shrine after Kai: he stopped at the top
+   * of the falls (Level 2's end), ran a line from the cliff edge beside them
+   * down to the keystone of the arch, and rode it. The rope stays rigged for
+   * the whole fight; the pulley rides it in the intro.
+   */
+  _buildZipLine() {
+    const a = this.arena.anchors;
+    this._ropeA = ROPE_TOP.clone();
+    this._ropeB = a.gateTop.clone().add(new THREE.Vector3(0, ROPE_HANG, 0));
+    const mat = new THREE.MeshStandardMaterial({ color: 0x3b2c1c, roughness: 0.85 });
+    const seg = (p, q, r = 0.022) => {
+      const len = p.distanceTo(q);
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat);
+      m.position.copy(p).lerp(q, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), q.clone().sub(p).normalize());
+      m.castShadow = true;
+      this.root.add(m);
+    };
+    seg(this._ropeA, this._ropeB);
+    seg(this._ropeB, a.gateTop.clone().add(new THREE.Vector3(0, 0.15, 0))); // tied off on the keystone
+    const metal = new THREE.MeshStandardMaterial({ color: 0x55595e, roughness: 0.4, metalness: 0.8 });
+    const anchor = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.5, 8), metal);
+    anchor.position.copy(this._ropeA).add(new THREE.Vector3(0, -0.2, 0));
+    this.root.add(anchor);
+    // the pulley he rides: a wheel in a cheek plate, and the strap he hangs from
+    this._pulley = new THREE.Group();
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.025, 8, 16), metal);
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.18), metal);
+    cheek.position.y = -0.05;
+    const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.5, 6), mat);
+    strap.position.y = -0.35;
+    this._pulley.add(wheel, cheek, strap);
+    this._pulley.position.copy(this._ropeB);
+    this._pulley.lookAt(this._ropeA);
+    this.root.add(this._pulley);
+  }
+
+  /** Shot R: down the line from the cliff to the keystone, sparks off the pulley; Kai looks up at the sound. */
+  _updateRope(s, dt) {
+    const b = this.boss, bf = b.fighter;
+    const k = this.combat, kf = k.fighter, kp = k.root.position;
+    if (this._shot !== 'R') {
+      this._shot = 'R';
+      kp.copy(KAI_START);
+      kf.play('idle', { fade: 0.3 });
+      b.root.visible = true;
+      this._ropeMid = this.leap ? (this.leap.off + this.leap.on) / 2 : 0;
+      if (this.leap) bf.hold('jump', this._ropeMid, 0); // mid-leap: arms up, legs tucked, the way you ride a line
+      else bf.play('idle', { fade: 0 });
+      this.sound?.play('whoosh', { volume: 0.6, rate: 0.6 });
+      this._sparkT = 0;
+      this.story.showCard('THE MARSHAL', 'He came over the edge after you.');
+    }
+    const u = Math.min(1, s / ROPE_T);
+    // faster and faster down the line, then the brake at the bottom
+    const e = u < 0.82 ? 0.95 * Math.pow(u / 0.82, 1.7) : 0.95 + 0.05 * smooth(0.82, 1, u);
+    const p = this._tmp.copy(this._ropeA).lerp(this._ropeB, e);
+    this._pulley.position.copy(p);
+    b.root.position.set(p.x, p.y - ROPE_HANG, p.z);
+    b.heading = Math.atan2(this._ropeB.x - this._ropeA.x, this._ropeB.z - this._ropeA.z);
+    b.root.rotation.y = b.heading;
+    this._sparkT -= dt;
+    if (this._sparkT <= 0 && u < 0.97) {
+      this._sparkT = 0.05;
+      this.arena.burst(p.x, p.z, { color: 0xffb347, count: 5, speed: 2.4, size: 0.07, y: p.y, lift: 0.4, additive: true });
+    }
+    if (u >= 1 && !this._ropeBraked) {
+      this._ropeBraked = true;
+      this._addShake(0.25);
+      this.sound?.play('impact', { volume: 0.5, rate: 1.3 });
+    }
+    // Kai hears the line sing and looks up at the arch
+    if (s > 0.5) {
+      const want = Math.atan2(this.arena.anchors.gateTop.x - kp.x, this.arena.anchors.gateTop.z - kp.z);
+      k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-3 * dt));
+    }
+    // from behind Kai, up at the arch and the cliff, following him down
+    this.cine.pos.set(2.6, 2.1, 7.4);
+    this.cine.look.set(b.root.position.x, b.root.position.y + 1.2, b.root.position.z);
+    this.cine.fov = 55;
+    this.cine.rate = 4;
+    bf.update(dt);
+    if (this.leap) bf.visual.position.y = -this.leap.lower(this._ropeMid);
   }
 
   /* ---------------------------------------------------------------- gifts */
@@ -402,6 +520,7 @@ export class Level03 extends Level {
     };
     this.boss.onPhaseChange = (n) => {
       if (n > 2) {
+        this._barkOnce('desperation');
         hud().popup('DESPERATION', '#ff5a3a');
         this.sound?.play('guardianRoar', { volume: 0.7 });
         this.arena.setDuskTarget(1); // the sun goes down on Site 7
@@ -531,10 +650,10 @@ export class Level03 extends Level {
     this.beatT += real;
     const input = this.input;
 
-    if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) {
+    if (input.pressed('skip') && (this.mode === 'INTRO' || (this.mode === 'EPILOGUE' && !this._talk))) {
       if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
       else this._skip();
-    } else if (input.pressed('skip') && this.mode === 'REVEAL' && this._talk) {
+    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'EPILOGUE') && this._talk) {
       this._nextLine(true); // and through the mask-off conversation the same way
     }
 
@@ -721,6 +840,12 @@ export class Level03 extends Level {
       : focus ? FOCUS_SCALE
       : this.combat.abilityActive ? 0.35 : 1;
 
+    // what they shout at each other as it turns
+    if (this.mode === 'FIGHT' && !this._ended) {
+      if (state.health / state.maxHealth < 0.3) this._barkOnce(this.boss.helmetOff ? 'kaiLow' : 'kaiLowMasked');
+      if (this.boss.helmetOff && this.boss.health / this.boss.maxHealth < 0.15 && this.boss.health > 0) this._barkOnce('bossLow');
+    }
+    this._tickBark(real);
     this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
     this.hud.setPlayer(state.health / state.maxHealth, state.stamina / state.maxStamina, state.maxHealth / this._baseMaxHealth);
 
@@ -840,7 +965,7 @@ export class Level03 extends Level {
    */
   _updateIntro(dt) {
     // shot A runs on its own clock; B and C keep their timings, just SHAKE_BEAT later
-    const t = this.beatT < A_END ? this.beatT : this.beatT - SHAKE_BEAT;
+    let t = this.beatT < A_END ? this.beatT : this.beatT - SHAKE_BEAT;
     const k = this.combat;
     const kf = k.fighter;
     const a = this.arena.anchors;
@@ -922,8 +1047,12 @@ export class Level03 extends Level {
     } else if (this._shot === 'D') {
       // ---- D: face to face, a few words before it starts
       this._updateTalk(dt);
+    } else if (t < C_AT + ROPE_T) {
+      // ---- R: down the zip line to the keystone
+      this._updateRope(t - C_AT, dt);
     } else {
-      // ---- C: he jumps down off the arch and lands behind Kai
+      // ---- C: he lets go of the line, and jumps down off the arch behind Kai
+      t -= ROPE_T;
       const b = this.boss;
       const bf = b.fighter;
       const lp = this.leap;
@@ -973,6 +1102,7 @@ export class Level03 extends Level {
         this.sound?.play('impact', { volume: 0.9 });
         this.sound?.duck(0.4, 0.8);
         this.story.showCard('THE MARSHAL', 'The company\u2019s man. He has not slowed down since the stone.');
+        this._pulley.visible = false; // left hanging at the top of the line
       }
       // Kai hears him land and turns round
       if (t > L.land - 0.25) {
@@ -1039,6 +1169,32 @@ export class Level03 extends Level {
     const prev = this._talk[this._line - 1];
     if (this.mode === 'INTRO') this._talkShot(line.who, !prev || prev.who !== line.who);
     else this._cutNext = !prev || prev.who !== line.who; // the reveal cuts between them too
+  }
+
+  /** A shout mid-fight (BARKS[key]), once per attempt: typed over the action, nothing stops for it. */
+  _barkOnce(key) {
+    if ((this._barked ||= new Set()).has(key) || this._talk) return;
+    this._barked.add(key);
+    (this._barks ||= []).push(...BARKS[key]);
+  }
+
+  _tickBark(dt) {
+    if (this._talk || this.mode !== 'FIGHT') {
+      if (this._bark) { this._bark = null; this.story.hideLine(); }
+      return;
+    }
+    if (!this._bark && this._barks?.length) {
+      this._bark = this._barks.shift();
+      this._barkT = 1.6 + this._bark.text.length * 0.045;
+      const who = WHO[this._bark.who];
+      this.story.showLine(who.name, this._bark.text, who.color, 60);
+    }
+    if (!this._bark) return;
+    this.story.updateLine(dt);
+    if ((this._barkT -= dt) <= 0) {
+      this._bark = null;
+      if (!this._barks.length) this.story.hideLine();
+    }
   }
 
   /** Type the current line out; once it has been up long enough to read, move on. */
@@ -1288,12 +1444,80 @@ export class Level03 extends Level {
       const a0 = this._orbitA0;
       this._setCine(new THREE.Vector3(bp.x + Math.cos(a0) * 3.8, bp.y + 1.4, bp.z + Math.sin(a0) * 3.8), new THREE.Vector3(bp.x, bp.y + 0.4, bp.z), { fov: 45, cut: true });
     }
+    // the horn at his lips, blazing
+    if (this._blowing) {
+      const B = this._blowing;
+      B.t += dt;
+      poseHorn(B.horn, B.palm, HORN_BLOW, 1 - Math.exp(-6 * dt));
+      const flare = Math.min(1, B.t / 0.4) * Math.max(0, 1 - Math.max(0, B.t - 2.6) / 1.2);
+      B.horn.userData.material.emissiveIntensity = 0.05 + 1.6 * flare;
+      B.horn.userData.glow.material.opacity = 0.35 + 0.6 * flare;
+      B.horn.userData.glow.scale.setScalar(0.3 + 0.9 * flare);
+    }
     const s = this.time - this._orbitFrom;
     const a = this._orbitA0 + s * 0.18;
     this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
     this.cine.rate = 3;
-    if (this.mode === 'EPILOGUE' && this.beatT > 3) this._showEnd();
+    // a breath over him, then last words; then Kai blows the horn, the forest answers, and the card
+    if (this.mode === 'EPILOGUE' && !this._epiTalked && this.beatT > 2.2) {
+      this._epiTalked = true;
+      this._converse(EPILOGUE_TALK, () => this._blowHorn());
+    }
+    this._tickLine(dt);
+    if (this.mode === 'EPILOGUE' && this._endAt && this.beatT > this._endAt) this._showEnd();
     k.fighter.update(dt);
+  }
+
+  /**
+   * The last thing he does in the game: lifts the horn from his hip and
+   * blows it. A long low call over the falls, the horn blazing with its
+   * light, and the birds come back.
+   */
+  _blowHorn() {
+    this._endAt = this.beatT + 3.6;
+    const horn = this.keyItem;
+    const kf = this.combat.fighter;
+    const palm = kf.bone('PalmR');
+    if (horn && palm) {
+      palm.attach(horn);
+      this._blowing = { horn, palm, t: 0 };
+    }
+    if (kf.actions.block) kf.hold('block', 0.9, 0.35); // hands up to his face
+    this._hornCall();
+  }
+
+  /** The call itself: a low brass note that swells and falls away, with its octaves (Web Audio, nothing to load). */
+  _hornCall() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const t0 = ctx.currentTime + 0.05;
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0, t0);
+      out.gain.linearRampToValueAtTime(0.32, t0 + 0.35);
+      out.gain.setValueAtTime(0.32, t0 + 2.0);
+      out.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.4);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 0.9;
+      lp.frequency.setValueAtTime(380, t0);
+      lp.frequency.linearRampToValueAtTime(1300, t0 + 0.5);
+      lp.frequency.linearRampToValueAtTime(700, t0 + 3.2);
+      lp.connect(out).connect(ctx.destination);
+      for (const [f, g] of [[98, 0.55], [196, 0.28], [294, 0.12], [392, 0.05]]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f * 0.93, t0);
+        o.frequency.linearRampToValueAtTime(f, t0 + 0.3);
+        const gg = ctx.createGain();
+        gg.gain.value = g;
+        o.connect(gg).connect(lp);
+        o.start(t0);
+        o.stop(t0 + 3.5);
+      }
+      setTimeout(() => ctx.close(), 4000);
+    } catch {
+      // no audio: the light still tells it
+    }
   }
 
   _showEnd() {
