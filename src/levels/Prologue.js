@@ -27,8 +27,8 @@ import {
  *      player ever gets until the last two minutes of the game.
  *   2. The company wants to cut this forest down, but its men will not go
  *      past the old stone up the ridge: the last crew that did never came
- *      back. The horn on the stone is what keeps the forest safe and alive —
- *      the animals, and the springs every village in the valley drinks from —
+ *      back. The horn on the stone is what keeps the forest alive — the
+ *      trees, the animals, all of it —
  *      and the story goes that if it ever leaves the stone, the whole forest
  *      goes silent. Ingram calls that an old story, and pays Kai a year of
  *      the company's wages to bring it down before the sun is up. No horn,
@@ -49,8 +49,10 @@ import {
  *            camera behind him, so his whole body is always on screen.
  *   walk     round the fire, then one long straight path up to the stone,
  *            the stone lit at the far end of it the whole way: cairns both
- *            sides, three gates, ruins, the stag, an owl. The forest is as
- *            loud as it will ever be — the walk is what the silence takes.
+ *            sides, three gates, the stag, the last crew's abandoned camp —
+ *            and something in the trees that growls, and follows him. The
+ *            forest is as loud as it will ever be — the walk is what the
+ *            silence takes.
  *   choice   the scene turns him to face the horn first — he cannot be asked
  *            to take what he has not seen — then E takes it and Q gives him
  *            a moment of doubt and puts the prompt back, so taking it is
@@ -90,8 +92,9 @@ import {
  *
  * Audio is synthesised with the Web Audio API — no sound files, so nothing to
  * download, credit or wait for. It is self-contained in this file on purpose.
- * The forest is insects, frogs and wind; the silence is all of it cut at
- * once, and the silence does not lift again inside this scene.
+ * The forest is birdsong, a dove and the wind in the leaves; the silence is
+ * all of it cut at once, and the silence does not lift again inside this
+ * scene.
  */
 
 // The geography: the camp at the south, a short bend round the fire, then
@@ -112,6 +115,7 @@ const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
 const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, halfway up
+const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it
 const GATE_ZS = [-1.5, -24, PATH_END_Z];   // the three gates on the way up
 // the way out: dead straight, east from the glade. Lined with cairns both
 // sides and a gate near the start, so there is never a question where to run.
@@ -185,15 +189,15 @@ const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 // cards carried: his name, the job, who is asking, and why he says yes.
 // Plain on purpose: the company wants the trees; its men won't pass the
 // stone because the last crew that did never came back; the horn is what
-// keeps the forest and the valley's water alive, which is why Kai should
-// leave it; Ingram wants it gone so the cutting can start, and pays him.
+// keeps the forest alive, which is why Kai should leave it; Ingram wants it
+// gone so the cutting can start, and pays him.
 const SCRIPT = [
   { who: 'INGRAM', text: 'Kai. You came.' },
   { who: 'INGRAM', text: 'You know the old stone, up past the ridge?' },
   { who: 'KAI', text: 'The one with the horn on it. Everyone knows it.' },
   { who: 'INGRAM', text: "The company wants to cut down this forest. But their men won't go past that stone." },
   { who: 'KAI', text: 'Can you blame them? The last crew that went past it never came back.' },
-  { who: 'KAI', text: 'That horn is what keeps this forest alive. The animals, the springs every village in the valley drinks from.' },
+  { who: 'KAI', text: 'That horn is what keeps this forest alive — the trees, the animals, all of it.' },
   { who: 'KAI', text: 'They say if it ever leaves the stone, the whole forest goes silent.' },
   { who: 'INGRAM', text: 'Old stories. Bring me the horn before the sun is up. No horn, nothing left to scare the men — and the cutting can start.' },
   { who: 'KAI', text: 'You want them to cut it down?' },
@@ -208,19 +212,19 @@ const SPEAK_COLOR = { INGRAM: INGRAM_AMBER, KAI: KAI_GREEN };
    Sfx — a very small synth. Every sound here is generated at runtime.
 
    The scene is built on one trick: the forest is loud, and then it is not.
-   insects() and frog() are the valley alive; silence() cuts everything at
-   once and nothing in this file brings it back. The whistle is two notes.
+   Birdsong, a dove and the wind in the leaves are the forest at dawn;
+   silence() cuts everything at once and nothing in this file brings it
+   back. On the way up something in the trees growls, a branch snaps, and
+   far off something howls. The whistle is two notes.
    ========================================================================== */
 class Sfx {
   constructor() {
     this.ctx = null;
     this.master = null;
     this.muted = false;
-    this.chirpT = 1.2;
-    this.frogT = 3.0;
+    this.birdT = 0.6;
+    this.doveT = 4.0;
     this.popT = 0.2;
-    this.owlT = 2.0;
-    this.owls = false;      // owls call once he is out on the path
     this.alive = true;      // is the forest still making sound?
     this.firePower = 1;     // the fire is dying all scene, 1 -> 0.45
   }
@@ -256,103 +260,241 @@ class Sfx {
 
   get t() { return this.ctx ? this.ctx.currentTime : 0; }
 
-  /** Wind through the trees, with a slow swell. The valley's breath. */
+  /** Somewhere to send a one-off sound: a distance (lowpass) and a side (pan, -1..1). */
+  _place(pan = 0, cutoff = 20000) {
+    const ctx = this.ctx;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = cutoff;
+    if (ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      lp.connect(p); p.connect(this.master);
+    } else {
+      lp.connect(this.master);
+    }
+    return lp;
+  }
+
+  /** One sine note gliding f0 -> f1 into `out`, `at` seconds from now. */
+  _note(out, at, f0, f1, dur, amp, attack = 0.02) {
+    const ctx = this.ctx, t = this.t + at;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(amp, t + Math.min(attack, dur * 0.4));
+    g.gain.exponentialRampToValueAtTime(0.0003, t + dur);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t + dur + 0.03);
+    return o;
+  }
+
+  /**
+   * The forest's bed: the leaves moving in the wind (a light hiss that
+   * gusts) over the low breath of the air. Both run into one bus, `tone`,
+   * so the silence can take all of it in one move.
+   */
   forestTone() {
     if (!this.ctx || this.tone) return;
     const ctx = this.ctx, t = this.t;
-    const src = ctx.createBufferSource();
-    src.buffer = this._noise(3, 0);
-    src.loop = true;
-    // Loud enough to matter. The silence is the scene's whole point, and a
-    // whisper cutting out is not a silence — the forest has to fill the
-    // valley before it can stop.
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 320; bp.Q.value = 0.4;
-    const g = ctx.createGain(); g.gain.value = 0;
-    const lfo = ctx.createOscillator();
-    lfo.type = 'sine'; lfo.frequency.value = 0.13;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 0.06;
-    src.connect(bp); bp.connect(g); g.connect(this.master);
-    lfo.connect(lfoG); lfoG.connect(g.gain);
-    src.start(); lfo.start();
-    g.gain.linearRampToValueAtTime(0.13, t + 2.5);
-    this.tone = g; this.toneSrc = src;
-  }
-
-  /** Night life, called from update(): one insect chirp. */
-  _insect() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = 2600 + Math.random() * 900;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    // three fast pulses — a cricket, not a beep
-    for (const [d, a] of [[0, 0.05], [0.055, 0.062], [0.11, 0.042]]) {
-      g.gain.setValueAtTime(0, t + d);
-      g.gain.linearRampToValueAtTime(a, t + d + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0004, t + d + 0.05);
-    }
-    o.connect(g); g.connect(this.master);
-    o.start(t); o.stop(t + 0.2);
-  }
-
-  /** Night life: one frog, somewhere off to the side. */
-  _frog() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(142, t);
-    o.frequency.exponentialRampToValueAtTime(94, t + 0.22);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 520;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.07, t + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0002, t + 0.3);
-    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-    o.connect(lp); lp.connect(g);
-    if (pan) { pan.pan.value = Math.random() * 1.6 - 0.8; g.connect(pan); pan.connect(this.master); }
-    else g.connect(this.master);
-    o.start(t); o.stop(t + 0.34);
-  }
-
-  /** An owl somewhere up in the trees: two soft falling hoots. */
-  owl() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = this.t;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 900;
-    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-    if (pan) { pan.pan.value = Math.random() * 1.4 - 0.7; lp.connect(pan); pan.connect(this.master); }
-    else lp.connect(this.master);
-    for (const [d, f, dur] of [[0, 410, 0.34], [0.52, 396, 0.56]]) {
-      const o = ctx.createOscillator();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(f, t + d);
-      o.frequency.exponentialRampToValueAtTime(f * 0.9, t + d + dur);
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    bus.connect(this.master);
+    this._loops = [];
+    const loop = (rough, type, freq, q, level) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this._noise(4, rough);
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = type; f.frequency.value = freq; f.Q.value = q;
       const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t + d);
-      g.gain.linearRampToValueAtTime(0.06, t + d + 0.07);
-      g.gain.exponentialRampToValueAtTime(0.0004, t + d + dur);
-      o.connect(g); g.connect(lp);
-      o.start(t + d); o.stop(t + d + dur + 0.05);
+      g.gain.value = level;
+      src.connect(f); f.connect(g); g.connect(bus);
+      src.start();
+      this._loops.push(src);
+      return g;
+    };
+    // the leaves, rising and falling with the gusts
+    const leaves = loop(1, 'bandpass', 2400, 0.5, 0.024);
+    const gust = ctx.createOscillator();
+    gust.type = 'sine'; gust.frequency.value = 0.08;
+    const gustG = ctx.createGain(); gustG.gain.value = 0.017;
+    gust.connect(gustG); gustG.connect(leaves.gain);
+    gust.start();
+    this._loops.push(gust);
+    // and under them the air itself, low and steady
+    loop(0, 'lowpass', 380, 0.7, 0.07);
+    bus.gain.linearRampToValueAtTime(1, t + 2.5);
+    this.tone = bus;
+  }
+
+  /** One bird somewhere up in the trees: a warble, a two-note whistle, or a trill. */
+  _bird() {
+    if (!this.ctx) return;
+    const out = this._place(Math.random() * 1.8 - 0.9, 3500 + Math.random() * 4500);
+    const amp = 0.018 + Math.random() * 0.02;
+    const kind = Math.random();
+    if (kind < 0.45) {
+      // a warble: a quick run of little notes
+      let at = 0;
+      const n = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < n; i++) {
+        const f = 2300 + Math.random() * 1900;
+        const dur = 0.05 + Math.random() * 0.06;
+        this._note(out, at, f, f * (0.8 + Math.random() * 0.45), dur, amp, 0.012);
+        at += dur + 0.02 + Math.random() * 0.05;
+      }
+    } else if (kind < 0.8) {
+      // a whistle, up and then down: tee-oo
+      const f = 1700 + Math.random() * 700;
+      this._note(out, 0, f, f * 1.35, 0.2, amp);
+      this._note(out, 0.26, f * 1.2, f * 0.85, 0.3, amp * 0.9);
+    } else {
+      // a trill
+      const f = 3200 + Math.random() * 1200;
+      for (let i = 0; i < 12; i++) this._note(out, i * 0.045, f, f * 0.94, 0.035, amp * 0.8, 0.008);
     }
   }
 
-  /** Called every frame from update() — schedules the night life. */
-  tickNight(dt) {
-    if (!this.ctx || this.muted || !this.alive) return;
-    this.chirpT -= dt;
-    if (this.chirpT <= 0) { this.chirpT = 0.4 + Math.random() * 1.9; this._insect(); }
-    this.frogT -= dt;
-    if (this.frogT <= 0) { this.frogT = 3.2 + Math.random() * 5.2; this._frog(); }
-    if (this.owls) {
-      this.owlT -= dt;
-      if (this.owlT <= 0) { this.owlT = 7 + Math.random() * 6; this.owl(); }
+  /** A dove further off: hoo, HOO-hoo, hoo. The softest thing in the forest. */
+  _dove() {
+    if (!this.ctx) return;
+    const out = this._place(Math.random() * 1.4 - 0.7, 900);
+    for (const [at, f, dur, a] of [[0, 430, 0.32, 0.03], [0.5, 520, 0.42, 0.045], [0.95, 470, 0.28, 0.035], [1.32, 430, 0.5, 0.03]]) {
+      this._note(out, at, f, f * 0.92, dur, a, 0.07);
     }
+  }
+
+  /** Called every frame from update() — schedules the forest's morning. */
+  tickForest(dt) {
+    if (!this.ctx || this.muted || !this.alive) return;
+    this.birdT -= dt;
+    if (this.birdT <= 0) { this.birdT = 0.35 + Math.random() * 1.4; this._bird(); }
+    this.doveT -= dt;
+    if (this.doveT <= 0) { this.doveT = 6 + Math.random() * 6; this._dove(); }
+  }
+
+  /** The birds stop for a few seconds — something big is near. */
+  hush(secs) {
+    this.birdT = Math.max(this.birdT, secs);
+    this.doveT = Math.max(this.doveT, secs + 3);
+  }
+
+  /** Something big in under the trees, low in its chest. */
+  growl(pan = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = this.t;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.exponentialRampToValueAtTime(0.16, t + 0.35);
+    env.gain.setValueAtTime(0.15, t + 1.1);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
+    env.connect(this._place(pan, 700));
+    // the rattle in it: its loudness chopped at ~17 Hz
+    const rattle = ctx.createGain();
+    rattle.gain.value = 0.55;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(15, t);
+    lfo.frequency.linearRampToValueAtTime(19, t + 1.9);
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.45;
+    lfo.connect(lfoG); lfoG.connect(rattle.gain);
+    rattle.connect(env);
+    for (const [f, a] of [[58, 1], [87, 0.5]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.linearRampToValueAtTime(f * 1.22, t + 0.6);
+      o.frequency.linearRampToValueAtTime(f * 0.9, t + 1.9);
+      const g = ctx.createGain(); g.gain.value = a;
+      o.connect(g); g.connect(rattle);
+      o.start(t); o.stop(t + 2);
+    }
+    // and breath through it
+    const n = ctx.createBufferSource();
+    n.buffer = this._noise(2, 1);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.9;
+    const ng = ctx.createGain(); ng.gain.value = 0.35;
+    n.connect(bp); bp.connect(ng); ng.connect(rattle);
+    n.start(t); n.stop(t + 2);
+    lfo.start(t); lfo.stop(t + 2);
+  }
+
+  /** A branch breaking under a weight, close. */
+  snap(pan = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = this.t;
+    const out = this._place(pan);
+    for (const [at, a, f] of [[0, 0.3, 2400], [0.06, 0.16, 1700], [0.15, 0.08, 1200]]) {
+      const src = ctx.createBufferSource();
+      src.buffer = this._noise(0.06, 1);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = 1.2;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(a, t + at);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.05);
+      src.connect(bp); bp.connect(g); g.connect(out);
+      src.start(t + at); src.stop(t + at + 0.07);
+    }
+  }
+
+  /** A flock going up all at once — a rush of wings. */
+  flutter(pan = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = this.t;
+    const out = this._place(pan, 3200);
+    const buf = this._noise(0.05, 1);
+    let at = 0;
+    for (let i = 0; i < 34; i++) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 700 + Math.random() * 900; bp.Q.value = 0.8;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.12 * (1 - i / 34) + 0.02, t + at);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.04);
+      src.connect(bp); bp.connect(g); g.connect(out);
+      src.start(t + at); src.stop(t + at + 0.05);
+      at += 0.028 + Math.random() * 0.03;
+    }
+    // and a few of them calling as they go
+    for (let i = 0; i < 4; i++) {
+      const f = 2600 + Math.random() * 900;
+      this._note(out, 0.1 + i * 0.22 + Math.random() * 0.1, f, f * 0.7, 0.12, 0.03, 0.01);
+    }
+  }
+
+  /** Far off across the valley, something howls — with the hills sending it back. */
+  howl() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = this.t;
+    const out = this._place(0.45, 1400);
+    const echo = ctx.createDelay(1);
+    echo.delayTime.value = 0.38;
+    const fb = ctx.createGain(); fb.gain.value = 0.35;
+    echo.connect(fb); fb.connect(echo); echo.connect(out);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.05, t + 0.5);
+    g.gain.setValueAtTime(0.045, t + 2.0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.9);
+    g.connect(out); g.connect(echo);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(300, t);
+    o.frequency.exponentialRampToValueAtTime(540, t + 0.8);
+    o.frequency.linearRampToValueAtTime(520, t + 2.0);
+    o.frequency.exponentialRampToValueAtTime(380, t + 2.9);
+    const vib = ctx.createOscillator();
+    vib.type = 'sine'; vib.frequency.value = 5;
+    const vibG = ctx.createGain(); vibG.gain.value = 7;
+    vib.connect(vibG); vibG.connect(o.frequency);
+    o.connect(g);
+    o.start(t); o.stop(t + 3);
+    vib.start(t); vib.stop(t + 3);
   }
 
   /** One pop of the fire — a tiny filtered noise burst. */
@@ -383,7 +525,7 @@ class Sfx {
     }
   }
 
-  /** THE SILENCE. Everything cuts at once — wind, insects, frogs, fire. */
+  /** THE SILENCE. Everything cuts at once — the wind, the birds, the fire. */
   silence() {
     if (!this.ctx) return;
     this.alive = false;
@@ -391,7 +533,7 @@ class Sfx {
     if (this.tone) this.tone.gain.cancelScheduledValues(t);
     if (this.tone) this.tone.gain.setValueAtTime(this.tone.gain.value, t);
     if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.06);
-    // the bottom falling out of the night — one soft sub swell into
+    // the bottom falling out of the morning — one soft sub swell into
     // nothing, so the cut is something you feel and not just notice
     const o = ctx.createOscillator();
     o.type = 'sine';
@@ -407,7 +549,7 @@ class Sfx {
 
   /**
    * Ingram's whistle — two notes, higher then lower, falling off at the end
-   * of each. A man calling across a valley at night. Two oscillators, no
+   * of each. A man calling across a valley. Two oscillators, no
    * files, and it comes back in level 02 over the engine.
    */
   whistle() {
@@ -479,7 +621,7 @@ class Sfx {
   stop() {
     if (!this.ctx) return;
     try {
-      if (this.toneSrc) this.toneSrc.stop();
+      for (const src of this._loops || []) src.stop();
       if (this.alarmOsc) this.alarmOsc.stop();
       if (this.alarmLfo) this.alarmLfo.stop();
       this.ctx.close();
@@ -582,6 +724,9 @@ export class Prologue extends Level {
     this._fled = false;           // has the run started? (the chase camera)
     this._moving = false;
     this._moveYaw = 0;
+    this._mouseIdle = 0;          // seconds since the mouse last moved (the camera re-centres)
+    this._shake = 0;              // camera shake, from the scares on the walk
+    this._timers = [];            // [{ t, fn }] — _later()
     this.beatT = 0;               // counts down to the next heartbeat
     this.dawnK = DAWN_START;      // 0 = night, 1 = level 01's morning
     this._dawnApplied = -1;
@@ -638,6 +783,7 @@ export class Prologue extends Level {
       strip(INGRAM_AT.x, INGRAM_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
       strip(SEAT.x, SEAT.z, SEAT.x + 2, SEAT.z + 5, 1.8),
       strip(WIDE_POS.x, WIDE_POS.z, GLADE.x, GLADE.z + 0.6, 1.9),
+      ring(CREW_CAMP),
     ];
   }
 
@@ -678,6 +824,7 @@ export class Prologue extends Level {
     this._buildStone();
     this._buildJungle();
     this._buildMarkers();
+    this._buildCreatures();
     this._buildFigures(cast);
     this._buildHud();
 
@@ -1126,6 +1273,73 @@ export class Prologue extends Level {
     placeProp(this.root, cloneProp(this.kit.column), -4.2, 0, -36, { s: 0.014, ry: 2.3 });
     placeProp(this.root, cloneProp(this.kit.columnShort), 4.2, 0, -38.5, { s: 0.012, ry: 0.6 });
     placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, GLADE.z - 2.6, { s: 0.0105, ry: 0.9 });
+
+    this._buildCrewCamp();
+  }
+
+  /**
+   * THE LAST CREW'S CAMP, off the path on the left: their crates, a barrel,
+   * the logs they cut, a tent sagging in on itself and a fire ring long cold
+   * — left exactly as it was the night they went past the stone. And an open
+   * trap at the edge of it. Nobody came back for any of it.
+   */
+  _buildCrewCamp() {
+    const C = CREW_CAMP;
+    this._putFit(this.kit.crates, C.x + 1.2, C.z + 1.7, 1.4, 0.3);
+    this._putFit(this.kit.barrel, C.x + 2.0, C.z - 0.3, 0.95, 1.1);
+    this._putFit(this.kit.logs, C.x + 1.0, C.z - 2.4, 2.4, 0.4);
+    this._putFit(this.kit.cutTrees, C.x - 2.0, C.z + 2.4, 3.2, 2.0);
+    this._putFit(this.kit.trap, C.x + 2.6, C.z + 0.6, 0.7, 0.8);
+
+    // the tent, half fallen in
+    const tent = new THREE.Mesh(
+      new THREE.ConeGeometry(1.25, 1.5, 4, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0x75705a, roughness: 1, side: THREE.DoubleSide }),
+    );
+    tent.position.set(C.x - 1.2, 0.62, C.z - 0.8);
+    tent.rotation.set(0.12, Math.PI / 4 + 0.6, 0.35);
+    tent.castShadow = true;
+    tent.receiveShadow = true;
+    this.root.add(tent);
+
+    // their fire: a ring of stones round two black logs, cold
+    const fx = C.x + 0.6, fz = C.z + 0.2;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const s = new THREE.Mesh(new THREE.DodecahedronGeometry(0.13 + (i % 2) * 0.04, 0), this.matRock);
+      s.position.set(fx + Math.cos(a) * 0.5, 0.08, fz + Math.sin(a) * 0.5);
+      s.rotation.set(i, i * 1.7, i * 0.3);
+      this.root.add(s);
+    }
+    for (const ry of [0.4, 2.0]) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.7, 7), this.matChar);
+      log.rotation.set(0, ry, Math.PI / 2);
+      log.position.set(fx, 0.08, fz);
+      this.root.add(log);
+    }
+  }
+
+  /**
+   * One prop from the kit, sized so its biggest side is `size` metres and
+   * standing on the ground at (x, z) — the kit's models come in at wildly
+   * different scales, so this measures rather than guesses.
+   */
+  _putFit(proto, x, z, size, ry = 0) {
+    if (!proto) return null;
+    const inner = new THREE.Group();
+    inner.add(cloneProp(proto));
+    inner.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(inner);
+    const dim = box.getSize(new THREE.Vector3());
+    const k = size / (Math.max(dim.x, dim.y, dim.z) || 1);
+    inner.scale.setScalar(k);
+    inner.position.set(-(box.min.x + box.max.x) * 0.5 * k, -box.min.y * k, -(box.min.z + box.max.z) * 0.5 * k);
+    const g = new THREE.Group();
+    g.add(inner);
+    g.position.set(x, 0, z);
+    g.rotation.y = ry;
+    this.root.add(g);
+    return g;
   }
 
   /**
@@ -1217,6 +1431,131 @@ export class Prologue extends Level {
       gate.position.set(x, -0.05, z);
       gate.rotation.y = yaw + (spanAlongX ? 0 : Math.PI / 2);
       this.root.add(gate);
+    }
+  }
+
+  /**
+   * What lives in the trees along the walk. A flock of birds that bursts
+   * out of the canopy all at once, and the eyes — two amber points low in
+   * the undergrowth that look at him, blink, and are gone. Whatever owns
+   * them is never shown; the eyes and the growl are all there is.
+   */
+  _buildCreatures() {
+    // the birds: dark V's that flap by folding (scale.y through zero)
+    const wing = new THREE.BufferGeometry();
+    wing.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.36, 0.14, 0, 0, 0, -0.09, 0, 0, 0.09,
+      0.36, 0.14, 0, 0, 0, 0.09, 0, 0, -0.09,
+    ], 3));
+    const birdMat = new THREE.MeshBasicMaterial({ color: 0x1b1d17, side: THREE.DoubleSide });
+    this.flock = { group: new THREE.Group(), birds: [], t: 0, active: false };
+    this.flock.group.visible = false;
+    for (let i = 0; i < 16; i++) {
+      const mesh = new THREE.Mesh(wing, birdMat);
+      this.flock.group.add(mesh);
+      this.flock.birds.push({ mesh, vel: new THREE.Vector3(), ph: 0 });
+    }
+    this.root.add(this.flock.group);
+
+    // the eyes: two of them, so a second pair can be somewhere else
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,200,90,0.9)');
+    grad.addColorStop(0.35, 'rgba(255,150,40,0.3)');
+    grad.addColorStop(1, 'rgba(255,120,20,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    const haloTex = new THREE.CanvasTexture(c);
+    const eyeGeo = new THREE.SphereGeometry(0.065, 10, 8);
+    this.eyes = [];
+    for (let n = 0; n < 2; n++) {
+      const grp = new THREE.Group();
+      grp.visible = false;
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffc54a, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+        fog: false, toneMapped: false,
+      });
+      for (const x of [-0.085, 0.085]) {
+        const e = new THREE.Mesh(eyeGeo, mat);
+        e.position.x = x;
+        e.renderOrder = 10;
+        grp.add(e);
+      }
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: haloTex, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+        blending: THREE.AdditiveBlending, fog: false, toneMapped: false,
+      }));
+      halo.scale.set(0.75, 0.42, 1);
+      halo.renderOrder = 9;
+      grp.add(halo);
+      this.root.add(grp);
+      this.eyes.push({ grp, mat, halo, t: 0, dur: 0, drift: 0, active: false });
+    }
+  }
+
+  /** The flock goes up, a little way ahead of him, from both sides of the path. */
+  _startFlock() {
+    const f = this.flock;
+    f.active = true;
+    f.t = 0;
+    f.group.visible = true;
+    for (const b of f.birds) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      b.mesh.position.set(side * (3.5 + Math.random() * 3), 4.5 + Math.random() * 3, this.pz - 12 + (Math.random() - 0.5) * 4);
+      b.vel.set(-side * (1 + Math.random() * 3), 2.5 + Math.random() * 2.5, Math.random() * 7 - 2);
+      b.mesh.rotation.y = Math.atan2(b.vel.x, b.vel.z);
+      b.ph = Math.random() * Math.PI * 2;
+    }
+  }
+
+  /** A pair of eyes at (x, z), low in the undergrowth, for `dur` seconds; they slide away by `drift` m/s as they go. */
+  _eyesAt(x, z, dur, drift) {
+    const e = this.eyes.find((o) => !o.active) || this.eyes[0];
+    e.active = true;
+    e.t = 0;
+    e.dur = dur;
+    e.drift = drift;
+    e.grp.position.set(x, 0.85, z);
+    e.grp.visible = true;
+  }
+
+  _tickCreatures(dt) {
+    const f = this.flock;
+    if (f && f.active) {
+      f.t += dt;
+      for (const b of f.birds) {
+        b.mesh.position.addScaledVector(b.vel, dt);
+        b.mesh.scale.y = Math.sin(f.t * 24 + b.ph);
+      }
+      if (f.t > 5) { f.active = false; f.group.visible = false; }
+    }
+    for (const e of this.eyes || []) {
+      if (!e.active) continue;
+      e.t += dt;
+      let a = Math.min(1, e.t / 0.5);
+      if (e.t > e.dur - 0.6) {
+        a = Math.max(0, (e.dur - e.t) / 0.6);
+        e.grp.position.x += e.drift * dt;
+      }
+      // one slow blink, about halfway
+      e.grp.scale.y = Math.abs(e.t - e.dur * 0.55) < 0.07 ? 0.12 : 1;
+      e.mat.opacity = a;
+      e.halo.material.opacity = a * 0.5;
+      e.grp.lookAt(this.game.camera.position);
+      if (e.t >= e.dur) { e.active = false; e.grp.visible = false; }
+    }
+  }
+
+  /** Run `fn` in `secs` seconds (ticked in update). */
+  _later(secs, fn) { this._timers.push({ t: secs, fn }); }
+
+  _tickTimers(dt) {
+    for (let i = this._timers.length - 1; i >= 0; i--) {
+      const tm = this._timers[i];
+      tm.t -= dt;
+      if (tm.t <= 0) { this._timers.splice(i, 1); tm.fn(); }
     }
   }
 
@@ -1533,7 +1872,16 @@ export class Prologue extends Level {
     let s = (i.isDown('right') ? 1 : 0) - (i.isDown('left') ? 1 : 0);
     const len = Math.hypot(f, s);
     if (len > 0) { f /= len; s /= len; }
-    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    // Up walks the path. Holding just forward, he follows the way ahead
+    // rather than the exact angle of the camera — so he never drifts into
+    // the edge and slides along it. Turn the camera far off it and the
+    // keys are camera-relative again.
+    let dirYaw = this.yaw;
+    if (f > 0 && s === 0) {
+      const way = this._wayYaw();
+      if (way !== null && Math.abs(wrapAngle(way - this.yaw)) < 0.8) dirYaw = way;
+    }
+    const sin = Math.sin(dirYaw), cos = Math.cos(dirYaw);
     const sp = this.phase === 'flee' ? RUN : WALK;
     const dx = (-sin * f + cos * s) * sp * dt;
     const dz = (-cos * f - sin * s) * sp * dt;
@@ -1564,8 +1912,10 @@ export class Prologue extends Level {
   }
 
   _look() {
-    this.yaw -= this.input.mouse.dx * LOOK;
-    this.pitch -= this.input.mouse.dy * LOOK;
+    const m = this.input.mouse;
+    if (m.dx || m.dy) this._mouseIdle = 0;
+    this.yaw -= m.dx * LOOK;
+    this.pitch -= m.dy * LOOK;
     this.pitch = THREE.MathUtils.clamp(this.pitch, -0.35, 0.5);
     // on the log he can glance around, but he cannot spin on the spot
     if (this.seated) this.yaw = THREE.MathUtils.clamp(this.yaw, -1.0, 1.0);
@@ -1601,6 +1951,16 @@ export class Prologue extends Level {
   }
 
   _yawToStone() { return this._yawTo(STONE.x, STONE.z); }
+
+  /** Which way the way ahead is: up the path on the walk, down the trail on the run. */
+  _wayYaw() {
+    if (this.phase === 'walk') {
+      const p = this._pathAhead(4);
+      return this._yawTo(p.x, p.z);
+    }
+    if (this.phase === 'flee') return this._yawTo(Math.max(this.px + 6, RUN_FROM.x + 8), RUN_Z);
+    return null;
+  }
 
   /* ==================================================== night -> dawn */
   /** k = 0 is the clearing at night; k = 1 is level 01's exact morning. */
@@ -1758,6 +2118,14 @@ export class Prologue extends Level {
       want = 46;
     } else {
       cam.position.copy(this._fp);
+      if (this._shake > 0) {
+        // something in the trees made him start
+        const k = this._shake, t = this._shotT + this.t;
+        cam.position.x += Math.sin(t * 53) * k * 0.06;
+        cam.position.y += Math.sin(t * 61 + 1) * k * 0.05;
+        this._look3.x += Math.sin(t * 47 + 2) * k * 0.22;
+        this._look3.y += Math.sin(t * 43 + 3) * k * 0.16;
+      }
       cam.lookAt(this._look3);
       want = 62;
     }
@@ -1779,11 +2147,21 @@ export class Prologue extends Level {
     if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
     if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
+    this._mouseIdle += dt;
     this._tickSay(dt);
+    this._tickTimers(dt);
     if (this.standing && this.phase !== 'done') this._move(dt);
+    // leave the mouse alone while walking and the camera swings back in
+    // behind him, onto the way ahead
+    if (this.standing && this._moving && this._mouseIdle > 0.7) {
+      const way = this._wayYaw();
+      if (way !== null) this.yaw += wrapAngle(way - this.yaw) * (1 - Math.exp(-2.4 * dt));
+    }
+    this._tickCreatures(dt);
+    this._shake = Math.max(0, this._shake - dt * 0.6);
 
     // the forest is alive until the horn comes off the stone
-    this.sfx.tickNight(dt);
+    this.sfx.tickForest(dt);
     this.sfx.tickFire(dt);
 
     // fireflies pulse along the route; mist crawls
@@ -1881,15 +2259,15 @@ export class Prologue extends Level {
           const p = this._pathAhead(3);    // past the fire, up the path
           this.yaw = this.heading = this._yawTo(p.x, p.z);
           this.pitch = 0.06;
-          this.sfx.owls = true;
           this._onLockChange();
         }
         break;
       }
 
       // THE WALK. Round the fire, then the old path dead straight up through
-      // the trees: cairns glowing both sides, three gates, ruins, the stag,
-      // the sun coming down through the canopy ahead. The forest is as loud
+      // the trees: cairns glowing both sides, three gates, the stag, the last
+      // crew's camp, the sun coming down through the canopy ahead — and
+      // something in the trees keeping pace with him. The forest is as loud
       // as it will ever be — this is what the silence is going to take.
       case 'walk': {
         this._prompt(
@@ -2000,7 +2378,7 @@ export class Prologue extends Level {
           this.horn.quaternion.copy(this._carryQuat);
           this.hornLight.position.set(0, 0.12, 0);
           this.carried.position.copy(to);
-          // THE SILENCE. Wind, insects, frogs, fire — all of it, at once.
+          // THE SILENCE. Wind, birds, fire — all of it, at once.
           this.sfx.silence();
           state.hasKey = true;                    // what he carries through the game
           this.phase = 'taken';
@@ -2140,24 +2518,58 @@ export class Prologue extends Level {
   }
 
   /**
-   * The walk's thoughts, in order, each once. One waits for the last to
-   * finish, so a fast walker gets them late rather than piled up.
+   * The walk. Things in the trees go off where he is, talking or not: the
+   * flock bursting out of the canopy, then eyes and a growl on the left
+   * (and the birds stop), then a branch breaking on the right, the eyes
+   * again — closer — and far off, a howl. His own thoughts come in order
+   * between them, each once, and one that has been walked past is dropped
+   * rather than said out of place.
    */
   _walkBeats() {
-    const s = this.walkS;
-    if (s > 17 && !this.beats.owl) { this.beats.owl = true; this.sfx.owl(); }
+    const s = this.walkS, b = this.beats;
+    if (s > 12 && !b.birds) {
+      b.birds = true;
+      this._startFlock();
+      this.sfx.flutter(0);
+      this._shake = 0.25;
+      this._later(0.7, () => this._walkSay('Just birds.', 2.2));
+    }
+    if (s > 32 && !b.growl) {
+      b.growl = true;
+      this._eyesAt(-3.6, this.pz - 13, 2.8, -2.2);
+      this.sfx.growl(-0.6);
+      this.sfx.hush(6);
+      this._shake = 0.35;
+      this._walkSay('Something\u2019s out there.', 2.6);
+    }
+    if (s > 40 && !b.stalk) {
+      b.stalk = true;
+      this.sfx.snap(0.5);
+      this._shake = 0.2;
+      this._later(0.35, () => {
+        this._eyesAt(3.4, this.pz - 10, 2.4, 2.4);
+        this.sfx.growl(0.7);
+        this._shake = 0.4;
+      });
+      this._later(0.6, () => this._walkSay('It\u2019s following me. Don\u2019t run \u2014 keep walking.', 3.2));
+      this._later(3.2, () => this.sfx.howl());
+    }
     if (this._talking()) return;
     const list = [
-      ['markers', s > 3, "The old markers. Stay between them and you can't get lost."],
-      ['ruins', s > 11, "People lived up here once. They're the ones who put the horn on the stone."],
-      ['loud', s > 21, 'Listen to it. The whole forest is awake.'],
-      ['springs', s > 33, 'The springs start just behind the stone. Every village in the valley drinks from them.'],
+      ['markers', 2, 11, 'The old markers. Stay between them.', 3.0],
+      ['camp', 21, 31, 'The last crew\u2019s camp. They left everything.', 3.4],
     ];
-    for (const [key, ready, line] of list) {
-      if (this.beats[key]) continue;
-      if (ready) { this.beats[key] = true; this._say(line); }
+    for (const [key, from, until, line, secs] of list) {
+      if (b[key]) continue;
+      if (s > until) { b[key] = true; continue; }   // walked past it
+      if (s > from) { b[key] = true; this._say(line, secs); }
       return;                       // strictly in order
     }
+  }
+
+  /** A line on the walk — dropped if he has already reached the stone. */
+  _walkSay(text, secs) {
+    if (this.phase === 'walk') this._say(text, secs);
   }
 
   /* ==================================================== teardown */
