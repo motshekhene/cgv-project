@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, loadSavedCar, loadSavedPaint } from "./level2/carSelect.js";
+import { CARS, HANDLER_MODEL, loadSavedCar, loadSavedPaint } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
-import { PoliceLights, CarLights } from "./level2/carLights.js";
+import { CarLights } from "./level2/carLights.js";
 import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
@@ -565,7 +565,6 @@ export class Level01 extends Level {
     this._soundEnabled = true;
     this._soundButton = null;
     this._pauseButton = null;
-    this._pauseOverlay = null;
     this._pauseHook = null;
     this._previousOnPaused = null;
 
@@ -611,15 +610,6 @@ export class Level01 extends Level {
     this.securityGate = null;
     this.serviceVehicle = null;
 
-    // Final-stretch police pursuit. The actual Level-02 Ranger appears after
-    // the shrine gate closes and chases Kai to the blue car while Level 01 is
-    // still fully playable. No Kai/player implementation is added here.
-    this._endPolice = null;
-    this._endPoliceLights = null;
-    this._endPoliceActive = false;
-    this._endPoliceGap = 18;
-    this._endPoliceMerge = 0;
-    this._endPoliceSirenStarted = false;
     this._level2Preload = null;
 
     // the southbound — one pooled rake reused for every event, since two are
@@ -700,7 +690,6 @@ export class Level01 extends Level {
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
     this._buildHandler();
-    this._buildEndPolicePursuit(assets);
     this._buildShrineGuardian();
 
     // Preload Level 02's cars in the background. This is intentionally not
@@ -2236,7 +2225,6 @@ export class Level01 extends Level {
 
     const boostStyle = "width:68px;height:68px;border-radius:50%;border:2px solid rgba(238,193,74,.95);background:radial-gradient(circle at 35% 28%,rgba(255,218,104,.19),rgba(22,24,10,.88) 68%);color:#ffe19a;font:950 11px system-ui;letter-spacing:.08em;cursor:pointer;box-shadow:0 0 0 2px rgba(255,206,89,.08),0 0 20px rgba(237,183,50,.22),inset 0 1px rgba(255,255,255,.12);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
     const lookStyle = "width:64px;height:64px;border-radius:50%;border:1px solid rgba(227,187,98,.45);background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.10),rgba(8,18,10,.88) 70%);color:#efe4c8;font:900 9px system-ui;letter-spacing:.06em;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.08);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
-    const textButtonStyle = "border:1px solid rgba(244,255,219,.28);background:rgba(255,255,255,.06);color:#efe4c8;border-radius:8px;height:38px;padding:0 12px;font:800 10px system-ui;letter-spacing:.08em;cursor:pointer;transition:transform .08s,background .08s,border-color .08s";
 
     actionControls.innerHTML = `
       <button type="button" data-screen-hold="boost" data-gold-control="true" title="Hold to boost" style="${boostStyle}">
@@ -2295,28 +2283,7 @@ export class Level01 extends Level {
       <button type="button" data-pause-toggle aria-label="pause game" title="Pause" style="${iconStyle}">Ⅱ</button>
     `;
 
-    const pauseOverlay = document.createElement("div");
-    Object.assign(pauseOverlay.style, {
-      position: "absolute",
-      inset: "0",
-      display: "none",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "rgba(2,7,3,.53)",
-      backdropFilter: "blur(2px)",
-      pointerEvents: "auto",
-      zIndex: "3",
-    });
-    pauseOverlay.innerHTML = `
-      <div class="plaque" style="position:relative;min-width:260px;padding:24px 28px;text-align:center">
-        <div style="font-family:var(--serif);font-size:10px;letter-spacing:.3em;color:var(--gold)">LEVEL 1 — THE OLD TRAIL</div>
-        <div style="font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.12em;margin:5px 0 4px;color:var(--ink)">PAUSED</div>
-        <div style="font-size:10px;opacity:.6;margin-bottom:15px">ESC OR BUTTON TO CONTINUE</div>
-        <button type="button" data-resume-button style="${textButtonStyle};min-width:120px">▶ RESUME</button>
-      </div>
-    `;
-
-    root.append(top, pauseOverlay, controls, topActions);
+    root.append(top, controls, topActions);
     document.body.append(root);
 
     this._templeHud = root;
@@ -2337,7 +2304,6 @@ export class Level01 extends Level {
     this._hudCamera = null;
     this._soundButton = topActions.querySelector("[data-sound-toggle]");
     this._pauseButton = topActions.querySelector("[data-pause-toggle]");
-    this._pauseOverlay = pauseOverlay;
 
     const pressVisual = (button, down) => {
       if (!button) return;
@@ -2408,15 +2374,14 @@ export class Level01 extends Level {
       if (this.game) this.game.setPaused(!this.game.paused);
     };
     this._pauseButton.addEventListener("click", togglePause);
-    pauseOverlay.querySelector("[data-resume-button]")?.addEventListener("click", togglePause);
 
     // Game already owns ESC pause. Wrap (rather than replace) its pause hook so
     // keyboard pause and the on-screen button drive the same overlay/audio state.
     if (this.game) {
       this._previousOnPaused = this.game.onPaused;
-      this._pauseHook = (paused) => {
+      this._pauseHook = (paused, reason) => {
         this._syncPauseUI(paused);
-        if (this._previousOnPaused) this._previousOnPaused(paused);
+        if (this._previousOnPaused) this._previousOnPaused(paused, reason);
       };
       this.game.onPaused = this._pauseHook;
       this._syncPauseUI(!!this.game.paused);
@@ -2475,7 +2440,6 @@ export class Level01 extends Level {
   _syncPauseUI(paused) {
     this._virtualHeld.clear();
     this._virtualPressed = Object.create(null);
-    if (this._pauseOverlay) this._pauseOverlay.style.display = paused ? "flex" : "none";
     if (this._pauseButton) {
       this._pauseButton.textContent = paused ? "▶" : "Ⅱ";
       this._pauseButton.title = paused ? "Resume" : "Pause";
@@ -2535,11 +2499,10 @@ export class Level01 extends Level {
         CAUGHT: "CAUGHT",
         SEALED: "SEALED",
         GUARDIAN: "GUARDIAN",
-        POLICE_CHASE: "COMPANY RANGER",
       };
       this._hudHandlerState.textContent = labels[hs] || hs;
       // ember when he is on you, moss when Kai is pulling away (Level 2's handler box does the same)
-      const dangerous = /CAUGHT|TRIGGERED|GUARDIAN|CLOSING|POLICE_CHASE/.test(hs);
+      const dangerous = /CAUGHT|TRIGGERED|GUARDIAN|CLOSING/.test(hs);
       this._hudHandlerPanel?.classList.toggle("attack", dangerous);
       this._hudHandlerPanel?.classList.toggle("calm", !dangerous);
     }
@@ -2603,7 +2566,6 @@ export class Level01 extends Level {
     this._hudHandlerPanel = null;
     this._soundButton = null;
     this._pauseButton = null;
-    this._pauseOverlay = null;
   }
 
   _showTransientBanner(text, seconds = 1.8) {
@@ -3030,88 +2992,6 @@ export class Level01 extends Level {
     for (const m of L.heads) m.material.color.setScalar(0.25 + 0.75 * k);
   }
 
-  /** Real Level-02 police Ranger used during Level 01's last 100 m. */
-  _buildEndPolicePursuit(assets) {
-    const car = new THREE.Group();
-    car.name = "level01-police-pursuit";
-    car.visible = false;
-    car.rotation.y = Math.PI;
-
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6d6247, roughness: 0.58, metalness: 0.12 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x17242a, roughness: 0.28, metalness: 0.35 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.72, 4.5), bodyMat);
-    body.position.y = 0.82;
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.72, 2.0), glassMat);
-    cabin.position.set(0, 1.45, -0.25);
-    body.castShadow = cabin.castShadow = true;
-    car.add(body, cabin);
-
-    this._endPolice = car;
-    this.root.add(car);
-    this._endPoliceLights = new PoliceLights(car);
-
-    attachModel(assets, car, HANDLER_MODEL, HANDLER_OPTIONS).then((model) => {
-      if (model && this._endPoliceLights) this._endPoliceLights.fit(model.userData.bounds, model);
-    }).catch((err) => console.warn("[level01] police Ranger model failed to load", err));
-  }
-
-  _startEndPolicePursuit() {
-    if (this._endPoliceActive || !this._endPolice) return;
-    this._endPoliceActive = true;
-    this._endPolice.visible = true;
-    this._endPoliceGap = 18;
-    this._endPoliceMerge = 0;
-
-    const routeX = this._routeOffsetAt(this.z, this._routeSide) + (LANE_X[this.lane] || 0);
-    // It bursts from a side service track on Kai's side of the sealed gate.
-    this._endPolice.position.set(routeX + 10.5, jungleCourseHeight(this.z + 14), this.z + 14);
-    this._endPolice.rotation.y = Math.PI * 0.73;
-
-    this._autoLook = Math.max(this._autoLook, 1.0);
-    this._showTransientBanner("COMPANY RANGER ON THE ROAD — GET TO THE CAR!", 1.8);
-
-    if (this._audio && !this._endPoliceSirenStarted) {
-      this._audio.attachPositional(this._endPolice, "policeSiren", {
-        loop: true, volume: 0.42, refDistance: 8, maxDistance: 80,
-      });
-      this._endPoliceSirenStarted = true;
-    }
-  }
-
-  _updateEndPolicePursuit(dt, state) {
-    if (!this._endPolice || this.caught) return;
-
-    if (!this._endPoliceActive
-        && this._gatePhase === "closed"
-        && this.z <= GATE_Z - 10
-        && !this.escaped) {
-      this._startEndPolicePursuit();
-    }
-    if (!this._endPoliceActive) return;
-
-    const car = this._endPolice;
-    const playerX = this._worldX;
-    if (!this.escaped) {
-      this._endPoliceMerge = Math.min(1, this._endPoliceMerge + dt * 0.72);
-      const gain = 1.65 + (this._endPoliceGap > 12 ? 0.75 : 0.25);
-      this._endPoliceGap = Math.max(6.8, this._endPoliceGap - gain * dt);
-
-      const targetX = playerX + Math.sin(this._worldTime * 3.2) * 0.18;
-      const k = 1 - Math.exp(-dt * (2.5 + this._endPoliceMerge * 5.5));
-      car.position.x += (targetX - car.position.x) * k;
-      car.position.z = this.z + this._endPoliceGap;
-      car.position.y = jungleCourseHeight(car.position.z);
-
-      const dx = playerX - car.position.x;
-      const dz = this.z - car.position.z;
-      car.rotation.y = Math.atan2(dx, dz);
-    }
-
-    this._endPoliceLights?.update(dt, this._endPoliceGap < 10 ? "TELEGRAPH" : "APPROACH");
-    state.handlerState = "POLICE_CHASE";
-    state.handlerGap = this._endPoliceGap;
-  }
-
   _buildHandler() {
     const group = new THREE.Group();
     const coatMat = new THREE.MeshStandardMaterial({ color: 0x182018, roughness: 0.95, metalness: 0.02 });
@@ -3398,9 +3278,8 @@ export class Level01 extends Level {
   }
 
   /**
-   * Hands the run to Redline only after Kai reaches the blue service car. The
-   * police reveal/chase has already happened in Level 01, so Level 02 opens
-   * directly on car selection rather than replaying another cinematic.
+   * Hands the run on once the finish scene is over: Kai is in the car at the
+   * logging camp, and the drive-out scene (level02-intro) takes it from there.
    *
    * Two hazards, both handled here rather than in Game.js:
    *
@@ -3426,14 +3305,14 @@ export class Level01 extends Level {
       return;
     }
 
-    game.setPaused(true);
+    game.setPaused(true, "switch");
     Promise.resolve().then(async () => {
       try {
         await game.setLevel(next);
       } catch (err) {
         console.error(`[level01] handoff to ${next} failed`, err);
       } finally {
-        game.setPaused(false);
+        game.setPaused(false, "switch");
       }
     });
   }
@@ -3532,8 +3411,6 @@ export class Level01 extends Level {
     const f = (F.t += dt);
     const kai = this.kai;
     const { door, seat, centre } = F;
-    // the company ranger has pulled up behind him, lights still going, as he gets in
-    if (this._endPoliceActive) this._endPoliceLights?.update(dt, "TELEGRAPH");
     const smooth = (a, b, v) => THREE.MathUtils.smoothstep(v, a, b);
     const groundY = (z) => jungleCourseHeight(z);
 
@@ -3715,20 +3592,6 @@ export class Level01 extends Level {
       this._audio.buffers.set(name, buffer);
     }
     const tension = this._audio.buffers.get("tension");
-
-    // Level 1B's end-of-level police siren is not part of the shared palette
-    {
-      const rate = ctx.sampleRate;
-      const n = Math.floor(2.0 * rate);
-      const siren = ctx.createBuffer(1, n, rate);
-      const out = siren.getChannelData(0);
-      for (let i = 0; i < n; i++) {
-        const t = i / rate;
-        const swap = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.92);
-        out[i] = (Math.sin(t * Math.PI * 2 * 690) * swap + Math.sin(t * Math.PI * 2 * 465) * (1 - swap)) * 0.16;
-      }
-      this._audio.buffers.set("policeSiren", siren);
-    }
 
     // the recorded coin chime (Pixabay) swaps over the synthesised one by
     // name the moment it decodes — same headroom, so the volume is unchanged
@@ -4047,8 +3910,8 @@ export class Level01 extends Level {
     this._updateTempleRunHUD();
 
     // --- the way out ---
-    // The gate is NOT the level switch. Kai keeps running while the police
-    // Ranger chases him, and only stops when he reaches the familiar blue car.
+    // The gate is NOT the level switch: reaching the bay is, and the finish
+    // scene walks him the rest of the way to the car's door.
     if (!this.caught && !this.escaped && this.z <= ESCAPE_Z) {
       this.escaped = true;
       this._escapeSpeed = this.speed; // hand the ramp the speed he arrived with
@@ -4073,7 +3936,6 @@ export class Level01 extends Level {
     this._updateHandler(dt, state);
     this._updateHandlerModel(dt);
     this._updateHandlerPressure(dt);
-    this._updateEndPolicePursuit(dt, state);
 
     // pooled scenery and obstacle meshes follow him; this also advances the
     // obstacle cursor, so it has to come after the clip test above

@@ -133,11 +133,16 @@ export class Game {
     this.running = false;
   }
 
-  setPaused(v) {
+  /**
+   * reason: 'user' when the player paused (Esc, a pause button) — main.js
+   * shows the pause menu for those — or 'switch' when a level hand-off holds
+   * the game still for a moment, which must not flash the menu up.
+   */
+  setPaused(v, reason = 'user') {
     this.paused = v;
     this.state.paused = v;
-    if (this.level && this.level.onPause) this.level.onPause(v); // e.g. show a pause menu
-    if (this.onPaused) this.onPaused(v);
+    if (this.level && this.level.onPause) this.level.onPause(v, reason);
+    if (this.onPaused) this.onPaused(v, reason);
   }
 
   _frame() {

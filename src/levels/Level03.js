@@ -15,7 +15,6 @@ import { Level3Sound } from './level3/sound.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
-import { PauseMenu } from '../ui/PauseMenu.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
 import { attachHorn } from '../intros/cast.js';
@@ -162,19 +161,6 @@ const FOCUS_DAMAGE = 1.5;
 const EASE_PER_LOSS = 0.12;
 const EASE_MIN = 0.64;
 const VS_TIME = 1.75; // the VS splash, then FIGHT
-/** Esc: the pause menu's list of controls. */
-const CONTROLS = [
-  ['W S', 'walk forward / back'],
-  ['A D', 'turn (follow view) \u00b7 strafe (lock-on)'],
-  ['ENTER', 'punch, three in a chain (or left click)'],
-  ['K', 'kick, three in a chain'],
-  ['B', 'block (or right click) \u00b7 tap it just before a hit to parry'],
-  ['C', 'dodge (hold a direction to pick the side)'],
-  ['V', 'the horn: slow time down'],
-  ['TAB', 'camera: follow \u00b7 lock-on \u00b7 360\u00b0 view'],
-  ['R', 'restart the fight'],
-  ['ESC', 'pause / resume'],
-];
 const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
 const TOTAL_PAGES = 6; // three on Level 1's trail, three here
 const LETTER_SPOTS = {
@@ -273,12 +259,7 @@ export class Level03 extends Level {
 
     this.hud = new FightHUD();
     this.style = new StyleMeter(this.hud);
-    this.pause = new PauseMenu({
-      controls: CONTROLS,
-      tip: PAUSE_TIP,
-      onResume: () => this.game.setPaused(false),
-      onRestart: () => this.game.restart(),
-    });
+    this.pauseTip = PAUSE_TIP; // main.js's shared pause menu shows it under the controls
     this.touch = new TouchControls(input, {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
@@ -511,11 +492,6 @@ export class Level03 extends Level {
     const v = (this._dmgV ||= new THREE.Vector3()).set(bp.x, bp.y + 1.8, bp.z).project(this.game.camera);
     if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) return; // behind the camera or off screen
     this.hud.damageNumber((v.x * 0.5 + 0.5) * window.innerWidth, (-v.y * 0.5 + 0.5) * window.innerHeight, amount, kind);
-  }
-
-  /** Game.setPaused: Esc brings up the pause menu. */
-  onPause(on) {
-    if (this.pause) this.pause.show(on);
   }
 
   /** Dodged at the last instant: time bends round Kai. The world slows right down; he barely does. */
@@ -1414,7 +1390,6 @@ export class Level03 extends Level {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
     });
     if (this.hud) this.hud.dispose();
-    if (this.pause) this.pause.dispose();
     if (this.story) this.story.dispose();
     if (this.letters) this.letters.dispose();
     if (this.gifts) this.gifts.dispose();

@@ -1026,14 +1026,14 @@ export class Level02 extends Level {
     this._handedOff = true;
     const game = this.game;
     if (!game.levels.has('level03')) return;
-    game.setPaused(true);
+    game.setPaused(true, 'switch');
     Promise.resolve().then(async () => {
       try {
         await game.setLevel('level03');
       } catch (err) {
         console.error('[level02] handoff failed', err);
       } finally {
-        game.setPaused(false);
+        game.setPaused(false, 'switch');
       }
     });
   }

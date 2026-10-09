@@ -6,7 +6,9 @@ import { Level02 } from "./levels/Level02.js";
 import { Level03 } from "./levels/Level03.js";
 import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
-import { mountControlsOverlay } from "./ui/ControlsOverlay.js";
+import { mountControlsOverlay, controlRows } from "./ui/ControlsOverlay.js";
+import { PauseMenu } from "./ui/PauseMenu.js";
+import { CHAPTERS } from "./ui/LoadingScreen.js";
 import { ensureDialogueFont } from "./ui/dialogue.js";
 import { LoadingScreen } from "./ui/LoadingScreen.js";
 import { TitleScreen } from "./ui/TitleScreen.js";
@@ -35,14 +37,14 @@ const game = new Game();
  * the scene is not torn down under its own stack frame (see Level01._startLevel02).
  */
 function goTo(name) {
-  game.setPaused(true);
+  game.setPaused(true, "switch");
   Promise.resolve().then(async () => {
     try {
       await game.setLevel(name);
     } catch (err) {
       console.error(`[game] could not start ${name}`, err);
     } finally {
-      game.setPaused(false);
+      game.setPaused(false, "switch");
     }
   });
 }
@@ -80,7 +82,27 @@ game.onLevelChanged = (name) => {
   controlsOverlay.setLevel(name);
   loading.hide();
 };
-game.onPaused = (v) => console.log("[game]", v ? "paused" : "resumed");
+// One pause menu for every level (Esc, or a level's own pause button): the
+// chapter, that level's controls, RESUME / RESTART / MAIN MENU
+const pauseMenu = new PauseMenu({
+  onResume: () => game.setPaused(false),
+  onRestart: () => game.restart(),
+  onMenu: () => location.assign(location.pathname), // the title screen, from a clean start
+});
+game.onPaused = (v, reason) => {
+  console.log("[game]", v ? "paused" : "resumed", reason === "switch" ? "(level switch)" : "");
+  const name = game.levelName;
+  if (!v || reason !== "user" || !game.level || game.loading) {
+    pauseMenu.show(false);
+    return;
+  }
+  const c = CHAPTERS[name] || { kicker: "", title: "" };
+  pauseMenu.show(true, { kicker: c.kicker, title: c.title, rows: controlRows(game, name), tip: game.level.pauseTip || "" });
+};
+game.onLevelLoading = ((show) => (name) => {
+  pauseMenu.show(false);
+  show(name);
+})(game.onLevelLoading);
 game.onControlsToggle = () => controlsOverlay.toggle();
 
 /** Start the story at `name`, preloading Level 1 behind the prologue. */

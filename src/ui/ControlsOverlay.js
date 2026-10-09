@@ -127,12 +127,19 @@ const SHARED_ROWS = [
   { label: 'PAUSE', action: 'pause' },
 ];
 
+/** The rows for one level, keys resolved from the live bindings: what the pause menu lists too. */
+export function controlRows(game, levelName) {
+  const spec = LEVEL_CONTROLS[levelName] || { title: 'CONTROLS', rows: [] };
+  return [...spec.rows, ...SHARED_ROWS].map((row) => ({ label: row.label, keys: keysFor(game, row) }));
+}
+
 export function mountControlsOverlay(game) {
   const state = { levelName: game.levelName || null, visible: false };
 
   const root = document.createElement('div');
   root.style.cssText =
-    'position:fixed;right:18px;bottom:18px;z-index:9000;pointer-events:none;' +
+    // above the title screen (9500) and the pause menu (9300), below the loading screen
+    'position:fixed;right:18px;bottom:18px;z-index:9700;pointer-events:none;' +
     "font-family:ui-monospace,'JetBrains Mono',Menlo,monospace";
   document.body.appendChild(root);
 
