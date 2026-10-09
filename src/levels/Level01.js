@@ -2249,13 +2249,13 @@ export class Level01 extends Level {
 
     controls.append(actionControls, dpad);
 
-    // Sound and pause are compact clickable icons in the top-right. Tooltips
-    // and aria-labels keep them understandable without adding more HUD text.
+    // Sound and pause are compact clickable icons in the top-right, stacked
+    // below the handler panel so they never overlap.
     const topActions = document.createElement("div");
     Object.assign(topActions.style, {
       position: "absolute",
       right: "20px",
-      top: "18px",
+      top: "90px",
       display: "flex",
       gap: "8px",
       pointerEvents: "auto",
