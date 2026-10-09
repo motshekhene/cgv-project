@@ -11,6 +11,7 @@ import { Storm } from './level3/Storm.js';
 import { KeyVision } from './level3/KeyVision.js';
 import { StrikeTrail, Shockwaves } from './level3/Trails.js';
 import { Fireflies } from './level3/Fireflies.js';
+import { Level3Sound } from './level3/sound.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
@@ -233,6 +234,7 @@ export class Level03 extends Level {
 
     this.letters = new LetterDrops(this.root, state, (id, text) => {
       const found = state.letters.length;
+      this.sound?.play('shrinePulse', { volume: 0.7 });
       this.story.showLetter(`DEAD DROP ${id.toUpperCase()}  ·  ${found} / 9 FOUND`, text);
     });
 
@@ -251,6 +253,7 @@ export class Level03 extends Level {
     this._applyCamMode(true);
     this.story = new StoryOverlay();
     this.story.onSkip = () => this._skip();
+    this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
     this._applyGifts(); // gifts taken on an earlier attempt stay taken
 
     const cam = this.game.camera;
@@ -302,6 +305,7 @@ export class Level03 extends Level {
 
   _onGift(id, gift) {
     this._applyGifts(id);
+    this.sound?.play('pickupHeart', { volume: 0.7 });
     this.story.showAward(gift.icon, gift.name, gift.desc, gift.css);
     this._addShake(0.2);
     const left = this.gifts.remaining;
@@ -344,6 +348,7 @@ export class Level03 extends Level {
           hud().popup('DODGE', '#8fe8ff');
           this.style.add('dodge');
         }
+        this.sound?.play('whoosh', { volume: 0.4 });
         return 'dodged';
       }
       if (c.parryReady()) {
@@ -353,6 +358,8 @@ export class Level03 extends Level {
         hud().popup('PARRY!', '#ffe066');
         this.style.add('parry');
         this.waves.spawn(c.root.position.x, c.root.position.y, c.root.position.z, { size: 2.2, life: 0.35, color: 0xffe066 });
+        this.sound?.play('parry', { volume: 0.75 });
+        this.sound?.duck(0.3, 0.4);
         return 'parried';
       }
       if (c.blocking) {
@@ -366,6 +373,7 @@ export class Level03 extends Level {
           color: 0xffe2a8, count: 18, speed: 2.6, size: 0.14, y: cp.y + 1.35, lift: 1.2, additive: true,
         });
         hud().popup('BLOCKED', '#c9d6e0');
+        this.sound?.play('block', { volume: 0.7 });
         this._checkPlayerDeath(state);
         return 'blocked';
       }
@@ -375,6 +383,9 @@ export class Level03 extends Level {
       this._hitStop(0.035);
       this._addShake(0.32);
       hud().damageFlash();
+      this.sound?.play('hurt', { volume: 0.85, rate: 0.96 + Math.random() * 0.08 });
+      this.sound?.play('grunt', { volume: 0.45, rate: 1.02 + Math.random() * 0.06 });
+      this.sound?.duck(0.45, 0.4);
       this._checkPlayerDeath(state);
       return 'hit';
     };
@@ -386,11 +397,14 @@ export class Level03 extends Level {
     this.boss.onHelmetOff = () => {
       this._hitStop(0.12);
       this._addShake(0.5);
+      this.sound?.play('guardianRoar', { volume: 0.85 });
+      this.sound?.duck(0.5, 1.2);
       this._startReveal();
     };
     this.boss.onPhaseChange = (n) => {
       if (n > 2) {
         hud().popup('DESPERATION', '#ff5a3a');
+        this.sound?.play('guardianRoar', { volume: 0.7 });
         this.arena.setDuskTarget(1); // the sun goes down on Site 7
         this.letters.spawn('l3-3', LETTER_SPOTS['l3-3']);
       } else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
@@ -398,6 +412,12 @@ export class Level03 extends Level {
     this.boss.onDefeated = () => {
       this._hitStop(0.12);
       this._addShake(0.55);
+      // the quiet moment at the final blow: the music drops away, his body
+      // comes down on the wet rock and the pool takes him — then the fanfare
+      this.sound?.play('bodyFall', { volume: 0.9 });
+      this.sound?.play('splash', { volume: 0.65, rate: 0.92 });
+      this.sound?.duck(0.85, 1.6);
+      this.sound?.play('win', { volume: 0.85 });
       this._endTimer = 2.6;
       this._endKind = 'win';
       this._startFinal();
@@ -494,6 +514,9 @@ export class Level03 extends Level {
     this.combat.die();
     state.deaths++;
     losses++;
+    this.sound?.play('defeat', { volume: 0.85 });
+    this.sound?.play('bodyFall', { volume: 0.55, rate: 1.12 });
+    this.sound?.duck(0.6, 1.5);
     this._endTimer = 1.4;
     this._endKind = 'lose';
   }
@@ -547,6 +570,7 @@ export class Level03 extends Level {
     this.arena.update(dt, this.time, this.game.camera);
     this.storm.update(dt, real, this.game.camera, this.combat.root.position);
     this.hud.lightning(this.arena.flash);
+    if (this.sound) this.sound.update(dt);
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
@@ -606,6 +630,14 @@ export class Level03 extends Level {
         const fin = this.combat.comboFinisher;
         const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1));
         if (dealt > 0) {
+          this.sound?.play('punch', {
+            volume: this.boss.vulnerable ? 0.88 : fin ? 0.78 : 0.6,
+            rate: 0.96 + Math.random() * 0.08,
+          });
+          // the big ones draw a grunt out of him
+          if (this.boss.vulnerable || fin) {
+            this.sound?.play('grunt', { volume: 0.5, rate: 0.82 + Math.random() * 0.06 });
+          }
           this.boss.root.position.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1));
           if (this.power) {
             this.arena.burst(bp.x - this._toBoss.x * 0.4, bp.z - this._toBoss.z * 0.4, {
@@ -626,6 +658,28 @@ export class Level03 extends Level {
           if (crit) this.style.add('crit');
         }
       }
+    }
+
+    // wet footsteps, on stride distance: Kai's soft slaps on the soaked
+    // stone, the Handler's heavier and quieter with distance
+    if (!this.combat.dead) {
+      if (!this._stepPrev) this._stepPrev = cp.clone();
+      this._stepDist = (this._stepDist || 0) + cp.distanceTo(this._stepPrev);
+      if (this._stepDist >= 1.05) {
+        this._stepDist = 0;
+        this.sound?.play('footstep', { volume: 0.32, rate: 0.86 + Math.random() * 0.1 });
+      }
+      this._stepPrev.copy(cp);
+      if (!this._bossStepPrev) this._bossStepPrev = bp.clone();
+      this._bossStepDist = (this._bossStepDist || 0) + bp.distanceTo(this._bossStepPrev);
+      if (this._bossStepDist >= 1.3 && this.boss.state !== 'DOWN') {
+        this._bossStepDist = 0;
+        this.sound?.play('footstep', {
+          volume: 0.5 / (1 + cp.distanceTo(bp) / 9),
+          rate: 0.62 + Math.random() * 0.05,
+        });
+      }
+      this._bossStepPrev.copy(bp);
     }
 
     const b = this.boss.update(dt);
@@ -653,7 +707,11 @@ export class Level03 extends Level {
     this.touch.setKey(1 - this.combat.abilityCD / this.combat.abilityRecharge);
 
     // the Key: popup on activation
-    if (this.combat.abilityActive && !this._abilityWas) this.hud.popup('THE KEY', '#7fd8ff');
+    if (this.combat.abilityActive && !this._abilityWas) {
+      this.hud.popup('THE KEY', '#7fd8ff');
+      this.sound?.play('whoosh', { volume: 0.5 });
+      this.sound?.duck(0.35, 0.6);
+    }
     this._abilityWas = this.combat.abilityActive;
 
     if (this.mode === 'REVEAL') this._updateReveal();
@@ -758,6 +816,7 @@ export class Level03 extends Level {
 
   _startIntro() {
     this._enterBeat('INTRO');
+    this.sound?.setVariant('intro');
     this.story.setCinematic(true, true);
     this.hud.setVisible(false);
     this.touch.setVisible(false);
@@ -904,6 +963,7 @@ export class Level03 extends Level {
       } else if (t >= L.takeoff && !this._jumped) {
         this._jumped = true;
         bf.playOnce('jump', { speed: 1.3 });
+        this.sound?.play('whoosh', { volume: 0.3 });
       }
       if (air >= 1 && !this._landed) {
         this._landed = true;
@@ -911,6 +971,8 @@ export class Level03 extends Level {
         this._addShake(0.75);
         this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
         this.waves.spawn(BOSS_LAND.x, L.landY, BOSS_LAND.z, { size: 5.5, life: 0.6, color: 0xffe2b0 });
+        this.sound?.play('impact', { volume: 0.9 });
+        this.sound?.duck(0.4, 0.8);
         this.story.showCard('THE HANDLER', 'He never slows down.');
       }
       // Kai hears him land and turns round
@@ -1034,6 +1096,7 @@ export class Level03 extends Level {
   _startFight() {
     introSeen = true;
     this._enterBeat('FIGHT');
+    this.sound?.setVariant('battle');
     this._muteInput = true;
     this.cine = null;
     this.story.setCinematic(false);
@@ -1060,6 +1123,7 @@ export class Level03 extends Level {
     this.camYaw = k.heading;
     this.hud.versus(WHO.kai.name, WHO.handler.name);
     this._fightCall = VS_TIME;
+    this.sound?.play('handoff', { volume: 0.6 });
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
     // notes for the player, once FIGHT has been called
     this._fightToasts = [];
@@ -1144,6 +1208,7 @@ export class Level03 extends Level {
   _startEpilogue() {
     this._enterBeat('EPILOGUE');
     this.flies.centre(this.boss.root.position.x, this.boss.root.position.z);
+    this.sound?.setVariant('intro');
     this.story.setCinematic(true, true);
     this.story.hideLetter();
     this.hud.setVisible(false);
@@ -1265,6 +1330,7 @@ export class Level03 extends Level {
 
   teardown() {
     if (this.vision) this.vision.dispose();
+    if (this.sound) { this.sound.dispose(); this.sound = null; }
     if (this.touch) this.touch.dispose();
     if (this.input) this.input.ignored.delete('mouse0');
     // skinned meshes own a bone texture that disposeObject() does not free

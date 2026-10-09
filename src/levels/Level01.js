@@ -5,6 +5,13 @@ import { AudioSystem } from "../audio/audioSystem.js";
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
 import { PoliceLights } from "./level2/carLights.js";
+import {
+  createJungleCueBuffers,
+  createJungleMusicBuffer,
+  loadAudioFileBuffer,
+  loadJungleTheme,
+  JungleBed,
+} from "../audio/jungleAudio.js";
 import { showEndCard } from "../ui/EndCard.js";
 import { Hud } from "../core/Hud.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
@@ -573,6 +580,8 @@ export class Level01 extends Level {
     this._audio = null;
     this._audioReady = false;
     this._musicTrack = null;
+    this._bed = null; // JungleBed — the living ambient bed
+    this._musicDuck = 1; // music dip under big cues; recovers in update()
     this._strideDistance = 0;
     // one stride ≈ 1.6 m of ground covered, so the footstep rate rises with
     // the speed ramp on its own instead of needing its own curve
@@ -1596,6 +1605,7 @@ export class Level01 extends Level {
     this.boostSpeed = 0;
     this._shake = 1;
     if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
+    this._duckMusic(0.85);
     this._showCaughtOverlay(message);
   }
 
@@ -1835,7 +1845,7 @@ export class Level01 extends Level {
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
 
-      if (this._audio) this._audio.playOneShot("rewardChime", { volume: 0.32 });
+      if (this._audio) this._audio.playOneShot("coin", { volume: 0.42, rate: 0.97 + Math.random() * 0.06 });
     }
 
     this._updateRewardInstances(dt);
@@ -2444,6 +2454,15 @@ export class Level01 extends Level {
     }
   }
 
+  /**
+   * Dips the music under one of the big cues — a catch, the gate slam, the
+   * win sting — so gameplay feedback is always audible over the loop.
+   * `depth` 0..1; update() recovers it at 0.7/s.
+   */
+  _duckMusic(depth = 0.5) {
+    this._musicDuck = Math.min(this._musicDuck, Math.max(0, 1 - depth));
+  }
+
   _syncPauseUI(paused) {
     this._virtualHeld.clear();
     this._virtualPressed = Object.create(null);
@@ -2680,6 +2699,11 @@ export class Level01 extends Level {
   /** Kai reached the vehicle: the win card, and CONTINUE starts level 02. */
   _showEscapedCard() {
     if (this._escapedCard || typeof document === "undefined") return;
+    // the win sting, ducking the music so it owns the moment
+    if (this._audio) {
+      this._audio.playOneShot("win", { volume: 0.8 });
+      this._duckMusic(0.55);
+    }
     const distance = Math.round(this.state?.distance ?? 0);
     const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
     this._escapedCard = showEndCard({
@@ -2886,6 +2910,7 @@ export class Level01 extends Level {
 
       if (this._gateImpacts === 1) {
         if (this._audio) this._audio.playOneShot("gateSlam", { volume: 0.85 });
+        this._duckMusic(0.5);
         this._shake = 0.45;
         this._gateFlash = 1;
       } else {
@@ -3148,6 +3173,7 @@ export class Level01 extends Level {
       this.guardianGlow.intensity = 5.5;
       this._shake = Math.max(this._shake, 0.18);
       if (this._audio) this._audio.playOneShot("guardianRoar", { volume: 0.9 });
+      this._duckMusic(0.45);
     }
 
     const oldGuardianZ = this._guardianZ;
@@ -3185,6 +3211,7 @@ export class Level01 extends Level {
       this.boostSpeed = 0;
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
+      this._duckMusic(0.85);
       this._showCaughtOverlay("The Shrine Guardian caught Kai. Restart the level to try again.");
       return true;
     }
@@ -3304,6 +3331,7 @@ export class Level01 extends Level {
         state.handlerState = "CAUGHT";
         this._shake = 0.6;
         if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
+        this._duckMusic(0.85);
         this._showCaughtOverlay("The Handler caught Kai.");
       } else {
         state.handlerState = this._handlerRageT > 0
@@ -3374,163 +3402,47 @@ export class Level01 extends Level {
     this._applyAudioMuteState(!!this.game?.paused);
     const ctx = this._audio.listener.context;
 
-    const makeBuffer = (seconds, sampleFn) => {
+    // The whole one-shot palette now comes from the shared jungle engine
+    // (src/audio/jungleAudio.js): Level 1's original synths, kept
+    // voice-for-voice, plus the gameplay cues the pitch asked for — coin,
+    // stumble, win — all peak-normalised against each other so nothing is
+    // suddenly the loudest thing in the game. Level 2 and the intro draw
+    // from the same buffers, which is what keeps the style, quality and
+    // volume consistent across the whole run.
+    for (const [name, buffer] of Object.entries(createJungleCueBuffers(ctx))) {
+      this._audio.buffers.set(name, buffer);
+    }
+    const tension = this._audio.buffers.get("tension");
+
+    // Level 1B's end-of-level police siren is not part of the shared palette
+    {
       const rate = ctx.sampleRate;
-      const n = Math.max(1, Math.floor(seconds * rate));
-      const buffer = ctx.createBuffer(1, n, rate);
-      const out = buffer.getChannelData(0);
-      for (let i = 0; i < n; i++) out[i] = sampleFn(i / rate, i, n);
-      return buffer;
-    };
+      const n = Math.floor(2.0 * rate);
+      const siren = ctx.createBuffer(1, n, rate);
+      const out = siren.getChannelData(0);
+      for (let i = 0; i < n; i++) {
+        const t = i / rate;
+        const swap = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.92);
+        out[i] = (Math.sin(t * Math.PI * 2 * 690) * swap + Math.sin(t * Math.PI * 2 * 465) * (1 - swap)) * 0.16;
+      }
+      this._audio.buffers.set("policeSiren", siren);
+    }
 
-    let brown = 0;
-    const ambience = makeBuffer(6, (t) => {
-      brown = (brown + (Math.random() * 2 - 1) * 0.035) / 1.025;
-      const insects = Math.sin(t * Math.PI * 2 * 3100) * (Math.sin(t * Math.PI * 2 * 0.73) > 0.84 ? 0.02 : 0);
-      return THREE.MathUtils.clamp(brown * 0.09 + insects, -0.22, 0.22);
-    });
-    const footstep = makeBuffer(0.22, (t) => {
-      // Dirt/stone footfall: a low heel thump plus a short gritty transient.
-      // This is deliberately clearer than the old hissy step because the user
-      // should be able to feel Kai's cadence underneath the music.
-      const thump = Math.sin(t * Math.PI * 2 * 72) * Math.exp(-t * 22) * 0.62;
-      const grit = Math.sin(t * Math.PI * 2 * 1680) * Math.sin(t * Math.PI * 2 * 2330)
-        * Math.exp(-t * 42) * 0.24;
-      return thump + grit;
-    });
-    const impact = makeBuffer(0.32, (t) => {
-      const e = Math.exp(-t * 16);
-      return ((Math.random() * 2 - 1) * 0.4 + Math.sin(t * Math.PI * 2 * 58) * 0.75) * e;
-    });
-    const gateSlam = makeBuffer(0.9, (t) => {
-      const e = Math.exp(-t * 6.5);
-      return ((Math.random() * 2 - 1) * 0.55 + Math.sin(t * Math.PI * 2 * 43) * 0.8) * e;
-    });
-    const breath = makeBuffer(2.4, (t) => {
-      const phase = (t % 1.2) / 1.2;
-      const env = Math.pow(Math.sin(Math.PI * phase), 2);
-      return (Math.random() * 2 - 1) * 0.12 * env;
-    });
-    const catchSting = makeBuffer(0.55, (t) => {
-      const e = Math.exp(-t * 8);
-      return (Math.sin(t * Math.PI * 2 * (95 - t * 70)) * 0.7 + (Math.random() * 2 - 1) * 0.2) * e;
-    });
-    const guardianRoar = makeBuffer(1.15, (t) => {
-      const e = Math.exp(-t * 2.6);
-      const growl =
-        Math.sin(t * Math.PI * 2 * (58 - t * 18)) * 0.42 +
-        Math.sin(t * Math.PI * 2 * 31) * 0.26;
-      return (growl + (Math.random() * 2 - 1) * 0.22) * e;
-    });
-    const treeCreak = makeBuffer(0.8, (t) => {
-      const e = Math.exp(-t * 2.2);
-      return (
-        Math.sin(t * Math.PI * 2 * (115 - t * 55)) * 0.23 +
-        Math.sin(t * Math.PI * 2 * 37) * 0.12 +
-        (Math.random() * 2 - 1) * 0.08
-      ) * e;
-    });
-    const treeCrash = makeBuffer(0.72, (t) => {
-      const e = Math.exp(-t * 7.5);
-      return (
-        Math.sin(t * Math.PI * 2 * 48) * 0.45 +
-        (Math.random() * 2 - 1) * 0.65
-      ) * e;
-    });
-    const stoneGrind = makeBuffer(1.0, (t) => {
-      const e = Math.exp(-t * 2.7);
-      return (
-        Math.sin(t * Math.PI * 2 * 34) * 0.28 +
-        Math.sin(t * Math.PI * 2 * 71) * 0.16 +
-        (Math.random() * 2 - 1) * 0.22
-      ) * e;
-    });
-    const shrinePulse = makeBuffer(0.75, (t) => {
-      const e = Math.exp(-t * 4.0);
-      return (
-        Math.sin(t * Math.PI * 2 * (160 - t * 55)) * 0.27 +
-        Math.sin(t * Math.PI * 2 * 80) * 0.13
-      ) * e;
-    });
-    const bridgeCrack = makeBuffer(0.62, (t) => {
-      const e = Math.exp(-t * 8.5);
-      return (
-        (Math.random() * 2 - 1) * 0.58 +
-        Math.sin(t * Math.PI * 2 * 52) * 0.34
-      ) * e;
-    });
-    const rewardChime = makeBuffer(0.34, (t) => {
-      const e = Math.exp(-t * 8.5);
-      return (
-        Math.sin(t * Math.PI * 2 * 660) * 0.22 +
-        Math.sin(t * Math.PI * 2 * 990) * 0.16
-      ) * e;
-    });
-    const jetpackIgnite = makeBuffer(0.72, (t) => {
-      const rise = Math.min(1, t * 7);
-      const fall = Math.exp(-t * 2.9);
-      const roar = Math.sin(t * Math.PI * 2 * (86 + t * 90)) * 0.20;
-      const air = (Math.random() * 2 - 1) * 0.18;
-      return (roar + air) * rise * fall;
-    });
-    const tension = makeBuffer(4.0, (t) => {
-      const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2 * 1.0)), 10);
-      const sub = Math.sin(t * Math.PI * 2 * 44) * 0.065;
-      const drone = Math.sin(t * Math.PI * 2 * 71) * 0.022;
-      return sub * beat + drone;
-    });
-    const policeSiren = makeBuffer(2.0, (t) => {
-      const swap = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.92);
-      const hi = Math.sin(t * Math.PI * 2 * 690) * swap;
-      const lo = Math.sin(t * Math.PI * 2 * 465) * (1 - swap);
-      return (hi + lo) * 0.16;
-    });
+    // the recorded coin chime (Pixabay) swaps over the synthesised one by
+    // name the moment it decodes — same headroom, so the volume is unchanged
+    loadAudioFileBuffer(ctx, "/assets/audio/liecio-collect-points-190037.mp3", { peak: 0.9 })
+      .then((b) => { if (b && this._audio) this._audio.buffers.set("coin", b); });
 
-    // Eight-second jungle pursuit loop: hand-drum pulse + pentatonic wooden
-    // melody + a quiet bass drone. It is intentionally musical rather than an
-    // ambience/noise bed, while leaving room for footsteps and hazard cues.
-    const musicNotes = [220.0, 261.63, 293.66, 329.63, 392.0, 329.63, 293.66, 261.63,
-                        220.0, 293.66, 329.63, 392.0, 440.0, 392.0, 329.63, 293.66];
-    const bpm = 112;
-    const beatLen = 60 / bpm;
-    const music = makeBuffer(8.0, (t) => {
-      const beatPhase = t % beatLen;
-      const drumEnv = Math.exp(-beatPhase * 18);
-      const drum = (Math.sin(2 * Math.PI * 62 * beatPhase) * 0.16
-        + Math.sin(2 * Math.PI * 108 * beatPhase) * 0.045) * drumEnv;
+    // The living bed — birds, insects, wind through the leaves — routed
+    // through the shared listener input, so the pause/mute master-volume
+    // logic covers it with everything else. update() blends it toward the
+    // logging camp's idling vehicle across the gate-to-bay stretch, which is
+    // the audible half of the Level 2 handoff.
+    this._bed = new JungleBed(ctx, this._audio.listener.getInput());
 
-      const eighth = beatLen * 0.5;
-      const noteIndex = Math.floor(t / eighth) % musicNotes.length;
-      const noteT = t % eighth;
-      const noteEnv = Math.min(1, noteT * 28) * Math.exp(-noteT * 5.2);
-      const f = musicNotes[noteIndex];
-      const melody = (Math.sin(2 * Math.PI * f * noteT) * 0.052
-        + Math.sin(2 * Math.PI * f * 2 * noteT) * 0.018) * noteEnv;
-
-      const shakerPhase = t % (beatLen * 0.25);
-      const shaker = Math.sin(2 * Math.PI * 3150 * t) * Math.sin(2 * Math.PI * 4870 * t)
-        * Math.exp(-shakerPhase * 48) * 0.018;
-      const bass = Math.sin(2 * Math.PI * 55 * t) * 0.018;
-      return THREE.MathUtils.clamp(drum + melody + shaker + bass, -0.72, 0.72);
-    });
-
-    this._audio.buffers.set("ambience", ambience);
-    this._audio.buffers.set("footstep", footstep);
-    this._audio.buffers.set("impact", impact);
-    this._audio.buffers.set("gateSlam", gateSlam);
-    this._audio.buffers.set("handlerBreath", breath);
-    this._audio.buffers.set("handlerCatch", catchSting);
-    this._audio.buffers.set("guardianRoar", guardianRoar);
-    this._audio.buffers.set("treeCreak", treeCreak);
-    this._audio.buffers.set("treeCrash", treeCrash);
-    this._audio.buffers.set("stoneGrind", stoneGrind);
-    this._audio.buffers.set("shrinePulse", shrinePulse);
-    this._audio.buffers.set("bridgeCrack", bridgeCrack);
-    this._audio.buffers.set("rewardChime", rewardChime);
-    this._audio.buffers.set("jetpackIgnite", jetpackIgnite);
-    this._audio.buffers.set("tension", tension);
-    this._audio.buffers.set("policeSiren", policeSiren);
-    this._audio.buffers.set("jungleMusic", music);
+    // The pursuit arrangement covers the first moment; the recorded theme
+    // (Pixabay) replaces it the moment it decodes.
+    const music = createJungleMusicBuffer(ctx, "pursuit");
 
     const resume = () => {
       if (!this.game?.paused) {
@@ -3541,14 +3453,23 @@ export class Level01 extends Level {
     window.addEventListener("pointerdown", resume, { once: true });
     window.addEventListener("keydown", resume, { once: true });
 
-    // Keep the synthetic wind/insects very quiet; the audible bed is now the
-    // music plus Kai's footsteps instead of a constant noisy ambience.
-    this._audio.playAmbience("ambience", { volume: 0.07 });
+    // The old flat ambience loop is gone — JungleBed is its living
+    // replacement. Music starts at the volume contract's music level so
+    // Level 1 and Level 2 sit at the same loudness (see jungleAudio.js).
     this._musicTrack = new THREE.Audio(this._audio.listener);
     this._musicTrack.setBuffer(music);
     this._musicTrack.setLoop(true);
-    this._musicTrack.setVolume(0.16);
+    this._musicTrack.setVolume(0.3);
     this._musicTrack.play();
+
+    // The recorded theme, on every level of the game. If it fails to load
+    // the pursuit loop simply keeps playing.
+    loadJungleTheme(this._audio.listener.context).then((buf) => {
+      if (!buf || !this._musicTrack) return;
+      this._musicTrack.stop();
+      this._musicTrack.setBuffer(buf);
+      this._musicTrack.play();
+    });
 
     this._tensionTrack = new THREE.Audio(this._audio.listener);
     this._tensionTrack.setBuffer(tension);
@@ -3654,6 +3575,7 @@ export class Level01 extends Level {
     if (!this._jetpackActive && this._flightLift < 0.35 && jumpPressed && !this.airborne) {
       this.airborne = true;
       this.vy = 9.2;
+      this._audio?.playOneShot("jump", { volume: 0.36, rate: 0.94 + Math.random() * 0.12 });
     }
     if (this.airborne) {
       this.vy -= 24 * dt;
@@ -3662,6 +3584,7 @@ export class Level01 extends Level {
         this.y = 0;
         this.vy = 0;
         this.airborne = false;
+        this._audio?.playOneShot("land", { volume: 0.48, rate: 0.9 + Math.random() * 0.2 });
       }
     }
 
@@ -3695,7 +3618,16 @@ export class Level01 extends Level {
       this._stumbleDebt += CLIP_PENALTY;
       this.boostSpeed = 0;
       this._shake = Math.max(this._shake, fallingTreeClip ? 0.5 : specialClip ? 0.58 : 0.35);
-      if (this._audio) this._audio.playOneShot("impact", { volume: fallingTreeClip ? 0.8 : specialClip ? 0.9 : 0.6 });
+      if (this._audio) {
+        if (fallingTreeClip || specialClip) {
+          // a real hit — trees and shrine hazards land heavy
+          this._audio.playOneShot("impact", { volume: fallingTreeClip ? 0.8 : 0.9 });
+        } else {
+          // an ordinary trip: its own softer cue with a little pitch variety,
+          // so repeated clips never read as one sample
+          this._audio.playOneShot("stumble", { volume: 0.62, rate: 0.94 + Math.random() * 0.12 });
+        }
+      }
 
       // --- drain health on hit ---
       const dmg = specialClip ? SPECIAL_HAZARD_DAMAGE
@@ -3776,6 +3708,7 @@ export class Level01 extends Level {
       state.failCause = "southbound";
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("impact", { volume: 1 });
+      this._duckMusic(0.85);
       this._showCaughtOverlay("Kai was hit by the oncoming hazard.");
     }
 
@@ -3927,14 +3860,44 @@ export class Level01 extends Level {
     updateJungleWildlife(this._wildlife, dt, this.z, this._worldX);
     this._updateDarkShrine(dt);
     if (this._musicTrack) {
-      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.025 : 0.045;
-      const chaseLift = this._handlerRageT > 0 ? 0.035 : 0;
-      this._musicTrack.setVolume(this._soundEnabled ? 0.15 + phaseLift + chaseLift : 0);
+      // 0.3 against the peak-0.5 shared buffer sits where the old 0.15
+      // against the raw one did, and matches Level 2's music bus.
+      const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.05 : 0.09;
+      const chaseLift = this._handlerRageT > 0 ? 0.07 : 0;
+      const calm = this.escaped ? 0.45 : 1; // let the win sting own the bay
+      // the plan's "music adds layers as the guard closes": with one
+      // recorded track there are no layers to add, so it leans in instead —
+      // the music itself gets louder as he gains on you
+      const close = this.caught || this.escaped
+        ? 0
+        : 1 - THREE.MathUtils.clamp((this.gap - 6) / 18, 0, 1);
+      const lift = phaseLift + chaseLift;
+      this._musicTrack.setVolume(
+        this._soundEnabled ? (0.3 + lift) * calm * this._musicDuck * (1 + 0.22 * close) : 0,
+      );
     }
+    // big cues duck the music; it recovers here, ~1.4 s back to full
+    if (this._musicDuck < 1) this._musicDuck = Math.min(1, this._musicDuck + dt * 0.7);
     if (this._tensionTrack) {
       const phaseLift = state.phase === 1 ? 0 : state.phase === 2 ? 0.012 : 0.025;
       const guardianLift = this._guardianActive ? 0.045 : 0;
       this._tensionTrack.setVolume(this._soundEnabled ? 0.008 + phaseLift + this._darkFactor * 0.03 + guardianLift : 0);
+    }
+
+    // --- the ambient bed ---
+    // Jungle all the way, then the logging camp's idling vehicle swells in
+    // through the gate-to-bay stretch — the audible half of the Level 2
+    // handoff. The distant wildlife (birds, insects, the odd monkey) thins
+    // toward the camp and goes quiet as the Handler closes in — the jungle
+    // holds its breath.
+    if (this._bed) {
+      const travelled = -this.z;
+      const camp = THREE.MathUtils.smoothstep(travelled, -GATE_Z + 6, -BAY_Z - 12);
+      const pressure = 1 - THREE.MathUtils.clamp(this.gap / 26, 0, 1);
+      this._bed.update(dt, {
+        birds: 0.55 * (1 - camp * 0.85) * (1 - pressure * 0.45),
+        camp,
+      });
     }
 
     // --- footsteps: trigger on stride distance, only while grounded ---
@@ -3943,6 +3906,35 @@ export class Level01 extends Level {
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
+      }
+    }
+
+    // --- the Handler's feet and voice, all positional on him, so each one
+    // is louder and closer as he gains — the player hears him catching up ---
+    if (this._audio && this.handler && !this.caught && !this.escaped) {
+      this._guardStepT = (this._guardStepT ?? 0.3) - dt;
+      if (this.gap < HANDLER_LIGHT_RANGE * 0.9 && this._guardStepT <= 0) {
+        // heavier than Kai's: the same footstep slowed right down
+        this._guardStepT = this._handlerRageT > 0 ? 0.34 : 0.46;
+        this._audio.playPositional(this.handler, "footstep", {
+          volume: 0.9,
+          rate: 0.66 + Math.random() * 0.05,
+          refDistance: 6,
+          maxDistance: HANDLER_LIGHT_RANGE,
+        });
+      }
+      this._guardVoxT = (this._guardVoxT ?? 1.5) - dt;
+      if (this._guardVoxT <= 0) {
+        this._guardVoxT = 2.6 + Math.random() * 3.4;
+        const opts = { refDistance: 9, maxDistance: HANDLER_LIGHT_RANGE };
+        if (this.gap < 24) {
+          const r = Math.random();
+          if (r < 0.45) this._audio.playPositional(this.handler, "shout", { volume: 0.9, ...opts });
+          else if (r < 0.75) this._audio.playPositional(this.handler, "whistle", { volume: 0.6, ...opts });
+          else this._audio.playPositional(this.handler, "radio", { volume: 0.5, ...opts });
+        } else {
+          this._audio.playPositional(this.handler, "radio", { volume: 0.45, ...opts });
+        }
       }
     }
 
@@ -4071,6 +4063,10 @@ export class Level01 extends Level {
       this._tensionTrack = null;
     }
 
+    if (this._bed) {
+      this._bed.dispose();
+      this._bed = null;
+    }
     if (this._audio) {
       this._audio.teardown();
       this._audio = null;
