@@ -50,7 +50,7 @@ export function createGameOverScreen({ topSpeedKmh, distance, time, onRestart, o
   showEndScreen(end, {
     kind: 'lose',
     title: 'WRECKED',
-    sub: 'The Handler ran you off the River Road.',
+    sub: 'The Marshal ran you off the River Road.',
     lines: [
       { text: `${Math.round(distance)} M DRIVEN  ·  TOP SPEED ${Math.round(topSpeedKmh)} KM/H  ·  ${fmtTime(time)}` },
     ],

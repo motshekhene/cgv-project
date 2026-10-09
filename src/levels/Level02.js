@@ -24,9 +24,11 @@ import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
 import { MudSplash } from './level2/MudSplash.js';
 import { createRainMaterial } from '../shaders/rain.js';
+import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
 
 /**
- * Level 02 — Redline.
+ * Level 02 — The River Road. Kai drives off the trail with the horn, the
+ * Marshal's company ranger behind him, lights going.
  *
  * Integrates 2A's vehicle gameplay (car models, traffic, lights, skids,
  * smoke, HUD, car picker, game over) with 2B's road and secondary cameras
@@ -431,7 +433,7 @@ export class Level02 extends Level {
 
     if (h.phase === 'silence') {
       // A breath after the gate. Then the lights arrive before the vehicle.
-      this._handoffText('BLACKOUT PROTOCOL', 'GATE SEALED', '...');
+      this._handoffText('THE GATE', 'SEALED BEHIND YOU', 'IT WON\u2019T HOLD HIM LONG');
       hp.z = -72 + Math.min(1, h.t / 1.0) * 10;
       cam.position.lerp(new THREE.Vector3(8.5, 3.2, -18), 1 - Math.exp(-dt * 5));
       cam.lookAt(0, 1.0, hp.z + 8);
@@ -440,7 +442,7 @@ export class Level02 extends Level {
     }
 
     if (h.phase === 'reveal') {
-      this._handoffText('BACKUP ON THE ROAD', 'RUN — FIND A VEHICLE', 'THE GATE ONLY BOUGHT A FEW SECONDS');
+      this._handoffText('THE MARSHAL', 'RUN \u2014 FIND A VEHICLE', 'HE IS THROUGH THE GATE');
       hp.z += (18 + 16 * Math.min(1, h.t / 1.6)) * dt;
       hp.x = 1.8 + Math.sin(h.t * 2.3) * 0.45;
 
@@ -467,7 +469,7 @@ export class Level02 extends Level {
     }
 
     if (h.phase === 'depot') {
-      this._handoffText('EXPEDITION DEPOT', 'CHOOSE YOUR ESCAPE CAR', 'THE POLICE LIGHTS ARE GETTING CLOSER');
+      this._handoffText('THE LOGGING CAMP', 'CHOOSE YOUR ESCAPE CAR', 'HIS LIGHTS ARE GETTING CLOSER');
       // Pan off the pursuer and land on the parked player vehicle.
       const targetCam = new THREE.Vector3(-6.5, 2.7, 19);
       cam.position.lerp(targetCam, 1 - Math.exp(-dt * 2.5));
@@ -488,7 +490,7 @@ export class Level02 extends Level {
     if (h.phase === 'enter') {
       // The picker has already closed. Without owning Kai's model we sell the
       // entry through camera motion, suspension dip and sound.
-      this._handoffText('BLACKOUT PROTOCOL', 'GET IN.', '');
+      this._handoffText('THE LOGGING CAMP', 'GET IN.', '');
       const u = THREE.MathUtils.clamp(h.t / 0.9, 0, 1);
       const doorSide = cp.x - 1.7;
       cam.position.lerp(new THREE.Vector3(doorSide, 1.65, cp.z + 1.1), 1 - Math.exp(-dt * 8));
@@ -504,7 +506,7 @@ export class Level02 extends Level {
     }
 
     if (h.phase === 'launch') {
-      this._handoffText('LEVEL 02', 'REDLINE', 'DRIVE');
+      this._handoffText('LEVEL 02', 'THE RIVER ROAD', 'DRIVE');
       const launchT = Math.min(1, h.t / 1.25);
       this.car.speed = THREE.MathUtils.lerp(0, 12, launchT);
       cp.z += this.car.speed * dt;
@@ -702,7 +704,8 @@ export class Level02 extends Level {
       this._hud?.setVisible(true);
       this._hud?.setCar(CARS[this._carIndex].name);
       this._controls?.setVisible(true);
-      this._flash('LEVEL 02 — REDLINE', '#e3bb62');
+      this._flash('LEVEL 02 \u2014 THE RIVER ROAD', '#e3bb62');
+      kaiThinks('Down the river road. Lose him, then get this horn to Baba Zwane.');
       this._fromLevel1 = false;
       return;
     }
@@ -1312,6 +1315,7 @@ export class Level02 extends Level {
   /* ======================== cleanup ======================== */
 
   teardown() {
+    clearThoughts();
     this.game.removeSecondaryCamera('rearview');
     this.game.removeSecondaryCamera('minimap');
     this.game.removeOverlay('rain');

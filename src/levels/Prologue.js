@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Level } from '../core/Level.js';
-import { loadCast, makeKai, makeHandler } from '../intros/cast.js';
+import { loadCast, makeKai, makeHandler, hornGeometry } from '../intros/cast.js';
+import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -21,7 +22,7 @@ import {
  * THE STORY THIS SCENE HAS TO DELIVER — Kai runs with the horn through all of
  * level 01, and none of it is explained anywhere else:
  *
- *   1. Ingram taught Kai the forest and got him the company work. He is the
+ *   1. Baba Zwane taught Kai the forest and got him the company work. He is the
  *      closest thing Kai has to family, and he is sitting at the fire when
  *      the scene opens — lit properly, face showing, the one clear look the
  *      player ever gets until the last two minutes of the game.
@@ -30,7 +31,7 @@ import {
  *      back. The horn on the stone is what keeps the forest alive — the
  *      trees, the animals, all of it —
  *      and the story goes that if it ever leaves the stone, the whole forest
- *      goes silent. Ingram calls that an old story, and pays Kai a year of
+ *      goes silent. Baba Zwane calls that an old story, and pays Kai a year of
  *      the company's wages to bring it down before the sun is up. No horn,
  *      nothing left to scare the men off, and the cutting can start.
  *   3. The moment Kai lifts it off the stone, every sound in the forest stops
@@ -44,7 +45,7 @@ import {
  *            having sound to cut.
  *   talk     the conversation at the fire. One camera, two people, click to
  *            advance — the card mechanic pointed at faces instead of text.
- *   leave    Ingram whistles two notes and walks off into the dark.
+ *   leave    Baba Zwane whistles two notes and walks off into the dark.
  *   rise     Kai gets up; control returns — third person from here on, the
  *            camera behind him, so his whole body is always on screen.
  *   walk     round the fire, then one long straight path up to the stone,
@@ -80,12 +81,12 @@ import {
  *   serif, not mono    one line from Google Fonts, Georgia behind it
  *   warm palette       cream body text, firelight amber, jungle green
  *   speaker names      above each line, in that character's colour —
- *                      KAI in green, INGRAM in amber. Amber is the fire he
+ *                      KAI in green, BABA ZWANE in amber. Amber is the fire he
  *                      sits at, then the lamp in the trees, then the lamp for
  *                      three levels. The player connects it before they know.
  *   no subtitle box    a soft dark gradient along the bottom, nothing more
  *
- * THE ONE RULE — Ingram's face is lit by the fire here and NOWHERE ELSE. From
+ * THE ONE RULE — Baba Zwane's face is lit by the fire here and NOWHERE ELSE. From
  * the moment he walks off he is a long coat, a lamp and two whistled notes:
  * silhouette material, backlit, never close. If the player gets one clear
  * look at him during a chase, the ending stops working.
@@ -104,8 +105,8 @@ import {
 // Everywhere Kai can stand is a circle or a strip of path (_clampWalk).
 const SEAT = { x: 0, z: 10.8 };            // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
-const INGRAM_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
-const WALKOFF = { x: -9.6, z: 3.2 };       // where Ingram leaves the fire
+const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
+const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
 // the old path to the stone: round the fire on the left, then dead straight
 // for ~50 m, so from the first step the stone is at the end of it
@@ -152,8 +153,8 @@ const WIDE_POS = new THREE.Vector3(-6.0, 4.4, GLADE.z + 6.2);
 const WIDE_LOOK = new THREE.Vector3(8.0, 0.6, GLADE.z + 0.2);
 
 // the conversation two-shot: behind Kai's right shoulder at the log — him
-// lower-centre, Ingram across the flames, the fire between. The title, the
-// whole conversation and Ingram's exit play on this one locked-off camera,
+// lower-centre, Baba Zwane across the flames, the fire between. The title, the
+// whole conversation and Baba Zwane's exit play on this one locked-off camera,
 // then rise cuts to behind him exactly when control comes back.
 const SHOT_POS = new THREE.Vector3(0.9, 1.55, 13.4);
 const SHOT_LOOK = new THREE.Vector3(-1.0, 1.25, 6.3);
@@ -162,9 +163,9 @@ const RISE_CUT = 1.0;  // rise holds the two-shot until here, then cuts
 const HORN_CYAN = 0x4fd6e0;  // the horn — matches how the level 01 pickup glows
 const CAIRN_GLOW = 0xb6e3a0; // the old markers: pale moss, never the horn's cyan
 const HORN_HEX = '#4fd6e0';
-const INGRAM_AMBER = '#ffb03a';  // the fire, then the lamp
-const KAI_GREEN = '#9ed36a';
-const CREAM = '#f2e8d5';
+const ZWANE_AMBER = SPEAKERS['BABA ZWANE'];  // the fire, then the lamp
+const KAI_GREEN = SPEAKERS.KAI;
+const CREAM = DIALOGUE_CREAM; // speaker colours and cream are shared with every level (ui/dialogue.js)
 
 // Night -> dawn. The dawn end of every pair below is level 01's exact morning
 // palette (Level01.init: fog 0xcfd6a8/0.014, hemi 0xbfdcff/0x4a5a26, sun
@@ -189,24 +190,24 @@ const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 // cards carried: his name, the job, who is asking, and why he says yes.
 // Plain on purpose: the company wants the trees; its men won't pass the
 // stone because the last crew that did never came back; the horn is what
-// keeps the forest alive, which is why Kai should leave it; Ingram wants it
+// keeps the forest alive, which is why Kai should leave it; Baba Zwane wants it
 // gone so the cutting can start, and pays him.
 const SCRIPT = [
-  { who: 'INGRAM', text: 'Kai. You came.' },
-  { who: 'INGRAM', text: 'You know the old stone, up past the ridge?' },
+  { who: 'BABA ZWANE', text: 'Kai. You came.' },
+  { who: 'BABA ZWANE', text: 'You know the old stone, up past the ridge?' },
   { who: 'KAI', text: 'The one with the horn on it. Everyone knows it.' },
-  { who: 'INGRAM', text: "The company wants to cut down this forest. But their men won't go past that stone." },
+  { who: 'BABA ZWANE', text: "The company wants to cut down this forest. But their men won't go past that stone." },
   { who: 'KAI', text: 'Can you blame them? The last crew that went past it never came back.' },
   { who: 'KAI', text: 'That horn is what keeps this forest alive — the trees, the animals, all of it.' },
   { who: 'KAI', text: 'They say if it ever leaves the stone, the whole forest goes silent.' },
-  { who: 'INGRAM', text: 'Old stories. Bring me the horn before the sun is up. No horn, nothing left to scare the men — and the cutting can start.' },
+  { who: 'BABA ZWANE', text: 'Old stories. Bring me the horn before the sun is up. No horn, nothing left to scare the men — and the cutting can start.' },
   { who: 'KAI', text: 'You want them to cut it down?' },
-  { who: 'INGRAM', text: "It's coming either way. This way, you get a year of the company's wages for one morning." },
+  { who: 'BABA ZWANE', text: "It's coming either way. This way, you get a year of the company's wages for one morning." },
   { who: 'KAI', text: 'Why me?' },
-  { who: 'INGRAM', text: 'Because a guide out on the paths at dawn is a normal thing. Anyone else would be noticed.' },
-  { who: 'INGRAM', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
+  { who: 'BABA ZWANE', text: 'Because a guide out on the paths at dawn is a normal thing. Anyone else would be noticed.' },
+  { who: 'BABA ZWANE', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
 ];
-const SPEAK_COLOR = { INGRAM: INGRAM_AMBER, KAI: KAI_GREEN };
+const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, KAI: KAI_GREEN };
 
 /* ==========================================================================
    Sfx — a very small synth. Every sound here is generated at runtime.
@@ -548,7 +549,7 @@ class Sfx {
   }
 
   /**
-   * Ingram's whistle — two notes, higher then lower, falling off at the end
+   * Baba Zwane's whistle — two notes, higher then lower, falling off at the end
    * of each. A man calling across a valley. Two oscillators, no
    * files, and it comes back in level 02 over the engine.
    */
@@ -774,13 +775,13 @@ export class Prologue extends Level {
     this.walkShapes = [ring(CAMP), ring(GLADE), ...strips];
     this.fleeShapes = [ring(GLADE), run];
     // what the forest keeps clear of: the route, the trail running on out
-    // of sight past the exit, Ingram's way out of the camp, the space behind
+    // of sight past the exit, Baba Zwane's way out of the camp, the space behind
     // the log where the camera starts, and the wide shot's camera and its
     // line to the stone
     this.clearShapes = [
       ...this.walkShapes,
       strip(RUN_FROM.x, RUN_FROM.z, RUN_TO.x + 40, RUN_TO.z, RUN_HW),
-      strip(INGRAM_AT.x, INGRAM_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
+      strip(ZWANE_AT.x, ZWANE_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
       strip(SEAT.x, SEAT.z, SEAT.x + 2, SEAT.z + 5, 1.8),
       strip(WIDE_POS.x, WIDE_POS.z, GLADE.x, GLADE.z + 0.6, 1.9),
       ring(CREW_CAMP),
@@ -873,13 +874,7 @@ export class Prologue extends Level {
 
   /** One line from Google Fonts; Georgia carries it if the network is gone. */
   _ensureSerif() {
-    if (!document.getElementById('prologue-serif')) {
-      const link = document.createElement('link');
-      link.id = 'prologue-serif';
-      link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,500;0,600;1,500&display=swap';
-      document.head.appendChild(link);
-    }
+    ensureDialogueFont();
     // the click-hint pulse is one tiny stylesheet, shared by every visit
     if (!document.getElementById('prologue-pulse')) {
       const st = document.createElement('style');
@@ -1017,7 +1012,7 @@ export class Prologue extends Level {
 
   /* ---------------------------------------------------- the fire */
   /**
-   * The fire is the scene's key light and its clock. It burns for Ingram,
+   * The fire is the scene's key light and its clock. It burns for Baba Zwane,
    * dies across the night while they talk, and is embers by the time Kai
    * runs — which is why nobody at the camp below sees either of them.
    */
@@ -1171,35 +1166,7 @@ export class Prologue extends Level {
    * on its belly (the geometry is shifted so its lowest point is y 0).
    */
   _hornGeometry() {
-    const RINGS = 30, SIDES = 12, SWEEP = 0.28, A0 = -2.3, A1 = 1.6;
-    const baseY = SWEEP * (1 - Math.cos(A0));
-    const pos = [], nor = [], idx = [];
-    for (let i = 0; i <= RINGS; i++) {
-      const t = i / RINGS;
-      const a = A0 + (A1 - A0) * t;
-      const px = SWEEP * Math.sin(a);
-      const py = SWEEP * (1 - Math.cos(a)) - baseY;
-      const r = 0.045 * Math.pow(1 - t, 1.15) + 0.003;
-      const ca = Math.cos(a), sa = Math.sin(a);
-      for (let s = 0; s <= SIDES; s++) {
-        const b = (s / SIDES) * Math.PI * 2, cb = Math.cos(b), sb = Math.sin(b);
-        pos.push(px + ca * cb * r, py + sa * cb * r, sb * r);
-        nor.push(ca * cb, sa * cb, sb);
-      }
-    }
-    for (let i = 0; i < RINGS; i++) {
-      for (let s = 0; s < SIDES; s++) {
-        const a0 = i * (SIDES + 1) + s, b0 = a0 + SIDES + 1;
-        idx.push(a0, a0 + 1, b0, b0 + 1, b0, a0 + 1);
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-    geo.setIndex(idx);
-    geo.computeBoundingBox();
-    geo.translate(0, -geo.boundingBox.min.y, 0);   // rest on the belly
-    return geo;
+    return hornGeometry(); // shared with the horn in Kai's hand for the rest of the game (intros/cast.js)
   }
 
   /* ---------------------------------------------------- everything solid */
@@ -1562,18 +1529,18 @@ export class Prologue extends Level {
   /* ---------------------------------------------------- the two figures */
   /**
    * The game's own two characters (intros/cast.js): the Mixamo Kai, and the
-   * Handler's build as Ingram — bare-faced, because this is the one time the
+   * Marshal's build as Baba Zwane, out of the coat and helmet — bare-faced, because this is the one time the
    * player sees him. Each stands in an outer group that the scene moves and
    * turns with the same yaw convention as the camera (0 = facing -Z).
    */
   _buildFigures(cast) {
-    // ---- Ingram, across the fire. Lit by the flames — this is the one
+    // ---- Baba Zwane, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
-    this.ingram = new THREE.Group();
-    this.ingram.position.set(INGRAM_AT.x, 0, INGRAM_AT.z);
-    this.ingram.rotation.y = Math.PI;       // faces Kai across the flames
-    this.root.add(this.ingram);
-    const ing = this.ingramF = makeHandler(this.ingram, cast.handler, { helmet: false });
+    this.zwane = new THREE.Group();
+    this.zwane.position.set(ZWANE_AT.x, 0, ZWANE_AT.z);
+    this.zwane.rotation.y = Math.PI;       // faces Kai across the flames
+    this.root.add(this.zwane);
+    const ing = this.zwaneF = makeHandler(this.zwane, cast.handler, { helmet: false });
     ing.root.rotation.y = Math.PI;          // the rig faces +Z; the group's 0 is -Z
     // the boss's ember undertone belongs to the fight, not to a man at a fire
     for (const m of ing.materials) if (m.userData.baseEmissive) m.userData.baseEmissive.setHex(0x000000);
@@ -1586,9 +1553,9 @@ export class Prologue extends Level {
     });
     const lamp = new THREE.Group();
     lamp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.2, 10), this.matLamp));
-    this.ingramLampLight = new THREE.PointLight(0xffb03a, 2.2, 8, 2);
-    this.ingramLampLight.position.y = 0.06;
-    lamp.add(this.ingramLampLight);
+    this.zwaneLampLight = new THREE.PointLight(0xffb03a, 2.2, 8, 2);
+    this.zwaneLampLight.position.y = 0.06;
+    lamp.add(this.zwaneLampLight);
     this._hang(ing, 'PalmL', lamp, 0.14, [0.42, 0.62, -0.1]);
 
     // ---- Kai himself. On screen in the fire two-shot, the wide pull-back
@@ -1598,7 +1565,7 @@ export class Prologue extends Level {
     this.root.add(this.kai);
     const kai = this.kaiF = makeKai(this.kai, cast.kai);
     kai.root.rotation.y = Math.PI;
-    if (kai.key) kai.key.visible = false;   // no Key in this story: no technology at all
+    if (kai.horn) kai.horn.visible = false; // the horn is still on the stone: the scene hands it to him itself
     // the monk build has only a fighter's guard for an idle — a man talking
     // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk
     this._lend(kai, ing, 'walk');
@@ -1652,7 +1619,7 @@ export class Prologue extends Level {
   }
 
   /**
-   * Ingram borrows clips from Kai. Both are on the same Mixamo skeleton,
+   * Baba Zwane borrows clips from Kai. Both are on the same Mixamo skeleton,
    * so he takes the rotations (not the hip travel — the two builds are not
    * the same size): the walk the monk build lacks, and with `replace` the
    * relaxed idle in place of his fighting guard.
@@ -1713,7 +1680,7 @@ export class Prologue extends Level {
     );
 
     // the conversation. The text stands on whoever is speaking — in the
-    // two-shot, Ingram's lines float at his head across the fire, Kai's sit
+    // two-shot, Baba Zwane's lines float at his head across the fire, Kai's sit
     // on him at the log — so the speaker is never in doubt. The name is in
     // that character's colour; the line in cream serif; no box, just shadows.
     this.hud.sub = mk(
@@ -1773,7 +1740,7 @@ export class Prologue extends Level {
   _begin() {
     this.phase = 'talk';
     this.t = 0;
-    // the click that starts Ingram also starts the forest
+    // the click that starts Baba Zwane also starts the forest
     this.hud.title.style.opacity = '0';
     this._nextLine();
   }
@@ -1783,7 +1750,7 @@ export class Prologue extends Level {
     this.hud.subName.textContent = line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
-    if (line.who === 'INGRAM') {
+    if (line.who === 'BABA ZWANE') {
       // his words, at his head across the fire
       this.hud.sub.style.left = '50%';
       this.hud.sub.style.top = '33%';
@@ -1803,7 +1770,7 @@ export class Prologue extends Level {
     this.scriptIndex++;
     if (this.scriptIndex >= SCRIPT.length) {
       // the conversation is over — the title has long faded, the fire is
-      // lower, and Ingram has one thing left to do before he goes
+      // lower, and Baba Zwane has one thing left to do before he goes
       this.hud.sub.style.opacity = '0';
       this.hud.subHint.style.opacity = '0';
       this.phase = 'leave';
@@ -2111,8 +2078,8 @@ export class Prologue extends Level {
       );
       this._look3.copy(SHOT_LOOK);
       if (this.phase === 'leave' && this.t > 1.4) {
-        // let the camera follow Ingram a little way into the trees
-        this._look3.lerp(this.ingram.position, 0.25);
+        // let the camera follow Baba Zwane a little way into the trees
+        this._look3.lerp(this.zwane.position, 0.25);
       }
       cam.lookAt(this._look3);
       want = 46;
@@ -2169,7 +2136,7 @@ export class Prologue extends Level {
     for (const m of this.mist) m.rotation.z += dt * 0.012;
 
     this.kaiF.update(dt);
-    this.ingramF.update(dt);
+    this.zwaneF.update(dt);
 
     // heartbeat, from the first touch of the horn
     if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
@@ -2190,24 +2157,24 @@ export class Prologue extends Level {
 
     switch (this.phase) {
       // The scene plays itself: fire, mist, the two-shot breathing. One click
-      // starts the forest and hands the scene to Ingram.
+      // starts the forest and hands the scene to Baba Zwane.
       case 'title': {
         // the figures settle into the shot while the title holds
-        if (!this._ingramIdled) { this._ingramIdled = true; this.ingramF.play('idle'); }
+        if (!this._zwaneIdled) { this._zwaneIdled = true; this.zwaneF.play('idle'); }
         if (!this._kaiSeated) { this._kaiSeated = true; this.kaiF.play('sitting'); }
         break;
       }
 
       // One camera, two people, click to advance — the card mechanic pointed
       // at faces instead of text. The locked two-shot holds them both: fire
-      // centre, Kai at his log, Ingram across it, barely breathing so it
+      // centre, Kai at his log, Baba Zwane across it, barely breathing so it
       // stays alive.
       case 'talk': {
         // the fire is dying all through the conversation
         this.sfx.firePower = Math.max(0.45, 1 - this.t * 0.012);
-        // Ingram is alive at the fire: breathing weight, the lamp swinging
-        if (!this._ingramIdled) { this._ingramIdled = true; this.ingramF.play('idle'); }
-        this.ingram.rotation.y = Math.PI + Math.sin(this.t * 0.4) * 0.03;
+        // Baba Zwane is alive at the fire: breathing weight, the lamp swinging
+        if (!this._zwaneIdled) { this._zwaneIdled = true; this.zwaneF.play('idle'); }
+        this.zwane.rotation.y = Math.PI + Math.sin(this.t * 0.4) * 0.03;
         // ...and so is Kai, on his log across the flames
         if (!this._kaiSeated) { this._kaiSeated = true; this.kaiF.play('sitting'); }
         break;
@@ -2219,22 +2186,22 @@ export class Prologue extends Level {
         if (this.t > 1.4) {
           // out along the west tree line, unhurried — a man with nowhere to be
           const k = Math.min(1, (this.t - 1.4) / 4.6);
-          this.ingramF.play(k < 1 ? 'walk' : 'idle', { fade: 0.4, speed: 1.3 });
+          this.zwaneF.play(k < 1 ? 'walk' : 'idle', { fade: 0.4, speed: 1.3 });
           const ease = k * k * (3 - 2 * k);
-          this.ingram.position.set(
-            THREE.MathUtils.lerp(INGRAM_AT.x, WALKOFF.x, ease),
+          this.zwane.position.set(
+            THREE.MathUtils.lerp(ZWANE_AT.x, WALKOFF.x, ease),
             0,
-            THREE.MathUtils.lerp(INGRAM_AT.z, WALKOFF.z, ease),
+            THREE.MathUtils.lerp(ZWANE_AT.z, WALKOFF.z, ease),
           );
-          this.ingram.rotation.y = Math.atan2(
-            -(WALKOFF.x - INGRAM_AT.x), -(WALKOFF.z - INGRAM_AT.z),
+          this.zwane.rotation.y = Math.atan2(
+            -(WALKOFF.x - ZWANE_AT.x), -(WALKOFF.z - ZWANE_AT.z),
           );
           // the lamp's glow goes with him and thins into the dark
-          this.ingramLampLight.intensity = 2.2 * (1 - ease * 0.55);
+          this.zwaneLampLight.intensity = 2.2 * (1 - ease * 0.55);
           if (k >= 1 && !this._leaveTold) {
             this._leaveTold = true;
-            this.ingram.visible = false;
-            this.ingramLampLight.intensity = 0;
+            this.zwane.visible = false;
+            this.zwaneLampLight.intensity = 0;
           }
         }
         if (this.t > 7.4) {
@@ -2271,8 +2238,8 @@ export class Prologue extends Level {
       // as it will ever be — this is what the silence is going to take.
       case 'walk': {
         this._prompt(
-          '<span style="color:' + INGRAM_AMBER + '">THE STONE</span> &nbsp; ' +
-          '<span style="font-size:24px;color:' + INGRAM_AMBER + '">' + this._pathArrow() + '</span>',
+          '<span style="color:' + ZWANE_AMBER + '">THE STONE</span> &nbsp; ' +
+          '<span style="font-size:24px;color:' + ZWANE_AMBER + '">' + this._pathArrow() + '</span>',
         );
         this.walkS = Math.max(this.walkS, this._pathS(this.px, this.pz));
         // the light comes up the further he gets
@@ -2431,7 +2398,7 @@ export class Prologue extends Level {
           if (this.t > WIDE_TURN) { this.yaw = RUN_YAW; this.pitch = 0; }
           this.kaiF.play(k > 0 && k < 1 ? 'walk' : 'idle', { fade: 0.3, speed: 0.6 });
         }
-        // the morning keeps coming while he stands there — Ingram said
+        // the morning keeps coming while he stands there — Baba Zwane said
         // "before the sun is up", and it nearly is
         this.dawnK = Math.max(this.dawnK, Math.min(DAWN_AT_STONE + 0.07, DAWN_AT_STONE + this.t * 0.02));
         this._applyDawn(this.dawnK);
@@ -2586,7 +2553,7 @@ export class Prologue extends Level {
     this.hud = {};
 
     // the rigs' meshes go with this.root; their skeletons' bone textures do not
-    for (const f of [this.kaiF, this.ingramF]) {
+    for (const f of [this.kaiF, this.zwaneF]) {
       f?.root?.traverse((o) => { if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose(); });
     }
     this.mist = [];               // drop the references; super disposes the meshes

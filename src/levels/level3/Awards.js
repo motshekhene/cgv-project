@@ -15,7 +15,7 @@ import { GIFT_SPOTS } from './ShrineArena.js';
  */
 export const GIFTS = {
   vitality: { icon: '♥', name: 'VITALITY', color: 0xff6b5a, css: '#ff6b5a', desc: 'Your life bar grows: +40 max health, fully healed.' },
-  strategy: { icon: '◈', name: 'STRATEGY', color: 0x8fd0ff, css: '#8fd0ff', desc: 'Read the Handler: his next move is called out, and parries come easier.' },
+  strategy: { icon: '◈', name: 'STRATEGY', color: 0x8fd0ff, css: '#8fd0ff', desc: 'Read your opponent: his next move is called out, and parries come easier.' },
   power: { icon: '✸', name: 'POWER', color: 0xffb347, css: '#ffb347', desc: 'Punches and kicks hit 40% harder and knock him further back.' },
 };
 

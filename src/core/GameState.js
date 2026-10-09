@@ -35,7 +35,7 @@ export class GameState {
     // scoring and story
     this.distance = 0; // metres travelled in the current level
     this.bestDistance = 0;
-    this.letters = []; // ids of dead drops collected, e.g. 'l1-2'
+    this.letters = []; // ids of torn pages collected, e.g. 'level01-2', 'l3-1' (six in the game)
     this.awards = []; // one-time shrine gifts in level 03's forest: 'vitality' | 'strategy' | 'power'
     this.deaths = 0;
 

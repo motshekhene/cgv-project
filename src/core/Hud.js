@@ -40,7 +40,7 @@
  */
 
 const ACCENT = '#9ed36a';   // the jungle accent, used across the game
-const CYAN = '#4fd6e0';     // the Key
+const CYAN = '#4fd6e0';     // the horn
 const AMBER = '#ffb03a';    // warning
 const DANGER = '#ff6b6b';   // about to lose
 const DIM = '#8f9bb0';
@@ -54,7 +54,7 @@ const PRESETS = {
   },
   level03: {
     show: ['health', 'enemy', 'awards'],
-    labels: { health: 'KAI', enemy: 'HANDLER' },
+    labels: { health: 'KAI', enemy: 'MARSHAL' },
   },
 };
 
@@ -62,8 +62,8 @@ const DEFAULT_LABELS = {
   health: 'HEALTH',
   stamina: 'STAMINA',
   boost: 'BOOST',
-  gap: 'HANDLER',
-  enemy: 'HANDLER',
+  gap: 'MARSHAL',
+  enemy: 'MARSHAL',
   distance: 'DISTANCE',
   letters: 'LETTERS',
   awards: 'AWARDS',

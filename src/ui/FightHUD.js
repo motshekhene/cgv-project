@@ -173,13 +173,13 @@ export class FightHUD {
           <div class="fh-bar thin"><div class="fh-st"></div></div>
         </div>
         <div class="fh-boss plaque">
-          <div class="fh-boss-head"><span class="fh-boss-name">THE HANDLER</span><span class="fh-boss-phase"></span></div>
+          <div class="fh-boss-head"><span class="fh-boss-name">THE MARSHAL</span><span class="fh-boss-phase"></span></div>
           <div class="fh-bar"><div class="fh-lag"></div><div class="fh-fill"></div>
             <i class="fh-tick" style="left:33.3%"></i><i class="fh-tick" style="left:66.6%"></i></div>
         </div>
       </div>
       <div class="fh-tell plaque"></div>
-      <div class="fh-ptr" title="The Handler">▲</div>
+      <div class="fh-ptr" title="Your opponent">▲</div>
       <div class="fh-toast plaque"></div>
       <div class="fh-pop"></div>
       <div class="fh-vs"><b class="l"></b><i>VS</i><b class="r"></b></div>
@@ -213,6 +213,14 @@ export class FightHUD {
     this._lock = null;
     this._tellText = '';
     this._hpw = 1;
+  }
+
+  /** The name over his bar: THE MARSHAL in the mask, BABA ZWANE once it is off. Flashes when it changes. */
+  setBossName(name) {
+    const el = this.boss.querySelector('.fh-boss-name');
+    if (el.textContent === name) return;
+    el.textContent = name;
+    this._replay(this.boss, 'flash');
   }
 
   setBoss(frac, phaseName) {
@@ -277,7 +285,7 @@ export class FightHUD {
   setCamMode(mode) {
     const help = {
       follow: ['FOLLOW', 'left / right turn Kai and the view · TAB: lock-on'],
-      lock: ['LOCK-ON', 'camera stays on the Handler · left / right strafe · TAB: 360° view'],
+      lock: ['LOCK-ON', 'camera stays on your opponent · left / right strafe · TAB: 360° view'],
       orbit: ['360° VIEW', 'drag · hold ◀ ▶ · wheel · TAB: follow'],
     }[mode];
     if (help) this.toast(help[0], help[1]);

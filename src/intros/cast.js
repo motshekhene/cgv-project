@@ -1,25 +1,27 @@
 import * as THREE from 'three';
 import { Fighter } from '../levels/level3/Fighter.js';
-import { attachMask } from '../levels/level3/HandlerBoss.js';
+import { dressAsHandler } from '../levels/level3/HandlerBoss.js';
 import { loadRig } from '../player/rig.js';
 import { mergeGroups } from '../levels/jungle/props.js';
 import { createLightShaft } from '../shaders/lightshaft.js';
 import { dotTexture } from './fx.js';
 
 /**
- * Kai and the Handler for the cutscenes: the same characters Level 3 uses
- * (the Mixamo builds, see player/rig.js; the old Quaternius FBXs if they're
- * missing), on the same Fighter rig, plus the props each one carries before
- * Site 7: the Key in Kai's hand, the Handler's face covering (the monk's
- * carved stone mask, the old Handler's helmet: it only comes off in Level 3)
- * and, in Level 1, his torch.
+ * Kai and the Handler for the cutscenes and the chase: the same characters
+ * Level 3 uses (the Mixamo builds, see player/rig.js; the old Quaternius FBXs
+ * if they're missing), on the same Fighter rig, plus what each one carries
+ * after the prologue: the horn in Kai's hand (the one he took off the stone),
+ * and Baba Zwane's Handler kit (dressAsHandler: the armoured coat and the
+ * helmet round the carved stone mask, which only comes off in Level 3) and,
+ * in Level 1, his torch.
  *
  * Clips both builds have: idle, run, death. Kai also has walk; the old
  * Quaternius rigs have walk, jump, punch, sitting, standing... as well.
  */
 export const KAI_LOOK = { Skin: 0x9a6538, Hair: 0x1c1512, Shirt: 0x2f8fb5, Pants: 0x8a7658, Socks: 0xe6dfd6, Shoes: 0x2a2320 };
 export const HANDLER_LOOK = { Skin: 0x7a5233, Hair: 0xb4b4bc, Shirt: 0x3a3d4d, Pants: 0x2f3240, Details: 0xefe9e0, TieTexture: 0xb02323, Shoes: 0x1a1a1e };
-export const KEY_CYAN = 0x2fd8ff;
+export const HORN_CYAN = 0x4fd6e0; // the horn's glow: the only cyan in the game
+export const KEY_CYAN = HORN_CYAN; // older name, kept for callers
 const LEAP_AT = 0.05; // s into the Mixamo run: both legs flung wide, mid-stride
 
 export async function loadCast(assets) {
@@ -59,7 +61,7 @@ function rigOptions(rig) {
 
 export function makeKai(parent, rig) {
   const f = new Fighter(parent, { ...rigOptions(rig), capsuleColor: 0xdfe8ee, palette: KAI_LOOK });
-  f.key = attachKey(f);
+  f.horn = f.key = attachHorn(f);
   // the Mixamo Kai was built for the fight. Out here he stands easy (the end of his 'relax' clip)
   // instead of in his fighting stance, and, with no jump of his own, leaps in a held stride from
   // his run (Level 1 plays 'jump' while he's in the air)
@@ -71,7 +73,8 @@ export function makeKai(parent, rig) {
 export function makeHandler(parent, rig, { helmet = true } = {}) {
   const f = new Fighter(parent, { ...rigOptions(rig), capsuleColor: 0xff5533, palette: HANDLER_LOOK });
   for (const m of f.materials) if (m.emissive) m.userData.baseEmissive.set(0x2a1210);
-  if (helmet && !(f.rig === 'mixamo' && attachMask(f))) attachHelmet(f);
+  // the chase, not the fire: Baba Zwane in the company Handler's coat and helmet
+  if (helmet && !(f.rig === 'mixamo' && dressAsHandler(f))) attachHelmet(f);
   return f;
 }
 
@@ -80,34 +83,86 @@ function bone(fighter, name) {
   return fighter.bone ? fighter.bone(name) : null;
 }
 
-/** The Key: a small dark slab in Kai's right palm with a cyan glow that reads from across a clearing. */
-export function attachKey(fighter) {
+/**
+ * The horn's shape: a round tube swept along a bending spine, fat at the base
+ * and tapering to a fine point. A kudu curl in one piece, resting on its belly
+ * (shifted so its lowest point is y 0). The prologue's stone and Kai's hand
+ * share it, so it is the same horn all the way through.
+ */
+export function hornGeometry() {
+  const RINGS = 30, SIDES = 12, SWEEP = 0.28, A0 = -2.3, A1 = 1.6;
+  const baseY = SWEEP * (1 - Math.cos(A0));
+  const pos = [], nor = [], idx = [];
+  for (let i = 0; i <= RINGS; i++) {
+    const t = i / RINGS;
+    const a = A0 + (A1 - A0) * t;
+    const px = SWEEP * Math.sin(a);
+    const py = SWEEP * (1 - Math.cos(a)) - baseY;
+    const r = 0.045 * Math.pow(1 - t, 1.15) + 0.003;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (let k = 0; k <= SIDES; k++) {
+      const b = (k / SIDES) * Math.PI * 2, cb = Math.cos(b), sb = Math.sin(b);
+      pos.push(px + ca * cb * r, py + sa * cb * r, sb * r);
+      nor.push(ca * cb, sa * cb, sb);
+    }
+  }
+  for (let i = 0; i < RINGS; i++) {
+    for (let k = 0; k < SIDES; k++) {
+      const a0 = i * (SIDES + 1) + k, b0 = a0 + SIDES + 1;
+      idx.push(a0, a0 + 1, b0, b0 + 1, b0, a0 + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setIndex(idx);
+  geo.computeBoundingBox();
+  geo.translate(0, -geo.boundingBox.min.y, 0);
+  return geo;
+}
+
+/**
+ * The horn, lit, in Kai's right hand: pale keratin with the cyan woken in it
+ * the moment it left the stone, and a soft glow that reads from across a
+ * clearing. Gripped near the thick end, the curl standing up out of his fist.
+ * `horn.userData.glow` is the sprite, `horn.userData.material` the horn itself
+ * (levels pulse it when its power is used).
+ */
+export function attachHorn(fighter, { scale = 0.42 } = {}) {
   const palm = bone(fighter, 'PalmR');
-  const key = new THREE.Group();
-  const slab = new THREE.Mesh(
-    new THREE.BoxGeometry(0.06, 0.12, 0.025),
-    new THREE.MeshStandardMaterial({ color: 0x141c26, emissive: KEY_CYAN, emissiveIntensity: 2.4, metalness: 0.6, roughness: 0.3 }),
-  );
+  const horn = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xb3a488, roughness: 0.32, metalness: 0.05, emissive: HORN_CYAN, emissiveIntensity: 0.4,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(hornGeometry(), material);
+  mesh.castShadow = true;
+  mesh.scale.setScalar(scale);
+  // the thick end in the fist: the curl's base sits at x -0.21 (sweep 0.28, from -2.3 rad), so shift it to the grip
+  mesh.position.set(0.13 * scale, -0.02, 0);
+  mesh.rotation.set(0, Math.PI / 2, 0);
   const glow = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: dotTexture(), color: 0x6fe3ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85, fog: false }),
+    new THREE.SpriteMaterial({ map: dotTexture(), color: 0x7fe9f0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.4, fog: false }),
   );
-  glow.scale.setScalar(0.32);
-  key.add(slab, glow);
+  glow.scale.setScalar(0.3);
+  glow.position.y = 0.08;
+  horn.add(mesh, glow);
   if (palm) {
     fighter.root.updateMatrixWorld(true);
     const s = palm.getWorldScale(new THREE.Vector3()).x || 1;
-    key.scale.setScalar(1 / s);
-    key.position.set(0, 0.07 / s, 0.02 / s);
-    palm.add(key);
+    horn.scale.setScalar(1 / s);
+    horn.position.set(0, 0.08 / s, 0.03 / s);
+    palm.add(horn);
   } else {
-    key.position.set(0.3, 0.1, 0.2);
-    fighter.pivot.add(key);
+    horn.position.set(0.3, 0.1, 0.2);
+    fighter.pivot.add(horn);
   }
-  key.userData.glow = glow;
-  return key;
+  horn.userData.glow = glow;
+  horn.userData.material = material;
+  return horn;
 }
 
-/** Same helmet HandlerBoss puts on him: in Levels 1 and 2 nobody has seen his face yet. */
+/** The plain helmet, for the old Quaternius rig only (no Mixamo bones for the Handler kit to ride). */
 export function attachHelmet(fighter) {
   const helmet = new THREE.Mesh(
     new THREE.SphereGeometry(0.42, 18, 14),

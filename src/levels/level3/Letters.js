@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
 /**
- * Level 3's three dead-drop letters (ids l3-1..l3-3, text from the guide).
+ * Level 3's three torn pages (ids l3-1..l3-3): the company's own papers,
+ * the last of the six (Level 1's trail has the first three).
  * Each one is a floating envelope in a soft beam of light; Kai picks it up by
  * walking through it. Letters live in state.letters, which survives restarts,
  * so a letter that's already been read never spawns again.
@@ -10,9 +11,10 @@ import * as THREE from 'three';
  *   letters.update(dt, time, kai.root.position);         // bob, spin, pick up
  */
 export const L3_LETTERS = {
-  'l3-1': 'You were meant to find it.',
-  'l3-2': 'He wrote your recruitment letter. Compare the handwriting.',
-  'l3-3': 'Eleven more keys. Eleven more of you.',
+  'l3-1': "Company memo: Issue our man the Marshal's coat and helmet. The guide must never see his face.",
+  // this one falls from his coat as the mask comes off
+  'l3-2': 'Contract, page 2: Payment to B. Zwane on delivery of the horn. The guide is not to be paid.',
+  'l3-3': 'If the horn is back on its stone before the saws start, the forest wakes, and no crew will ever come back.',
 };
 
 const PICKUP_RADIUS = 1.3;

@@ -34,7 +34,7 @@ const CSS = THEME_CSS + `
 .tc-block { right:44px; bottom:148px; width:72px; height:72px; font-size:12px; }
 .tc-key { right:52px; bottom:232px; width:56px; height:56px; font-size:11px; border-color:rgba(111,227,255,.65); color:var(--key); }
 .tc-key.on, .tc-key:active { background:radial-gradient(circle at 35% 30%, #e6fbff, var(--key) 60%, #2a8fae); color:#062430; }
-/* the Key's recharge: a ring fills round its button; full, it glows and pings once */
+/* the horn's recharge: a ring fills round its button; full, it glows and pings once */
 .tc-key::before { content:''; position:absolute; inset:-7px; border-radius:50%; pointer-events:none;
   background:conic-gradient(var(--key) calc(var(--k, 1) * 1turn), rgba(111,227,255,.14) 0);
   -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
@@ -93,7 +93,7 @@ export class TouchControls {
       <div class="tc-btn tc-kick" data-a="kick">KICK<small>K</small></div>
       <div class="tc-btn tc-dodge" data-a="dodge">DODGE<small>C</small></div>
       <div class="tc-btn tc-block" data-a="block">BLOCK<small>B · TAP=PARRY</small></div>
-      <div class="tc-btn tc-key" data-a="ability">KEY<small>V</small></div>`;
+      <div class="tc-btn tc-key" data-a="ability">HORN<small>V</small></div>`;
     host.appendChild(this.el);
 
     this.keyBtn = this.el.querySelector('.tc-key');
@@ -230,14 +230,14 @@ export class TouchControls {
     this.setOrbitEnabled(mode === 'orbit');
     const [icon, title] = {
       follow: ['➤', 'Follow camera — left/right turn Kai and the view (Tab: lock-on)'],
-      lock: ['◎', 'Lock-on camera — stays on the Handler (Tab: 360° view)'],
+      lock: ['◎', 'Lock-on camera — stays on your opponent (Tab: 360° view)'],
       orbit: ['↻', '360° view — drag to look around (Tab: follow)'],
     }[mode] || ['◎', ''];
     this.viewBtn.querySelector('i').textContent = icon;
     this.viewBtn.title = title;
   }
 
-  /** The Key's recharge, 0..1: the ring round its button fills; full, it glows (and pings as it gets there). */
+  /** The horn's recharge, 0..1: the ring round its button fills; full, it glows (and pings as it gets there). */
   setKey(frac) {
     const k = Math.min(1, Math.max(0, frac));
     const was = this._key;

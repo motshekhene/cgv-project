@@ -13,7 +13,8 @@ import {
   JungleBed,
 } from "../audio/jungleAudio.js";
 import { showEndCard } from "../ui/EndCard.js";
-import { Hud } from "../core/Hud.js";
+import { THEME_CSS } from "../ui/theme.js";
+import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
 import {
   loadJungleKit,
@@ -406,6 +407,50 @@ const HANDLER_RAGE_TIME = 2.4;
 const HANDLER_RAGE_SPEED = 3.25;
 const IMPACT_LEAN_TIME = 0.34;
 
+/**
+ * Level 1's HUD in the team's Jungle Shrine look (ui/theme.js): the same
+ * three plaques as Level 2's HUD and Level 3's FightHUD — KAI and his life bar
+ * on the left, the trail in the middle, the Marshal on the right.
+ */
+const LEVEL1_HUD_CSS = `
+.l1h { font-family:var(--sans); color:var(--ink); user-select:none; text-shadow:none; }
+.l1h * { box-sizing:border-box; }
+.l1h-top { position:absolute; top:12px; left:12px; right:12px; display:grid; column-gap:14px; align-items:start;
+  grid-template-columns:minmax(170px, 1fr) minmax(220px, 420px) minmax(170px, 1fr); }
+.l1h-name { display:flex; align-items:center; justify-content:space-between; gap:10px; height:14px; margin-bottom:4px; white-space:nowrap;
+  font-family:var(--serif); font-weight:700; font-size:10px; letter-spacing:.3em; color:var(--gold); text-shadow:0 1px 0 #000; }
+.l1h-name em { font-style:normal; font-family:var(--sans); font-weight:600; font-size:9px; letter-spacing:.18em; color:var(--ink-dim); }
+.l1h-name b { color:var(--key); font-family:var(--sans); font-size:9px; letter-spacing:.2em; }
+.l1h-bar { position:relative; height:7px; background:rgba(0,0,0,.6); border-radius:2px; overflow:visible;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.8), 0 0 0 1px rgba(0,0,0,.7); }
+.l1h-bar > div { position:absolute; left:0; top:0; bottom:0; width:100%; border-radius:2px; }
+.l1h-hp { background:linear-gradient(180deg, rgba(255,255,255,.3), transparent 60%), linear-gradient(90deg, var(--ember), var(--ember-hi)); transition:width .25s ease; }
+.l1h-flash { transition:background .12s; }
+.l1h-route-fill { width:0; background:linear-gradient(180deg, rgba(255,255,255,.25), transparent 60%), linear-gradient(90deg, var(--gold-dim), var(--gold)); }
+.l1h-bar > .l1h-dot { left:0; top:50%; bottom:auto; width:9px; height:9px; border-radius:50%; background:var(--ink); border:2px solid var(--gold-dim);
+  transform:translate(-50%,-50%); box-shadow:0 0 8px rgba(227,187,98,.6); }
+.l1h-pip { position:absolute; top:-2px; bottom:-2px; width:2px; background:rgba(0,0,0,.7); }
+.l1h-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; white-space:nowrap; margin-top:5px; font-size:9px; letter-spacing:.2em; color:var(--ink-dim); }
+.l1h-jet { color:var(--key); }
+.l1h-player { position:relative; grid-column:1; justify-self:start; width:250px; max-width:100%; padding:5px 11px 7px; transition:border-color .3s; }
+.l1h-player.low { border-color:rgba(242,147,79,.75); }
+.l1h-player.low .l1h-hp { animation:l1hLow .8s ease-in-out infinite; }
+.l1h-route { position:relative; grid-column:2; padding:5px 12px 7px; }
+.l1h-route .l1h-name { color:var(--ink); }
+.l1h-handler { position:relative; grid-column:3; justify-self:end; min-width:190px; margin-right:52px; padding:5px 12px 7px; transition:border-color .2s, box-shadow .2s; }
+.l1h-handler .l1h-name { color:var(--ink); }
+.l1h-state { font-size:10px; font-weight:700; letter-spacing:.22em; color:var(--ember-hi); white-space:nowrap; }
+.l1h-handler.attack { border-color:rgba(242,147,79,.85); box-shadow:0 0 18px rgba(201,68,43,.45); }
+.l1h-handler.attack .l1h-state { color:#ff7a5c; }
+.l1h-handler.calm .l1h-state { color:var(--moss-hi); }
+@media (max-width: 760px) {
+  .l1h-top { grid-template-columns:1fr 1fr; row-gap:8px; }
+  .l1h-route { grid-column:1 / span 2; grid-row:2; }
+  .l1h-handler { grid-column:2; margin-right:0; }
+}
+@keyframes l1hLow { 50% { filter:brightness(1.6); } }
+`;
+
 export class Level01 extends Level {
   constructor() {
     super("level01");
@@ -682,7 +727,6 @@ export class Level01 extends Level {
     // the pursuit gap IS the health bar, and the state line under it (CLOSING
     // / LOSING GROUND / CAUGHT) is the health status. The letter ids here are
     // "level01-N", not the preset's "l1-N" guess, so pass the prefix through.
-    this.hud = Hud.forLevel("level01", { lettersIn: "level01-" }).mount();
   }
 
   _buildTunnel(mats) {
@@ -1300,7 +1344,7 @@ export class Level01 extends Level {
 
     state.handlerState = "TRIGGERED";
     state.handlerGap = this.gap;
-    this._showTransientBanner("IMPACT ALERTED THE HANDLER — RUN!", 1.25);
+    this._showTransientBanner("IMPACT ALERTED THE MARSHAL — RUN!", 1.25);
   }
 
   _buildHandlerPressureProps() {
@@ -1501,10 +1545,10 @@ export class Level01 extends Level {
     const branchLetterOffset = this._routeOffsetMagnitude(-780);
     const defs = [
       // Same dead drop on BOTH fork routes: equal difficulty and equal reward.
-      { id: "level01-1", lane: 1, x: -branchLetterOffset, z: -780, text: "They told you that rack was decommissioned. It was signed for on Tuesday." },
-      { id: "level01-1", lane: 1, x: branchLetterOffset, z: -780, text: "They told you that rack was decommissioned. It was signed for on Tuesday." },
-      { id: "level01-2", lane: 0, z: -1115, text: "Twelve names on the manifest. Yours is the only one still breathing." },
-      { id: "level01-3", lane: 2, z: -1260, text: "He isn't chasing the drive. He's chasing you." },
+      { id: "level01-1", lane: 1, x: -branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
+      { id: "level01-1", lane: 1, x: branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
+      { id: "level01-2", lane: 0, z: -1115, text: "Company memo: The men will not cross the ridge while the horn sits on that stone. Find someone the forest trusts." },
+      { id: "level01-3", lane: 2, z: -1260, text: "Company memo: Our man at the fire has agreed. His fee is paid when the horn is in our hands \u2014 not before." },
     ];
 
     for (const def of defs) {
@@ -1545,7 +1589,7 @@ export class Level01 extends Level {
             same.group.visible = false;
           }
         }
-        this._showStoryCard(letter.text);
+        this._showStoryCard(letter.text, state.letters.length);
         if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.46 });
       }
     }
@@ -2102,102 +2146,44 @@ export class Level01 extends Level {
       inset: "0",
       zIndex: "8500",
       pointerEvents: "none",
-      fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif",
-      color: "#f5ffe6",
-      textShadow: "0 2px 8px rgba(0,0,0,.75)",
     });
 
-    // Score panel stays in the top-left, but the game name now matches the
-    // project rather than borrowing another runner's title.
+    // The team's Jungle Shrine look (ui/theme.js), laid out like Level 2's
+    // HUD and Level 3's FightHUD: KAI on the left, the trail in the middle,
+    // the Marshal on the right. Same plaques, same bars, same type.
+    root.className = "l1h fh"; // .fh: picks up the theme's colour variables
+    const css = document.createElement("style");
+    css.textContent = THEME_CSS + LEVEL1_HUD_CSS;
+    root.append(css);
+    const top = document.createElement("div");
+    top.className = "l1h-top";
+
     const stat = document.createElement("div");
-    Object.assign(stat.style, {
-      position: "absolute",
-      left: "22px",
-      top: "20px",
-      minWidth: "170px",
-      padding: "11px 13px",
-      background: "linear-gradient(135deg, rgba(8,20,11,.86), rgba(23,35,14,.70))",
-      border: "1px solid rgba(205,232,128,.42)",
-      borderRadius: "10px",
-      backdropFilter: "blur(5px)",
-      boxShadow: "0 10px 30px rgba(0,0,0,.28)",
-    });
+    stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div style="font-size:10px;letter-spacing:.18em;color:#d8f69a;font-weight:900">BLACKOUT PROTOCOL</div>
-      <div style="display:flex;gap:16px;margin-top:6px;align-items:flex-end">
-        <div><span data-reward-count style="font-size:22px;font-weight:900">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">TOKENS</div></div>
-        <div><span data-reward-score style="font-size:22px;font-weight:900;color:#ffdc72">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">SCORE</div></div>
-      </div>
-      <div data-health-bar-wrap style="margin-top:8px;position:relative;height:8px;border-radius:999px;background:rgba(0,0,0,.6);overflow:hidden;border:1px solid rgba(227,187,98,.35);box-shadow:inset 0 1px 2px rgba(0,0,0,.8)">
-        <div data-health-fill style="position:absolute;inset:0 auto 0 0;width:100%;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.3),transparent 60%),linear-gradient(90deg,#c9442b,#f2934f);transition:width .25s ease"></div>
-        <div data-health-flash style="position:absolute;inset:0;border-radius:999px;background:rgba(255,60,40,.0);transition:background .12s"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:3px;font-size:8px;letter-spacing:.10em;opacity:.6">
-        <span data-health-text>HP 100 / 100</span>
-        <span data-health-icon style="color:#f2934f">❤</span>
-      </div>
-      <div data-jetpack-status style="margin-top:7px;font-size:10px;letter-spacing:.1em;color:#8eeaff;opacity:.55">JETPACK — FIND A BOOSTER</div>
+      <div class="l1h-name">KAI <em><span data-reward-count>0</span> TOKENS · <span data-reward-score>0</span></em></div>
+      <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
+      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
     `;
 
-    // Handler panel — top-right, same plaque style as Level 2's handler box.
-    // Shows the Handler's distance and current state (LOSING_GROUND, CLOSING, etc.)
     const handlerPanel = document.createElement("div");
-    Object.assign(handlerPanel.style, {
-      position: "absolute",
-      right: "70px",
-      top: "20px",
-      minWidth: "170px",
-      padding: "11px 13px",
-      background: "linear-gradient(135deg, rgba(8,20,11,.86), rgba(23,35,14,.70))",
-      border: "1px solid rgba(205,232,128,.42)",
-      borderRadius: "10px",
-      backdropFilter: "blur(5px)",
-      boxShadow: "0 10px 30px rgba(0,0,0,.28)",
-      transition: "border-color .2s, box-shadow .2s",
-    });
+    handlerPanel.className = "l1h-handler plaque";
     handlerPanel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-        <div style="font-size:10px;letter-spacing:.18em;color:#d8f69a;font-weight:900">THE HANDLER</div>
-        <span data-handler-dist style="font-size:10px;letter-spacing:.12em;color:#b8aa8a;font-weight:600">— m</span>
-      </div>
-      <div data-handler-state style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:.22em;color:#f2934f;white-space:nowrap">APPROACH</div>
+      <div class="l1h-name"><span>THE MARSHAL</span><em data-handler-dist>— m</em></div>
+      <div class="l1h-state" data-handler-state>APPROACH</div>
     `;
 
-    // Compact escape-route trail: back at the bottom centre, but intentionally
-    // smaller so it does not compete with the action controls on either side.
     const progress = document.createElement("div");
-    Object.assign(progress.style, {
-      position: "absolute",
-      left: "50%",
-      bottom: "20px",
-      transform: "translateX(-50%)",
-
-
-
-
-
-      
-      width: "clamp(230px, 31vw, 360px)",
-      padding: "7px 10px 6px",
-      borderRadius: "10px",
-      background: "rgba(7,16,9,.78)",
-      border: "1px solid rgba(205,232,128,.34)",
-      backdropFilter: "blur(5px)",
-      boxShadow: "0 10px 28px rgba(0,0,0,.30)",
-    });
+    progress.className = "l1h-route plaque";
+    const pip = (z, title) => `<i class="l1h-pip" title="${title}" style="left:${((-z / FINISH_DISTANCE) * 100).toFixed(1)}%"></i>`;
     progress.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:8px;letter-spacing:.12em;opacity:.72;margin-bottom:5px">
-        <span>ESCAPE ROUTE</span><span data-distance-left>${Math.round(FINISH_DISTANCE)} m LEFT</span>
-      </div>
-      <div style="position:relative;height:5px;border-radius:999px;background:rgba(255,255,255,.13);overflow:visible">
-        <div data-progress-fill style="position:absolute;inset:0 auto 0 0;width:0%;border-radius:999px;background:linear-gradient(90deg,#83ca65,#d8ef72,#ffce62);box-shadow:0 0 10px rgba(207,238,113,.32)"></div>
-        <div data-progress-dot style="position:absolute;left:0%;top:50%;width:11px;height:11px;border-radius:50%;background:#f2ffb7;border:2px solid #365329;transform:translate(-50%,-50%);box-shadow:0 0 10px rgba(232,255,161,.65)"></div>
-        <span title="Fork" style="position:absolute;left:${((-ROUTE_SPLIT_START_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#b0e7ff;transform:translate(-50%,-50%)"></span>
-        <span title="Bridge" style="position:absolute;left:${((-BRIDGE_START_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#ffcf73;transform:translate(-50%,-50%)"></span>
-        <span title="Gate" style="position:absolute;left:${((-GATE_Z / FINISH_DISTANCE) * 100).toFixed(1)}%;top:50%;width:4px;height:4px;border-radius:50%;background:#ff8873;transform:translate(-50%,-50%)"></span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:7px;letter-spacing:.09em;opacity:.46"><span>START</span><span data-progress-percent>0%</span><span>FINISH</span></div>
+      <div class="l1h-name"><span>THE OLD TRAIL</span><b data-distance-left>${Math.round(FINISH_DISTANCE)} m LEFT</b></div>
+      <div class="l1h-bar"><div class="l1h-route-fill" data-progress-fill></div>
+        ${pip(ROUTE_SPLIT_START_Z, "Fork")}${pip(BRIDGE_START_Z, "Bridge")}${pip(GATE_Z, "Gate")}
+        <div class="l1h-dot" data-progress-dot></div></div>
+      <div class="l1h-row"><span>THE STONE</span><span data-progress-percent>0%</span><span>THE CAMP</span></div>
     `;
+    top.append(stat, progress, handlerPanel);
 
     // Action controls are kept low-left so the centre remains readable. BOOST
     // is deliberately round with a gold rim; the faint labels underneath show
@@ -2214,7 +2200,7 @@ export class Level01 extends Level {
     Object.assign(actionControls.style, {
       position: "absolute",
       right: "27px",
-      bottom: "16px",
+      bottom: "48px", // clear of the H · CONTROLS pill in the corner
       width: "144px",
       display: "flex",
       justifyContent: "center",
@@ -2226,8 +2212,8 @@ export class Level01 extends Level {
     });
 
     const boostStyle = "width:68px;height:68px;border-radius:50%;border:2px solid rgba(238,193,74,.95);background:radial-gradient(circle at 35% 28%,rgba(255,218,104,.19),rgba(22,24,10,.88) 68%);color:#ffe19a;font:950 11px system-ui;letter-spacing:.08em;cursor:pointer;box-shadow:0 0 0 2px rgba(255,206,89,.08),0 0 20px rgba(237,183,50,.22),inset 0 1px rgba(255,255,255,.12);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
-    const lookStyle = "width:64px;height:64px;border-radius:50%;border:1px solid rgba(215,239,201,.46);background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.10),rgba(8,18,10,.88) 70%);color:#f3ffe7;font:900 9px system-ui;letter-spacing:.06em;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.08);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
-    const textButtonStyle = "border:1px solid rgba(244,255,219,.28);background:rgba(255,255,255,.06);color:#f5ffe6;border-radius:8px;height:38px;padding:0 12px;font:800 10px system-ui;letter-spacing:.08em;cursor:pointer;transition:transform .08s,background .08s,border-color .08s";
+    const lookStyle = "width:64px;height:64px;border-radius:50%;border:1px solid rgba(227,187,98,.45);background:radial-gradient(circle at 35% 28%,rgba(255,255,255,.10),rgba(8,18,10,.88) 70%);color:#efe4c8;font:900 9px system-ui;letter-spacing:.06em;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.08);transition:transform .08s,background .08s,border-color .08s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px";
+    const textButtonStyle = "border:1px solid rgba(244,255,219,.28);background:rgba(255,255,255,.06);color:#efe4c8;border-radius:8px;height:38px;padding:0 12px;font:800 10px system-ui;letter-spacing:.08em;cursor:pointer;transition:transform .08s,background .08s,border-color .08s";
 
     actionControls.innerHTML = `
       <button type="button" data-screen-hold="boost" data-gold-control="true" title="Hold to boost" style="${boostStyle}">
@@ -2246,7 +2232,7 @@ export class Level01 extends Level {
     Object.assign(dpad.style, {
       position: "absolute",
       right: "22px",
-      bottom: "96px",
+      bottom: "128px",
       width: "154px",
       height: "154px",
       display: "grid",
@@ -2257,7 +2243,7 @@ export class Level01 extends Level {
       touchAction: "none",
       filter: "drop-shadow(0 8px 14px rgba(0,0,0,.34))",
     });
-    const arrowStyle = "width:48px;height:48px;border:1px solid rgba(225,245,208,.38);background:rgba(8,19,10,.78);color:#f5ffe6;border-radius:11px;font:950 22px system-ui;cursor:pointer;backdrop-filter:blur(5px);box-shadow:inset 0 1px rgba(255,255,255,.07);transition:transform .08s,background .08s,border-color .08s";
+    const arrowStyle = "width:48px;height:48px;border:1px solid rgba(227,187,98,.45);background:rgba(13,17,11,.82);color:#efe4c8;border-radius:11px;font:950 22px system-ui;cursor:pointer;backdrop-filter:blur(5px);box-shadow:inset 0 1px rgba(255,255,255,.07);transition:transform .08s,background .08s,border-color .08s";
     dpad.innerHTML = `
       <button type="button" data-screen-action="jump" aria-label="jump" title="Jump" style="${arrowStyle};grid-column:2;grid-row:1">↑</button>
       <button type="button" data-screen-action="left" aria-label="move left" title="Move left" style="${arrowStyle};grid-column:1;grid-row:2">←</button>
@@ -2280,7 +2266,7 @@ export class Level01 extends Level {
       pointerEvents: "auto",
       zIndex: "6",
     });
-    const iconStyle = "width:40px;height:40px;border-radius:50%;border:1px solid rgba(217,239,201,.35);background:rgba(7,16,9,.78);color:#f5ffe6;font:900 17px system-ui;cursor:pointer;backdrop-filter:blur(6px);box-shadow:0 8px 22px rgba(0,0,0,.28);transition:transform .08s,background .08s,border-color .08s,opacity .12s";
+    const iconStyle = "width:40px;height:40px;border-radius:50%;border:1px solid rgba(227,187,98,.45);background:rgba(13,17,11,.82);color:#efe4c8;font:900 17px system-ui;cursor:pointer;backdrop-filter:blur(6px);box-shadow:0 8px 22px rgba(0,0,0,.28);transition:transform .08s,background .08s,border-color .08s,opacity .12s";
     topActions.innerHTML = `
       <button type="button" data-sound-toggle aria-label="toggle sound" title="Sound on/off" style="${iconStyle}">🔊</button>
       <button type="button" data-pause-toggle aria-label="pause game" title="Pause" style="${iconStyle}">Ⅱ</button>
@@ -2299,15 +2285,15 @@ export class Level01 extends Level {
       zIndex: "3",
     });
     pauseOverlay.innerHTML = `
-      <div style="min-width:260px;padding:24px 28px;border-radius:14px;background:rgba(7,16,9,.92);border:1px solid rgba(205,232,128,.46);box-shadow:0 18px 55px rgba(0,0,0,.52);text-align:center">
-        <div style="font-size:10px;letter-spacing:.24em;color:#d8f69a">BLACKOUT PROTOCOL</div>
-        <div style="font-size:30px;font-weight:950;letter-spacing:.08em;margin:5px 0 4px">PAUSED</div>
+      <div class="plaque" style="position:relative;min-width:260px;padding:24px 28px;text-align:center">
+        <div style="font-family:var(--serif);font-size:10px;letter-spacing:.3em;color:var(--gold)">LEVEL 1 — THE OLD TRAIL</div>
+        <div style="font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.12em;margin:5px 0 4px;color:var(--ink)">PAUSED</div>
         <div style="font-size:10px;opacity:.6;margin-bottom:15px">ESC OR BUTTON TO CONTINUE</div>
         <button type="button" data-resume-button style="${textButtonStyle};min-width:120px">▶ RESUME</button>
       </div>
     `;
 
-    root.append(stat, handlerPanel, progress, pauseOverlay, controls, topActions);
+    root.append(top, pauseOverlay, controls, topActions);
     document.body.append(root);
 
     this._templeHud = root;
@@ -2340,8 +2326,8 @@ export class Level01 extends Level {
           : "radial-gradient(circle at 35% 28%,rgba(255,218,104,.19),rgba(22,24,10,.88) 68%)";
         button.style.borderColor = down ? "rgba(255,229,142,1)" : "rgba(238,193,74,.95)";
       } else {
-        button.style.background = down ? "rgba(216,246,154,.20)" : "rgba(8,19,10,.78)";
-        button.style.borderColor = down ? "rgba(216,246,154,.72)" : "rgba(225,245,208,.38)";
+        button.style.background = down ? "rgba(216,246,154,.20)" : "rgba(13,17,11,.82)";
+        button.style.borderColor = down ? "rgba(216,246,154,.72)" : "rgba(227,187,98,.45)";
       }
     };
 
@@ -2499,9 +2485,10 @@ export class Level01 extends Level {
     if (this._hudHealthFill) {
       const pct = THREE.MathUtils.clamp(this._health / MAX_HEALTH, 0, 1);
       this._hudHealthFill.style.width = `${(pct * 100).toFixed(1)}%`;
+      this._hudHealthFill.closest(".l1h-player")?.classList.toggle("low", pct < 0.3);
     }
     if (this._hudHealthText) {
-      this._hudHealthText.textContent = `HP ${Math.ceil(this._health)} / ${MAX_HEALTH}`;
+      this._hudHealthText.textContent = `${Math.ceil(this._health)} / ${MAX_HEALTH}`;
     }
     if (this._hudHealthFlash) {
       // Red flash overlay fades out quickly after a hit
@@ -2525,20 +2512,13 @@ export class Level01 extends Level {
         CAUGHT: "CAUGHT",
         SEALED: "SEALED",
         GUARDIAN: "GUARDIAN",
-        POLICE_CHASE: "POLICE CHASE",
+        POLICE_CHASE: "COMPANY RANGER",
       };
       this._hudHandlerState.textContent = labels[hs] || hs;
-      // Colour: ember when dangerous, moss when safe
+      // ember when he is on you, moss when Kai is pulling away (Level 2's handler box does the same)
       const dangerous = /CAUGHT|TRIGGERED|GUARDIAN|CLOSING|POLICE_CHASE/.test(hs);
-      this._hudHandlerState.style.color = dangerous ? "#f2934f" : "#bcd96a";
-      if (this._hudHandlerPanel) {
-        this._hudHandlerPanel.style.borderColor = dangerous
-          ? "rgba(242,147,79,.75)"
-          : "rgba(205,232,128,.42)";
-        this._hudHandlerPanel.style.boxShadow = dangerous
-          ? "0 10px 30px rgba(0,0,0,.28), 0 0 18px rgba(201,68,43,.35)"
-          : "0 10px 30px rgba(0,0,0,.28)";
-      }
+      this._hudHandlerPanel?.classList.toggle("attack", dangerous);
+      this._hudHandlerPanel?.classList.toggle("calm", !dangerous);
     }
 
     if (this._hudProgressFill) this._hudProgressFill.style.width = `${(progress * 100).toFixed(2)}%`;
@@ -2612,10 +2592,10 @@ export class Level01 extends Level {
     el.textContent = text;
     Object.assign(el.style, {
       position: "fixed", left: "50%", top: "12%", transform: "translateX(-50%)",
-      zIndex: "9000", padding: "10px 16px", color: "#efffd8",
-      background: "rgba(7,16,10,.78)", border: "1px solid rgba(158,220,109,.55)",
-      font: "800 13px system-ui, sans-serif", letterSpacing: ".10em", textAlign: "center",
-      pointerEvents: "none", boxShadow: "0 8px 30px rgba(0,0,0,.35)",
+      zIndex: "9000", padding: "9px 18px 10px", color: "#efe4c8",
+      background: "linear-gradient(180deg, rgba(38,44,28,.86), rgba(13,17,11,.82))", border: "1px solid rgba(227,187,98,.45)",
+      borderRadius: "3px", fontFamily: DIALOGUE_FONT, fontWeight: "600", fontSize: "15px", letterSpacing: ".16em", textAlign: "center",
+      pointerEvents: "none", boxShadow: "0 4px 14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07)",
     });
     document.body.append(el);
     this._transientBanner = el;
@@ -2625,17 +2605,19 @@ export class Level01 extends Level {
     }, seconds * 1000);
   }
 
-  _showStoryCard(text) {
+  /** A torn page picked up off the trail: the same parchment card Level 3's pages use (StoryOverlay). */
+  _showStoryCard(text, found = 0) {
     if (typeof document === "undefined") return;
     if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
     if (this._storyTimer) clearTimeout(this._storyTimer);
     const card = document.createElement("div");
-    card.innerHTML = `<div style="font-size:11px;opacity:.62;letter-spacing:.16em;margin-bottom:7px">DEAD DROP</div><div>${text}</div>`;
+    card.innerHTML =
+      `<div style="font:600 10px 'Segoe UI',system-ui,sans-serif;letter-spacing:.28em;color:#8a5a26;margin-bottom:8px">` +
+      `TORN PAGE \u00b7 ${found} / 6 FOUND</div><div style="font-size:19px;line-height:1.35">\u201C${text}\u201D</div>`;
     Object.assign(card.style, {
-      position: "fixed", left: "24px", top: "20%", width: "min(360px, calc(100vw - 48px))",
-      zIndex: "8999", padding: "14px 16px", color: "#eafff8", background: "rgba(5,18,15,.88)",
-      borderLeft: "3px solid #54ffd0", font: "600 14px/1.45 system-ui, sans-serif",
-      boxShadow: "0 12px 40px rgba(0,0,0,.36)", pointerEvents: "none",
+      position: "fixed", left: "50%", bottom: "20vh", transform: "translateX(-50%) rotate(-1.2deg)",
+      width: "min(440px, 84vw)", zIndex: "8999", padding: "18px 22px 16px", color: "#2b2219", background: "#efe6d2",
+      borderRadius: "2px", fontFamily: DIALOGUE_FONT, boxShadow: "0 10px 30px #0009", pointerEvents: "none",
     });
     document.body.append(card);
     this._storyCard = card;
@@ -2645,7 +2627,7 @@ export class Level01 extends Level {
     }, 4200);
   }
 
-  _showCaughtOverlay(title = "THE HANDLER CAUGHT YOU") {
+  _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
 
     // the team's shared end card (ui/theme.js), same as levels 02 and 03
@@ -3025,7 +3007,7 @@ export class Level01 extends Level {
     this._endPolice.rotation.y = Math.PI * 0.73;
 
     this._autoLook = Math.max(this._autoLook, 1.0);
-    this._showTransientBanner("POLICE BACKUP — GET TO THE BLUE CAR!", 1.8);
+    this._showTransientBanner("COMPANY RANGER ON THE ROAD — GET TO THE CAR!", 1.8);
 
     if (this._audio && !this._endPoliceSirenStarted) {
       this._audio.attachPositional(this._endPolice, "policeSiren", {
@@ -3212,7 +3194,7 @@ export class Level01 extends Level {
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
       this._duckMusic(0.85);
-      this._showCaughtOverlay("The Shrine Guardian caught Kai. Restart the level to try again.");
+      this._showCaughtOverlay("The forest's guardian caught Kai. Restart the level to try again.");
       return true;
     }
 
@@ -3289,6 +3271,7 @@ export class Level01 extends Level {
     if (!this._handlerSealed && (this._gatePhase === "slamming" || this._gatePhase === "closed")) {
       this._handlerSealed = true;
       state.handlerState = "SEALED";
+      kaiThinks("The gate! That won\u2019t hold him for long.");
       // Where he comes to rest. Normally the standoff in front of the bars, but
       // never further back than he already is: a Handler who was 1 m off Kai's
       // heels is inside the standoff already, and walking him backwards to it
@@ -3332,7 +3315,7 @@ export class Level01 extends Level {
         this._shake = 0.6;
         if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
         this._duckMusic(0.85);
-        this._showCaughtOverlay("The Handler caught Kai.");
+        this._showCaughtOverlay("The Marshal caught Kai. The horn is the company's now.");
       } else {
         state.handlerState = this._handlerRageT > 0
           ? "TRIGGERED"
@@ -3485,10 +3468,28 @@ export class Level01 extends Level {
     }
   }
 
+  /**
+   * Kai's thoughts on the run, in the prologue's style (ui/dialogue.js): the
+   * silence he left behind him, and the masked man he has never seen before.
+   */
+  _storyBeats(dt, state) {
+    this._storyT = (this._storyT || 0) + dt;
+    if (!this._saidStart && this._storyT > 1.4) {
+      this._saidStart = true;
+      kaiThinks("Every sound in the forest stopped when I took it.");
+      kaiThinks("And someone\u2019s on the trail behind me.");
+    }
+    if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 8) {
+      this._saidMarshal = true;
+      kaiThinks("A company coat. A mask. Who sent him after me?");
+    }
+  }
+
   update(dt, state) {
     const input = this.input;
 
     if (!this._audioReady) this._ensureAudio();
+    if (!this.caught && !this.escaped) this._storyBeats(dt, state);
 
     // --- speed: the gear table + boost, both feeding Shader 1 ---
     // A single linear ramp to 22 m/s over 2 km was "not constant" on paper and
@@ -3938,9 +3939,6 @@ export class Level01 extends Level {
       }
     }
 
-    // last line of update(), so the HUD reads every state write this frame —
-    // including gap writes from the handler update further up
-    if (this.hud) this.hud.update(state);
   }
 
   /**
@@ -4036,10 +4034,7 @@ export class Level01 extends Level {
   }
 
   teardown() {
-    if (this.hud) {
-      this.hud.unmount();
-      this.hud = null;
-    }
+    clearThoughts();
     for (const f of [this.kai, this.handlerMonk]) {
       f?.root.traverse((o) => {
         if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();

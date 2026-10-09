@@ -249,6 +249,150 @@ export function attachMask(fighter) {
   return { mask, material };
 }
 
+/**
+ * THE HANDLER'S KIT — what Baba Zwane puts on to hunt Kai for the company.
+ *
+ * At the fire in the prologue he is a man in his robes, face bare. Every time
+ * after that, until Level 3 knocks it off, he is this: a long armoured coat
+ * (dark oiled canvas, gunmetal plates on the chest and shoulders, a company
+ * amber stripe) and a helmet shell closed round the carved stone mask. Kai
+ * never sees past it, so he never puts the two together.
+ *
+ * Level 1's chaser and Level 3's boss both come from here, so it is the same
+ * coat and the same helmet every time. Rigid pieces ride the bones (no
+ * skinning): the coat skirt is split at the front so his knees come through
+ * it on the run. Returns { helmet, maskMat }. The helmet group holds the mask
+ * and the shell, so popping it bares his face. On the old Quaternius rig
+ * (no Mixamo bones) it returns null and the caller falls back to the plain helmet.
+ */
+export function dressAsHandler(fighter) {
+  const worn = attachMask(fighter);
+  if (!worn) return null;
+  const b = (n) => fighter.bones['mixamorig' + n] || null;
+  const head = fighter.bone('Head');
+  const hips = b('Hips');
+  if (!hips) return { helmet: worn.mask, maskMat: worn.material };
+  fighter.root.updateMatrixWorld(true);
+  const tmp = new THREE.Vector3();
+  const scaleOf = (bone) => bone.getWorldScale(tmp).x || 1;
+
+  const canvas = new THREE.MeshStandardMaterial({ color: 0x23251f, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide });
+  const plate = new THREE.MeshStandardMaterial({ color: 0x3a3e43, roughness: 0.38, metalness: 0.75 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x8a6a2e, roughness: 0.45, metalness: 0.6 });
+  const stripe = new THREE.MeshStandardMaterial({ color: 0x2a1a08, emissive: 0xffb03a, emissiveIntensity: 0.55, roughness: 0.6 });
+  const pieces = [];
+  const add = (bone, mesh) => {
+    mesh.castShadow = true;
+    bone.add(mesh);
+    pieces.push(mesh);
+    return mesh;
+  };
+
+  /** A tube from one bone to another, in metres, riding the first. */
+  const segment = (fromName, toName, r0, r1, mat, { squash = 1, open = false } = {}) => {
+    const from = b(fromName), to = b(toName);
+    if (!from || !to) return null;
+    const s = scaleOf(from);
+    const end = from.worldToLocal(to.getWorldPosition(new THREE.Vector3()));
+    const len = end.length();
+    if (len < 1e-4) return null;
+    const geo = new THREE.CylinderGeometry(r1 / s, r0 / s, len, 14, 1, open);
+    geo.translate(0, len / 2, 0);
+    const m = new THREE.Mesh(geo, mat);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().normalize());
+    m.scale.set(1, 1, squash);
+    return add(from, m);
+  };
+
+  // the coat body: hips to the base of the neck, wider than he is
+  segment('Hips', 'Spine2', 0.19, 0.2, canvas, { squash: 0.78 });
+  segment('Spine2', 'Neck', 0.205, 0.15, canvas, { squash: 0.8 });
+  // the chest plate, and the amber company stripe under it
+  {
+    const s = scaleOf(b('Spine2'));
+    const chest = new THREE.Mesh(
+      // a curved slice centred on +Z, his front
+      new THREE.SphereGeometry(0.2 / s, 18, 10, Math.PI / 2 - 0.6, 1.2, 0.3 * Math.PI, 0.42 * Math.PI),
+      plate,
+    );
+    chest.scale.set(1.05, 1.05, 0.9);
+    chest.position.y = 0.04 / s;
+    add(b('Spine2'), chest);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.188 / s, 0.012 / s, 6, 28), stripe);
+    band.rotation.x = Math.PI / 2;
+    band.scale.set(1, 0.8, 1);
+    add(b('Spine1') || b('Spine2'), band);
+  }
+  // the skirt: an open cone off the hips down past the knees, split at the front so he can run in it
+  {
+    const s = scaleOf(hips);
+    const len = 0.66 / s;
+    const geo = new THREE.CylinderGeometry(0.205 / s, 0.33 / s, len, 20, 1, true, 0.32, Math.PI * 2 - 0.64);
+    geo.translate(0, -len / 2 + 0.06 / s, 0);
+    const skirt = new THREE.Mesh(geo, canvas);
+    skirt.scale.set(1, 1, 0.82);
+    add(hips, skirt);
+    const hem = new THREE.Mesh(new THREE.TorusGeometry(0.205 / s, 0.014 / s, 6, 28), trim);
+    hem.rotation.x = Math.PI / 2;
+    hem.position.y = 0.06 / s;
+    hem.scale.set(1, 0.82, 1);
+    add(hips, hem); // the belt
+  }
+  // sleeves, and a gunmetal pauldron on each shoulder
+  for (const side of ['Left', 'Right']) {
+    segment(side + 'Arm', side + 'ForeArm', 0.075, 0.065, canvas);
+    segment(side + 'ForeArm', side + 'Hand', 0.064, 0.058, canvas);
+    const arm = b(side + 'Arm');
+    if (arm) {
+      const s = scaleOf(arm);
+      // round, so it reads the same whichever way the arm bone's axes point
+      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.1 / s, 14, 10), plate);
+      pad.scale.set(1.05, 0.8, 1.05);
+      pad.position.y = 0.03 / s;
+      add(arm, pad);
+    }
+  }
+
+  // the helmet: a gunmetal shell closed round the back of the mask, with a crest. Mask and shell are one
+  // group, so when it comes off in Level 3 his whole head is bare
+  const helmet = new THREE.Group();
+  if (head) {
+    const s = scaleOf(head);
+    head.add(helmet);
+    helmet.position.copy(worn.mask.position);
+    worn.mask.position.set(0, 0, 0);
+    helmet.add(worn.mask);
+    // big enough to swallow the monk's ears and crown; open only where the mask is
+    const R = 0.168;
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(R / s, 28, 18, Math.PI / 2 + 0.4 * Math.PI, 1.2 * Math.PI, 0, 0.66 * Math.PI),
+      plate,
+    );
+    shell.scale.set(1.12, 1.18, 1.12);
+    shell.position.y = 0.025 / s;
+    shell.castShadow = true;
+    helmet.add(shell);
+    // and its brow: the crown over the face opening, down to the top of the mask
+    const brow = new THREE.Mesh(
+      new THREE.SphereGeometry(R / s, 16, 6, Math.PI / 2 - 0.4 * Math.PI, 0.8 * Math.PI, 0, 0.3 * Math.PI),
+      plate,
+    );
+    brow.scale.copy(shell.scale);
+    brow.position.copy(shell.position);
+    brow.castShadow = true;
+    helmet.add(brow);
+    // a brass ridge from brow to nape, hugging the shell
+    const crest = new THREE.Mesh(new THREE.TorusGeometry((R * 1.15) / s, 0.012 / s, 6, 24, Math.PI), trim);
+    crest.rotation.y = Math.PI / 2;
+    crest.scale.set(1, 1.03, 0.98);
+    crest.position.y = 0.025 / s;
+    crest.castShadow = true;
+    helmet.add(crest);
+  }
+  fighter.handlerKit = pieces;
+  return { helmet: head ? helmet : worn.mask, maskMat: worn.material };
+}
+
 export class HandlerBoss {
   /** meta: tools/build-character.py's measurements when `source` is the Mixamo Handler, else null. */
   constructor(parent, target, source, meta = null) {
@@ -310,10 +454,11 @@ export class HandlerBoss {
   }
 
   _attachHelmet() {
-    const worn = this.fighter.rig === 'mixamo' && attachMask(this.fighter);
+    // the same coat and helmet he chased Kai in through Level 1 (dressAsHandler)
+    const worn = this.fighter.rig === 'mixamo' && dressAsHandler(this.fighter);
     if (worn) {
-      this.helmet = worn.mask; // phase II knocks it off exactly as it did the old helmet
-      this.maskMat = worn.material; // its eye slits carry the tells (_glowMask)
+      this.helmet = worn.helmet; // phase II knocks it off, mask and all: Baba Zwane's face underneath
+      this.maskMat = worn.maskMat; // its eye slits carry the tells (_glowMask)
       return;
     }
     const helmet = new THREE.Mesh(

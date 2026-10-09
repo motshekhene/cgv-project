@@ -11,7 +11,7 @@ import { THEME_CSS } from '../../ui/theme.js';
  *           shows what a hit just cost), heat underneath, speed; the plaque
  *           widens as shrine hearts raise max health; active rewards below
  *   middle  THE RIVER ROAD — how far to the falls
- *   right   THE HANDLER — what he's doing, how close he is
+ *   right   THE MARSHAL — what he's doing, how close he is
  *
  * Lives in #hud and removes itself (and its <style>) on destroy().
  */
@@ -93,7 +93,7 @@ export function createLevel2Hud() {
           <i class="l2h-pip" style="left:25%"></i><i class="l2h-pip" style="left:50%"></i><i class="l2h-pip" style="left:75%"></i></div>
       </div>
       <div class="l2h-handler plaque">
-        <div class="l2h-name"><span>THE HANDLER</span><em data-k="dist">— m</em></div>
+        <div class="l2h-name"><span>THE MARSHAL</span><em data-k="dist">— m</em></div>
         <div class="l2h-state" data-k="state">APPROACH</div>
       </div>
     </div>

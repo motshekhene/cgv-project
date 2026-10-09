@@ -7,7 +7,7 @@ import { createWaterMaterial } from '../../shaders/water.js';
 import { createLightShaft } from '../../shaders/lightshaft.js';
 
 /**
- * ShrineArena — the Site 7 courtyard where Level 3's fight happens (3B, world).
+ * ShrineArena — the shrine courtyard below the falls where Level 3's fight happens (3B, world).
  *
  * Layout follows themes.js -> shrine and the guide's section 6: a disc of
  * mossy tiles (r ~12.4, same footprint the combat code clamps to), a ring of
@@ -379,10 +379,10 @@ export class ShrineArena {
     this.root.add(ground);
   }
 
-  /** The shrine is wired: a laminated sign, a junction box with a cyan LED, and the cable into the gate. */
+  /** The company has already staked the shrine: a laminated notice, a survey beacon with a blinking LED, and its cable into the gate. */
   _buildSite7() {
     const b = this.anchors.box;
-    const site = sign(['SITE 7', { t: 'NO ENTRY · AUTHORISED PERSONNEL', size: 0.55 }], {
+    const site = sign(['CUT ZONE 7', { t: 'COMPANY LAND · CREWS ONLY', size: 0.55 }], {
       w: 1.1, h: 0.7, bg: '#e8e2d2', fg: '#a3231c', border: '#a3231c',
     });
     site.position.set(-6.15, 1.85, -16.5);
@@ -401,7 +401,7 @@ export class ShrineArena {
     this.obstacles.push({ x: b.x - 0.12, z: b.z, r: 0.08 }); // it runs down to the ground, just proud of the wall
     this.root.add(cable);
 
-    // tiny screen on the box: blank until the epilogue's upload
+    // tiny screen on the beacon: the cut line the saws will follow
     this.screenCanvas = document.createElement('canvas');
     this.screenCanvas.width = 256;
     this.screenCanvas.height = 128;
@@ -425,9 +425,9 @@ export class ShrineArena {
     g.font = '700 22px Consolas, monospace';
     g.fillStyle = '#5ff2d6';
     if (frac < 0) {
-      g.fillText('UPLINK  ●  IDLE', 18, 50);
+      g.fillText('SURVEY  ●  LIVE', 18, 50);
       g.fillStyle = '#2b6e62';
-      g.fillText('INSERT KEY', 18, 88);
+      g.fillText('CUT LINE 7 MARKED', 18, 88);
     } else {
       g.fillText(`${label}  ${Math.round(frac * 100)}%`, 18, 44);
       g.strokeStyle = '#5ff2d6';

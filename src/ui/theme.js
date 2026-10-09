@@ -1,11 +1,12 @@
 /**
  * The Jungle Shrine look for the DOM UI (FightHUD, StoryOverlay, TouchControls, PauseMenu):
  * dark moss-stone plaques with an aged-gold hairline, parchment text, a carved
- * serif for titles, ember for harm, moss for stamina, cyan for the Key.
+ * serif for titles (the prologue's Crimson Pro, ui/dialogue.js, so the HUD and the
+ * dialogue share one face), ember for harm, moss for stamina, cyan for the horn.
  *
  * Each component puts THEME_CSS (+ END_CSS if it shows an end screen) in front
- * of its own styles, so they all read the same variables. Plain system fonts
- * only, so nothing has to download on the lab machines.
+ * of its own styles, so they all read the same variables. The serif falls back
+ * to Palatino / Georgia if the font cannot download on the lab machines.
  */
 export const THEME_CSS = `
 .fh, .so, .tc, .pm {
@@ -13,7 +14,7 @@ export const THEME_CSS = `
   --stone: rgba(13, 17, 11, .78); --stone-hi: rgba(38, 44, 28, .82); --line: rgba(227, 187, 98, .45);
   --ember: #c9442b; --ember-hi: #f2934f; --blood: #7c1610; --moss: #5f8a2e; --moss-hi: #bcd96a;
   --key: #6fe3ff;
-  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  --serif: 'Crimson Pro', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
   --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 /* give .plaque elements a position yourself (relative/absolute): the theme sheet is injected by several

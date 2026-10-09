@@ -18,11 +18,19 @@ import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { PauseMenu } from '../ui/PauseMenu.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
+import { attachHorn } from '../intros/cast.js';
+import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
 
 /**
- * Level 03 — FIGHT, "Site 7".
+ * Level 03 — FIGHT, "The Falls".
  *
- * The shrine courtyard by the waterfall, golden hour. Same split Level02 uses:
+ * The shrine courtyard by the waterfall, golden hour. The end of the horn
+ * story the prologue starts: Kai went over the falls with the horn still in
+ * his hand, and the Marshal (the company's man in the armoured coat and the
+ * carved mask, who has hunted him since the stone) comes down off the arch
+ * for it. When the mask comes off in phase II it is Baba Zwane: the man at the
+ * fire who sent Kai up the ridge. The company paid Baba Zwane to get the horn
+ * off the stone and into their hands; he used Kai as the bait. Same split Level02 uses:
  * CombatController and HandlerBoss own their own logic and never touch each
  * other, ShrineArena owns the world, and this file is the only place that
  * reads all of them — it resolves hits/parries/dodges, runs the story beats,
@@ -33,22 +41,25 @@ import { loadRig } from '../player/rig.js';
  *   INTRO     Kai wakes in the pool among his car's wreckage (level3/Wreck.js),
  *             wades out, steps up onto the path (level3/FootPlant.js) and
  *             gets the water off (level3/DustOff.js), runs
- *             through the gate dripping; the Handler jumps down off the arch
+ *             through the gate dripping; the Marshal jumps down off the arch
  *             behind him, and they trade a few lines, typed out on screen,
- *             before it starts. Skippable; skipped on restarts. He stays soaked
+ *             before it starts (Kai still thinks he is taking the horn to
+ *             Baba Zwane). Skippable; skipped on restarts. He stays soaked
  *             into the fight and dries over ~40 s (level3/Wetness.js).
  *   FIGHT     a VS splash, then three health-gated phases. Phase II pops the
- *             helmet (REVEAL: a slow-mo reaction shot over Kai's shoulder);
+ *             helmet (REVEAL: a slow-mo reaction shot, then Kai sees who it is
+ *             and the two of them have it out, line by line: REVEAL_TALK;
+ *             from then on the boss bar says BABA ZWANE);
  *             phase III turns the sky to dusk, lights the torches, runs the
  *             pool red and brings a storm in (level3/Storm.js). A perfect
  *             dodge bends time (FOCUS_*, drawn by level3/KeyVision.js). The
  *             fight isn't penned in: Kai can break for the jungle ring, where
  *             three shrines each give one gift (Awards.js), with the Handler
- *             after him. Each loss makes the next attempt's Handler weaker.
+ *             after him. Each loss makes the next attempt's Marshal weaker.
  *   FINAL     the killing blow in slow motion, the camera arcing round them.
  *   EPILOGUE  the storm passes and fireflies come out while the camera circles
- *             the fallen Handler, then a plain VICTORY card ("You won") with
- *             PLAY AGAIN. No story text after the win.
+ *             the fallen Baba Zwane, then the VICTORY card: the horn goes back
+ *             to the stone. PLAY AGAIN.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -108,16 +119,36 @@ const C_AT = 9.7;
 const LEAP_FROM = 0.3;
 const LEAP_G = 13; // m/s²: a touch more than gravity, or a man falling 9 m reads as floating on screen
 // intro shot D: face to face before the fight, each line typed out on screen. pose: what the speaker does with it
+// the masked Marshal until phase II; Baba Zwane (the prologue's amber) once the mask is off
+// names and colours are the prologue's (ui/dialogue.js), so a line reads the same in every level
 const WHO = {
-  handler: { name: 'THE HANDLER', color: '#f2934f' },
-  kai: { name: 'KAI', color: '#6fe3ff' },
+  handler: { name: 'THE MARSHAL', color: SPEAKERS['THE MARSHAL'] },
+  zwane: { name: 'BABA ZWANE', color: SPEAKERS['BABA ZWANE'] },
+  kai: { name: 'KAI', color: SPEAKERS.KAI },
 };
+// Kai still has no idea who is under the mask: he thinks he is carrying the horn back to Baba Zwane
 const TALK = [
-  { who: 'handler', text: 'Twelve kilometres. A river. A waterfall. And you’re still holding it.' },
-  { who: 'kai', text: 'You ran me off a bridge. What did you think would happen?' },
-  { who: 'handler', text: 'Give me the Key, Kai. You don’t even know what it opens.', pose: 'angry' },
-  { who: 'kai', text: 'Then I guess I’ll find out.' },
-  { who: 'handler', text: 'Not today.' },
+  { who: 'handler', text: 'Down a mountain. Over the falls. And you still haven\u2019t let go of it.' },
+  { who: 'kai', text: 'You\u2019ve been on me since the stone. Who are you?' },
+  { who: 'handler', text: 'The company\u2019s Marshal. That horn is company property now. Hand it over, guide.', pose: 'angry' },
+  { who: 'kai', text: 'The whole forest went quiet when I took it. I\u2019m taking it to Baba Zwane. He\u2019ll know what to do.' },
+  { who: 'handler', text: 'Will he.' },
+];
+// Phase II: the mask comes off, and it is the man from the fire
+const REVEAL_TALK = [
+  { who: 'kai', text: 'Baba Zwane\u2026?' },
+  { who: 'zwane', text: 'You were never meant to see this face again, Kai.' },
+  { who: 'kai', text: 'You sent me up that ridge. You knew what would wake.' },
+  { who: 'zwane', text: 'The company paid me to put that horn in their hands. If I had lifted it myself, the forest would have woken on me.' },
+  { who: 'zwane', text: 'A guide on the paths at dawn \u2014 nobody looks twice. You drew it off. You were the bait.', pose: 'angry' },
+  { who: 'kai', text: 'A year\u2019s wages. That\u2019s what this whole forest was worth to you?' },
+  { who: 'zwane', text: 'Give me the horn, and walk away.' },
+  { who: 'kai', text: 'It\u2019s going back on the stone.' },
+];
+// a retry: he has seen the face before, so just the beat of it
+const REVEAL_AGAIN = [
+  { who: 'kai', text: 'Baba Zwane.' },
+  { who: 'zwane', text: 'The horn, Kai.' },
 ];
 const TALK_AFTER = 1.6; // shot D starts this long after he lands
 // a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
@@ -139,17 +170,18 @@ const CONTROLS = [
   ['K', 'kick, three in a chain'],
   ['B', 'block (or right click) \u00b7 tap it just before a hit to parry'],
   ['C', 'dodge (hold a direction to pick the side)'],
-  ['V', 'the Key: slow time down'],
+  ['V', 'the horn: slow time down'],
   ['TAB', 'camera: follow \u00b7 lock-on \u00b7 360\u00b0 view'],
   ['R', 'restart the fight'],
   ['ESC', 'pause / resume'],
 ];
 const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
+const TOTAL_PAGES = 6; // three on Level 1's trail, three here
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
   'l3-3': new THREE.Vector3(-3.2, 0, -10.2), // the shrine gives it up at dusk
 };
-/** What the Strategy gift tells you about each of the Handler's attacks. */
+/** What the Strategy gift tells you about each of the Marshal's attacks. */
 const TELLS = {
   lunge: { name: 'LUNGE', advice: 'dodge sideways or block', color: '#ff9a4a' },
   sweep: { name: 'SWEEP', advice: 'dodge out \u2014 a block only halves it', color: '#ff5a6a' },
@@ -162,6 +194,7 @@ const CREDITS =
   'Steering wheel: Poly by Google (CC-BY 3.0, via Poly Pizza) · Built with three.js';
 
 let introSeen = false; // restarts skip straight to the fight
+let revealSeen = false; // the whole mask-off conversation plays once; a retry gets the short version
 let losses = 0; // fights lost to him this session: each one starts the next with him weaker
 
 export class Level03 extends Level {
@@ -209,7 +242,7 @@ export class Level03 extends Level {
     // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
     this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * losses);
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
-    this.keyItem = this._attachKey(this.combat.fighter);
+    this.keyItem = attachHorn(this.combat.fighter); // the horn he took off the stone, still lit
     this._wireBoss(state);
     // Kai comes out of the pool soaked; either of them gets soaked again wading back in
     this.water = new WaterFX(this.root, this.arena);
@@ -235,7 +268,7 @@ export class Level03 extends Level {
     this.letters = new LetterDrops(this.root, state, (id, text) => {
       const found = state.letters.length;
       this.sound?.play('shrinePulse', { volume: 0.7 });
-      this.story.showLetter(`DEAD DROP ${id.toUpperCase()}  ·  ${found} / 9 FOUND`, text);
+      this.story.showLetter(`TORN PAGE  \u00b7  ${found} / ${TOTAL_PAGES} FOUND`, text);
     });
 
     this.hud = new FightHUD();
@@ -251,6 +284,7 @@ export class Level03 extends Level {
       onToggleView: () => this._toggleView(),
     });
     this._applyCamMode(true);
+    ensureDialogueFont();
     this.story = new StoryOverlay();
     this.story.onSkip = () => this._skip();
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
@@ -266,22 +300,6 @@ export class Level03 extends Level {
 
     if (introSeen) this._startFight();
     else this._startIntro();
-  }
-
-  /** The Key: a shielded drive glowing cyan in Kai's right hand, in every level. */
-  _attachKey(fighter) {
-    const palm = fighter.bone('PalmR');
-    if (!palm) return null;
-    fighter.root.updateMatrixWorld(true);
-    const s = palm.getWorldScale(new THREE.Vector3()).x;
-    const key = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.12, 0.025),
-      new THREE.MeshStandardMaterial({ color: 0x141c26, emissive: 0x2fd8ff, emissiveIntensity: 2.4, metalness: 0.6, roughness: 0.3 }),
-    );
-    key.scale.setScalar(1 / s);
-    key.position.set(0, 0.07 / s, 0.02 / s);
-    palm.add(key);
-    return key;
   }
 
   /* ---------------------------------------------------------------- gifts */
@@ -540,6 +558,8 @@ export class Level03 extends Level {
     if (input.pressed('skip') && (this.mode === 'INTRO' || this.mode === 'EPILOGUE')) {
       if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
       else this._skip();
+    } else if (input.pressed('skip') && this.mode === 'REVEAL' && this._talk) {
+      this._nextLine(true); // and through the mask-off conversation the same way
     }
 
     if (this.mode === 'INTRO') this._updateIntro(dt);
@@ -580,7 +600,8 @@ export class Level03 extends Level {
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
     } else this.arena.setFocus(kp.x, kp.z);
     if (this.keyItem) {
-      this.keyItem.material.emissiveIntensity = this.combat.abilityActive ? 5 + Math.sin(this.time * 18) * 1.5 : 2.4;
+      this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 2.2 + Math.sin(this.time * 18) * 0.8 : 0.4;
+      this.keyItem.userData.glow.material.opacity = this.combat.abilityActive ? 0.95 : 0.4;
     }
 
     // shared state for whoever reads it (HUD, other levels' UI)
@@ -706,21 +727,21 @@ export class Level03 extends Level {
     this.style.update(real);
     this.touch.setKey(1 - this.combat.abilityCD / this.combat.abilityRecharge);
 
-    // the Key: popup on activation
+    // the horn: popup on activation
     if (this.combat.abilityActive && !this._abilityWas) {
-      this.hud.popup('THE KEY', '#7fd8ff');
+      this.hud.popup('THE HORN', '#7fd8ff');
       this.sound?.play('whoosh', { volume: 0.5 });
       this.sound?.duck(0.35, 0.6);
     }
     this._abilityWas = this.combat.abilityActive;
 
-    if (this.mode === 'REVEAL') this._updateReveal();
+    if (this.mode === 'REVEAL') this._updateReveal(real);
     else if (this.mode === 'FINAL') this._updateFinal();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
     state.timeScale = stopped ? 0.12
       : this.mode === 'FINAL' ? 0.15 + 0.85 * smooth(0.5, 2.3, this.beatT)
-      : this.mode === 'REVEAL' ? 0.45
+      : this.mode === 'REVEAL' ? (this.beatT < 1.1 ? 0.45 : 1)
       : focus ? FOCUS_SCALE
       : this.combat.abilityActive ? 0.35 : 1;
 
@@ -779,7 +800,8 @@ export class Level03 extends Level {
     }
     // clear the screen for the defeat card: no bars, no buttons, no lock widget
     this.touch.setVisible(false);
-    this.hud.showBanner('DEFEATED', 'The Handler stands over you. The Key is still in your hand.', null, {
+    const who = this.boss.helmetOff ? 'Baba Zwane' : 'The Marshal';
+    this.hud.showBanner('DEFEATED', `${who} stands over you, and the horn slips from your hand.`, null, {
       kind: 'lose',
       action: { label: 'TRY AGAIN', key: 'R', onClick: () => this.game.restart() },
     });
@@ -811,6 +833,7 @@ export class Level03 extends Level {
   /** Space / Enter / click, or the on-screen hint: jump to the end of the current cutscene. */
   _skip() {
     if (this.mode === 'INTRO') this._startFight();
+    else if (this.mode === 'REVEAL') this._endReveal();
     else if (this.mode === 'EPILOGUE') this._showEnd();
   }
 
@@ -852,7 +875,7 @@ export class Level03 extends Level {
       if (this._shot !== 'A') {
         this._shot = 'A';
         this._setCine(new THREE.Vector3(-3.25, 1.0, -17.7), new THREE.Vector3(-4.5, 0.55, -21.0), { fov: 50, cut: true });
-        this.story.showCard('SITE 7', 'The current carried him over the falls.');
+        this.story.showCard('THE FALLS', 'The river took him over the edge. The horn is still in his hand.');
       }
       const floor = this.arena.groundHeight(kp.x, kp.z);
       const sink = this.kaiMeta ? 0 : 0.45; // the old Kai's sitting clip sits on thin air: lower him onto the bed
@@ -973,7 +996,7 @@ export class Level03 extends Level {
         this.waves.spawn(BOSS_LAND.x, L.landY, BOSS_LAND.z, { size: 5.5, life: 0.6, color: 0xffe2b0 });
         this.sound?.play('impact', { volume: 0.9 });
         this.sound?.duck(0.4, 0.8);
-        this.story.showCard('THE HANDLER', 'He never slows down.');
+        this.story.showCard('THE MARSHAL', 'The company\u2019s man. He has not slowed down since the stone.');
       }
       // Kai hears him land and turns round
       if (t > L.land - 0.25) {
@@ -999,25 +1022,36 @@ export class Level03 extends Level {
   _startTalk() {
     this._shot = 'D';
     this.story.hideCard();
-    this.story.setSkipLabel('SPACE: NEXT LINE · CLICK HERE: SKIP');
     const b = this.boss;
     b.fighter.visual.position.y = 0; // well off the leap clip by now
     b.root.position.copy(BOSS_LAND);
     b.root.position.y = this._leapAt.landY;
+    this._converse(TALK, () => this._startFight());
+  }
+
+  /** Start a conversation (TALK before the fight, REVEAL_TALK when the mask comes off); `done` runs after its last line. */
+  _converse(lines, done) {
+    this.story.setSkipLabel('SPACE: NEXT LINE \u00b7 CLICK HERE: SKIP');
+    this._talk = lines;
+    this._talkDone = done;
     this._line = -1;
     this._nextLine();
   }
 
-  /** On to the next line (the player pressing on while one is still typing just finishes it); after the last, fight. */
+  /** On to the next line (the player pressing on while one is still typing just finishes it); after the last, `done`. */
   _nextLine(player = false) {
+    if (!this._talk) return;
     if (player && !this.story.lineDone) {
       this.story.finishLine();
       return;
     }
     this._line++;
-    const line = TALK[this._line];
+    const line = this._talk[this._line];
     if (!line) {
-      this._startFight();
+      const done = this._talkDone;
+      this._talk = this._talkDone = null;
+      this.story.hideLine();
+      if (done) done();
       return;
     }
     this._lineT = 0;
@@ -1026,12 +1060,24 @@ export class Level03 extends Level {
     this.story.showLine(who.name, line.text, who.color);
     const bf = this.boss.fighter;
     if (line.pose && bf.actions[line.pose]) bf.playOnce(line.pose, { fade: 0.25 });
-    const prev = TALK[this._line - 1];
-    this._talkShot(line.who, !prev || prev.who !== line.who);
+    const prev = this._talk[this._line - 1];
+    if (this.mode === 'INTRO') this._talkShot(line.who, !prev || prev.who !== line.who);
+    else this._cutNext = !prev || prev.who !== line.who; // the reveal cuts between them too
+  }
+
+  /** Type the current line out; once it has been up long enough to read, move on. */
+  _tickLine(dt) {
+    const line = this._talk?.[this._line];
+    if (!line) return;
+    this._lineT += dt;
+    if (this.story.updateLine(dt)) {
+      this._lineHold += dt;
+      if (this._lineHold > 0.9 + line.text.length * 0.028) this._nextLine();
+    }
   }
 
   _updateTalk(dt) {
-    const line = TALK[this._line];
+    const line = this._talk?.[this._line];
     const k = this.combat;
     const kp = k.root.position;
     const bp = this.boss.root.position;
@@ -1046,12 +1092,8 @@ export class Level03 extends Level {
     bf.update(dt);
     if (!line) return;
     // the shot creeps in over the line
-    this._lineT += dt;
     this.cine.fov = 14 - Math.min(1, this._lineT / 4) * 1.6;
-    if (this.story.updateLine(dt)) {
-      this._lineHold += dt;
-      if (this._lineHold > 0.9 + line.text.length * 0.028) this._nextLine();
-    }
+    this._tickLine(dt);
   }
 
   /**
@@ -1103,8 +1145,10 @@ export class Level03 extends Level {
     this.story.hideCard();
     this.story.hideLine();
     this.story.setSkipLabel();
+    this._talk = this._talkDone = null;
     this.hud.setVisible(true);
     this.touch.setVisible(true);
+    this.hud.setBossName(WHO.handler.name); // nobody knows who he is yet
 
     const k = this.combat;
     const b = this.boss;
@@ -1135,11 +1179,19 @@ export class Level03 extends Level {
     }
   }
 
-  /** Phase II: the helmet comes off. A slow-mo look at his face over Kai's shoulder. */
+  /**
+   * Phase II: the helmet comes off. A slow-mo look at his face over Kai's
+   * shoulder, then Kai knows him: the man from the fire. They have it out,
+   * line by line (REVEAL_TALK; the short REVEAL_AGAIN on a retry), the camera
+   * cutting to whoever is talking, and the fight picks up where it was.
+   */
   _startReveal() {
     this._enterBeat('REVEAL');
     this._cutNext = true;
-    this.story.setCinematic(true, false);
+    this._revealTalked = false;
+    this._talk = this._talkDone = null;
+    this.story.setCinematic(true, true);
+    this.story.setSkipLabel('SPACE: NEXT LINE \u00b7 CLICK HERE: SKIP');
     this.hud.setVisible(false);
     this.touch.setVisible(false);
     // he drops a letter as the helmet goes
@@ -1152,22 +1204,46 @@ export class Level03 extends Level {
     this.letters.spawn('l3-2', at, { from: new THREE.Vector3(bp.x, 1.3, bp.z) });
   }
 
-  _updateReveal() {
-    const kp = this.combat.root.position;
+  _updateReveal(real) {
+    const k = this.combat;
+    const kp = k.root.position;
     const bp = this.boss.root.position;
-    const d = this._tmp.set(kp.x - bp.x, 0, kp.z - bp.z).normalize();
+    // the reaction first (slowed), then the words: from here on the bar has his name on it
+    if (!this._revealTalked && this.beatT > 1.1) {
+      this._revealTalked = true;
+      this.hud.setBossName(WHO.zwane.name);
+      this._converse(revealSeen ? REVEAL_AGAIN : REVEAL_TALK, () => this._endReveal());
+      revealSeen = true;
+    }
+    // he stands and has it out with Kai instead of swinging; Kai faces him
+    this.boss.restFor = Math.max(this.boss.restFor, 0.5);
+    k.heading += shortestAngle(k.heading, Math.atan2(bp.x - kp.x, bp.z - kp.z)) * (1 - Math.exp(-6 * real));
+    this._tickLine(real);
+    // over Kai's shoulder onto Baba Zwane's face; over his shoulder onto Kai's when Kai speaks
+    const kaiTalking = this._talk?.[this._line]?.who === 'kai';
+    const [near, far] = kaiTalking ? [bp, kp] : [kp, bp];
+    const d = this._tmp.set(near.x - far.x, 0, near.z - far.z).normalize();
     const right = new THREE.Vector3(d.z, 0, -d.x);
-    const pos = kp.clone().addScaledVector(d, 1.5).addScaledVector(right, 0.8).setY(kp.y + 1.75);
-    const look = new THREE.Vector3(bp.x, bp.y + 1.62, bp.z);
+    const pos = near.clone().addScaledVector(d, 1.5).addScaledVector(right, 0.8).setY(near.y + 1.75);
+    const look = new THREE.Vector3(far.x, far.y + 1.62, far.z);
     this._setCine(pos, look, { fov: 30, rate: 8, cut: this._cutNext });
     this._cutNext = false;
-    if (this.boss.state !== 'TRANSITION' || this.beatT > 2.8) {
-      this._enterBeat('FIGHT');
-      this.cine = null;
-      this.story.setCinematic(false);
-      this.hud.setVisible(true);
-      this.touch.setVisible(true);
-    }
+  }
+
+  /** The conversation is over (or clicked past): back to the fight. */
+  _endReveal() {
+    if (this.mode !== 'REVEAL') return;
+    this._talk = this._talkDone = null;
+    this.story.hideLine();
+    this.story.setSkipLabel();
+    if (!this._revealTalked) this.hud.setBossName(WHO.zwane.name);
+    this._revealTalked = true;
+    this._enterBeat('FIGHT');
+    this.cine = null;
+    this.story.setCinematic(false);
+    this.hud.setVisible(true);
+    this.touch.setVisible(true);
+    this.boss.restFor = Math.max(this.boss.restFor, 0.6);
   }
 
   /**
@@ -1250,7 +1326,7 @@ export class Level03 extends Level {
     this.story.setCinematic(false);
     this.story.showEnd({
       title: 'VICTORY',
-      sub: 'You won. The Handler is down.',
+      sub: 'Baba Zwane is down. The horn goes back on the stone, and the forest wakes.',
       credits: CREDITS,
       action: { label: 'PLAY AGAIN', key: 'R', onClick: () => this.game.restart() },
     });

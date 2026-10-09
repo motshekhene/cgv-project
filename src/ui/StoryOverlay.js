@@ -27,7 +27,7 @@ const CSS = THEME_CSS + END_CSS + `
 .so.cine .so-skip.on { opacity:1; }
 .so-letter { position:absolute; left:50%; bottom:20vh; width:min(440px,84vw); transform:translate(-50%,20px) rotate(-1.2deg); opacity:0;
   transition:opacity .45s ease, transform .45s ease; background:#efe6d2; color:#2b2219; padding:18px 22px 16px; border-radius:2px;
-  box-shadow:0 10px 30px #0009; font-family:Georgia,'Times New Roman',serif; }
+  box-shadow:0 10px 30px #0009; font-family:var(--serif); }
 .so-letter.show { opacity:1; transform:translate(-50%,0) rotate(-1.2deg); }
 .so-letter small { display:block; font-family:var(--sans); font-size:10px; font-weight:600; letter-spacing:.28em; color:#8a5a26; margin-bottom:8px; }
 .so-letter q { font-size:19px; line-height:1.35; quotes:'\\201C' '\\201D'; }
@@ -41,14 +41,19 @@ const CSS = THEME_CSS + END_CSS + `
 .so-flash { position:absolute; inset:0; background:var(--c, #fff6e0); opacity:0; pointer-events:none; }
 .so-flash.go { animation:soFlash .7s ease-out forwards; }
 @keyframes soFlash { 0% { opacity:.85; } 100% { opacity:0; } }
-.so-talk { position:absolute; left:50%; bottom:calc(11vh + 48px); width:min(780px, 90vw); transform:translate(-50%, 10px); opacity:0;
-  transition:opacity .35s ease, transform .35s ease; padding:14px 26px 16px; text-align:left; }
+/* dialogue: the prologue's style (ui/dialogue.js) — name above in the speaker's colour, cream serif, no box */
+.so-shade { position:absolute; left:0; right:0; bottom:0; height:42%; opacity:0; transition:opacity .6s;
+  background:linear-gradient(to top, rgba(3,6,4,.78) 0%, rgba(3,6,4,.42) 55%, rgba(3,6,4,0) 100%); }
+.so-shade.show { opacity:1; }
+.so-talk { position:absolute; left:50%; bottom:calc(11vh + 40px); width:min(640px, 86vw); transform:translate(-50%, 10px); opacity:0;
+  transition:opacity .35s ease, transform .35s ease; text-align:center; }
 .so-talk.show { opacity:1; transform:translate(-50%, 0); }
-.so-talk small { display:block; font-size:11px; font-weight:700; letter-spacing:.34em; color:var(--who, var(--gold)); margin-bottom:7px;
-  text-shadow:0 0 12px var(--who, transparent); }
-.so-talk p { margin:0; font-family:var(--serif); font-size:clamp(16px, 2vw, 22px); line-height:1.4; letter-spacing:.02em; color:var(--ink); }
+.so-talk small { display:block; font-family:var(--serif); font-size:16px; font-weight:600; letter-spacing:.5em; text-indent:.5em;
+  color:var(--who, var(--gold)); margin-bottom:8px; text-shadow:0 1px 10px rgba(0,0,0,.95), 0 0 26px rgba(0,0,0,.8); }
+.so-talk p { margin:0; font-family:var(--serif); font-size:23px; line-height:1.45; color:#f2e8d5;
+  text-shadow:0 2px 12px rgba(0,0,0,.95), 0 0 30px rgba(0,0,0,.6); }
 .so-talk .rest { visibility:hidden; }
-.so-talk .caret { display:inline-block; width:.5em; height:1.05em; margin:0 1px -0.18em; background:var(--who, var(--gold)); opacity:.85; }
+.so-talk .caret { display:none; } /* the prologue's lines have no cursor either */
 .so-talk.typed .caret { animation:soBlink 1s steps(1) infinite; }
 @keyframes soBlink { 50% { opacity:0; } }
 @keyframes soTrack { from { opacity:0; letter-spacing:.9em; text-indent:.9em; filter:blur(6px); } to { opacity:1; } }
@@ -69,7 +74,8 @@ export class StoryOverlay {
       <div class="so-bar top"></div><div class="so-bar bot"></div>
       <div class="so-card"><h2></h2><hr><p></p></div>
       <div class="so-skip">SPACE / CLICK TO SKIP &#9656;</div>
-      <div class="so-talk plaque"><small></small><p><span class="typed-part"></span><i class="caret"></i><span class="rest"></span></p></div>
+      <div class="so-shade"></div>
+      <div class="so-talk"><small></small><p><span class="typed-part"></span><i class="caret"></i><span class="rest"></span></p></div>
       <div class="so-letter"><small></small><q></q></div>
       <div class="so-award plaque"><i></i><div><small>SHRINE GIFT · ONCE ONLY</small><b></b><span></span></div></div>
       <div class="end"></div>`;
@@ -81,6 +87,7 @@ export class StoryOverlay {
     this.letterEl = q('.so-letter');
     this.awardEl = q('.so-award');
     this.talkEl = q('.so-talk');
+    this.shadeEl = q('.so-shade');
     this.flashEl = q('.so-flash');
     this.end = q('.end');
     this.onSkip = null;
@@ -122,6 +129,7 @@ export class StoryOverlay {
     this.talkEl.classList.remove('typed');
     this._typeTo(0);
     this.talkEl.classList.add('show');
+    this.shadeEl.classList.add('show');
   }
 
   /** Advance the typing; true once the whole line is out. */
@@ -145,6 +153,7 @@ export class StoryOverlay {
   hideLine() {
     this.line = null;
     this.talkEl.classList.remove('show');
+    this.shadeEl.classList.remove('show');
   }
 
   _typeTo(n) {
