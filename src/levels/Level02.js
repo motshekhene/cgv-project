@@ -672,9 +672,10 @@ export class Level02 extends Level {
     this._finale = {
       phase: 'fall', t: 0, pitch: 0,
       vx: Math.sin(car.heading) * v, vz: Math.cos(car.heading) * v, vy: 1.2,
-      // the shot: the camera flies out into the gorge, off to one side, and
-      // watches the car go down past the falls
-      cam: new THREE.Vector3(p.x + side * 34, -14, COURSE_END + 36),
+      // the shot: the chase camera rides over the edge behind the car, so you
+      // go down with it; after the splash it swings out to one side
+      side,
+      cam: new THREE.Vector3(),
       look: p.clone(),
     };
     car.mesh.rotation.order = 'YXZ';
@@ -690,6 +691,8 @@ export class Level02 extends Level {
     const f = this._finale;
     const car = this.car;
     const p = car.mesh.position;
+    // a beat of slow motion as it tips over the lip, easing back to full speed
+    if (f.phase === 'fall') dt *= 0.45 + 0.55 * Math.min(1, f.t / 1.2);
     f.t += dt;
     this._time += dt;
 
@@ -708,7 +711,7 @@ export class Level02 extends Level {
         // hold the last shot on the splash and the falls behind it
         f.splashAt = p.clone();
         // from the downstream side, looking back: the splash with the falls behind it
-        f.cam.set(p.x + Math.sign(f.cam.x - p.x) * 16, -DROP + 9, p.z + 42);
+        f.cam.set(p.x + f.side * 16, -DROP + 9, p.z + 42);
         f.splashAt.y = -DROP + 6;
         this.sound.splash();
         this.sound.silenceEngine();
@@ -731,15 +734,32 @@ export class Level02 extends Level {
     h.mesh.position.z = Math.min(h.mesh.position.z + h.speed * dt, COURSE_END - 7);
     this.policeLights.update(dt, 'APPROACH');
 
-    // camera: glide to the lip of the falls and follow the car down
     const cam = this.game.camera;
-    // out over the edge first, then down (so it never dips into the cliff top)
-    const kxz = 1 - Math.exp(-dt * 2.2), ky = 1 - Math.exp(-dt * (cam.position.z > COURSE_END + 4 ? 2.2 : 0.6));
-    cam.position.x += (f.cam.x - cam.position.x) * kxz;
-    cam.position.z += (f.cam.z - cam.position.z) * kxz;
-    cam.position.y += (f.cam.y - cam.position.y) * ky;
-    f.look.lerp(f.splashAt || p, 1 - Math.exp(-dt * (f.splashAt ? 2 : 6)));
-    const look = f.look.clone();
+    let look;
+    if (f.phase === 'fall') {
+      // you go over with it: the chase camera stays behind and above the car
+      // and drops after it, looking past the bonnet down at the pool
+      const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+      const back = 6 + Math.min(1, f.t / 1.5) * 2;             // eases back a little to take in the drop
+      f.cam.set(p.x - fx * back, p.y + 3 + Math.min(1, f.t / 1.5) * 2.5, p.z - fz * back);
+      // follows tightly sideways; lags a touch as the car drops away, so you feel the fall
+      const kxz = 1 - Math.exp(-dt * 10), ky = 1 - Math.exp(-dt * 4);
+      cam.position.x += (f.cam.x - cam.position.x) * kxz;
+      cam.position.z += (f.cam.z - cam.position.z) * kxz;
+      cam.position.y += (f.cam.y - cam.position.y) * ky;
+      // look ahead of the car, tipping down at the water as the nose drops
+      const ahead = new THREE.Vector3(p.x + fx * 8, p.y - 2 - f.pitch * 9, p.z + fz * 8);
+      f.look.lerp(ahead, 1 - Math.exp(-dt * 5));
+      look = f.look.clone();
+    } else {
+      // after the splash: swing out downstream and look back at it with the falls behind
+      const kxz = 1 - Math.exp(-dt * 1.6), ky = 1 - Math.exp(-dt * 1.6);
+      cam.position.x += (f.cam.x - cam.position.x) * kxz;
+      cam.position.z += (f.cam.z - cam.position.z) * kxz;
+      cam.position.y += (f.cam.y - cam.position.y) * ky;
+      f.look.lerp(f.splashAt, 1 - Math.exp(-dt * 2));
+      look = f.look.clone();
+    }
     if (this.shake > 0.005) {
       look.x += Math.sin(f.t * 41) * 0.5 * this.shake;
       look.y += Math.sin(f.t * 37.7) * 0.4 * this.shake;
