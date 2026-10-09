@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { createSign, createLightShaft } from '../level1/jungleWorld.js';
-import { populateJungleChunk } from './JungleRoadside.js';
+import { populateJungleChunk, partsOf } from './JungleRoadside.js';
 import { createWaterMaterial } from '../../shaders/water.js';
+import { River, shore } from './river.js';
 import { createWaterfallMaterial } from '../../shaders/waterfall.js';
 
 /**
@@ -122,43 +123,76 @@ export class Course {
     for (const sd of [-1, 1]) box(0.8, 3.2, 200, sd * wallX, -1.5, z0 + 100);       // causeway walls
     box(wallX * 2 + 0.8, 1.2, 6, 0, -0.6, E - 3);                                   // its broken end
 
-    const riverW = 120 - wallX;
-    const riverMat = createWaterMaterial({
-      deep: 0x24564a, shallow: 0x79b7a2, sky: 0x9fbfae, flow: new THREE.Vector2(0, -1.4),
-      sunDir: new THREE.Vector3(-0.35, 0.55, 0.75), foamAt: new THREE.Vector3(0, E + 6, 70), opacity: 0.9,
-    });
-    this.waters.push(riverMat);
+    // the river: wandering banks sloping into a current that quickens and
+    // whitens towards the lip (river.js)
+    const river = new River(g, { endZ: E, wallX, forest: mats.forest });
+    this.waters.push(river.material);
     const bedMat = new THREE.MeshStandardMaterial({ color: 0x2a3524, roughness: 1 });
-    for (const sd of [-1, 1]) {
-      const water = new THREE.Mesh(new THREE.PlaneGeometry(riverW, 200), riverMat);
-      water.rotation.x = -Math.PI / 2;
-      water.position.set(sd * (wallX + riverW / 2), -0.7, z0 + 100);
-      g.add(water);
-      const bed = new THREE.Mesh(new THREE.PlaneGeometry(riverW, 200), bedMat);
-      bed.rotation.x = -Math.PI / 2;
-      bed.position.set(sd * (wallX + riverW / 2), -2.6, z0 + 100);
-      g.add(bed);
-      // forest floor on the far banks, and the jungle on them
-      const bank = new THREE.Mesh(new THREE.PlaneGeometry(300, 200), mats.forest);
-      bank.rotation.x = -Math.PI / 2;
-      bank.position.set(sd * (120 + 150), -0.05, z0 + 100);
-      g.add(bank);
-    }
+    // the jungle stands back from the widest reach of the river
     const banks = new THREE.Group();
     banks.position.z = z0 + 100;
-    populateJungleChunk(banks, kit, { length: 200, roadWidth: 240, seed: 4242 });
+    populateJungleChunk(banks, kit, { length: 200, roadWidth: 290, seed: 4242 });
     g.add(banks);
 
-    // boulders in the current, bigger towards the lip
+    const r = (() => { let a = 99; return () => { a = (a * 16807) % 2147483647; return a / 2147483647; }; })();
     const rocks = [kit.rock1, kit.rock2, kit.rock3].filter(Boolean);
-    for (let i = 0; i < 22 && rocks.length; i++) {
-      const r = rocks[i % rocks.length].clone(true);
+    const grass = [kit.grass1, kit.grass2, kit.grass3].filter(Boolean);
+    const bushes = [kit.bush1, kit.bush2, kit.bush3].filter(Boolean);
+    // all the bank props are instanced, one draw per part, like the roadside jungle
+    const placed = new Map();
+    const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _sv = new THREE.Vector3();
+    const place = (proto, x, y, z, sc, ry) => {
+      if (!placed.has(proto)) placed.set(proto, []);
+      placed.get(proto).push(_m.compose(_v.set(x, y, z), _q.setFromEuler(_e.set(0, ry, 0)), _sv.setScalar(sc)).clone());
+      return sc;
+    };
+    // boulders in the current, bigger towards the lip; the water breaks round them
+    const inStream = [];
+    for (let i = 0, tries = 0; i < 22 && rocks.length && tries < 200; tries++) {
       const sd = i % 2 ? 1 : -1;
-      const z = E - 8 - ((i * 37) % 180);
-      r.position.set(sd * (wallX + 6 + ((i * 53) % 100)), -0.9, z);
-      r.scale.setScalar(0.012 + ((i * 7) % 5) * 0.004 + (z > E - 40 ? 0.008 : 0));
-      r.rotation.y = i * 1.7;
-      g.add(r);
+      const x = sd * (wallX + 6 + r() * 95);
+      const z = E - 8 - r() * 180;
+      if (shore(x, z - E) < 4) continue;              // keep them in the water
+      const proto = rocks[i % rocks.length];
+      const sc = 0.012 + r() * 0.016 + (z > E - 40 ? 0.008 : 0);
+      place(proto, x, -0.9, z, sc, r() * 6.3);
+      const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3()).multiplyScalar(sc / (proto.scale.x || 1));
+      inStream.push({ x, z, r: Math.max(0.6, Math.max(size.x, size.z) * 0.45) });
+      i++;
+    }
+    river.addRocks(inStream);
+    // the banks: rocks at the waterline, reeds and bushes up the slope
+    // and the jungle coming right down to the water, wherever the shore runs
+    const trees = [kit.tree1, kit.tree2, kit.tree3, kit.tree4].filter(Boolean);
+    const small = [kit.treeSmall1, kit.treeSmall2, kit.treeCluster].filter(Boolean);
+    for (let i = 0; i < 520; i++) {
+      const sd = r() < 0.5 ? -1 : 1;
+      const z = E - 6 - r() * 192;
+      // walk out from the road to the waterline, then up the bank
+      let x = sd * (wallX + 2);
+      while (Math.abs(x) < 160 && shore(x, z - E) > 0) x += sd;
+      const up = r() < 0.6 ? r() * 8 : 8 + r() * 30;
+      x += sd * up;
+      if (Math.abs(x) > 150) continue;                // the roadside jungle takes over out there
+      const y = -0.62 + 0.64 * Math.min(1, up / 9);
+      const pick = r();
+      if (up < 8) {
+        if (pick < 0.25 && rocks.length) place(rocks[i % rocks.length], x, y - 0.15, z, 0.006 + r() * 0.008, r() * 6.3);
+        else if (pick < 0.8 && grass.length) place(grass[i % grass.length], x, y, z, 0.011 + r() * 0.01, r() * 6.3);
+        else if (bushes.length && up > 3) place(bushes[i % bushes.length], x, y, z, 0.012 + r() * 0.008, r() * 6.3);
+      } else if (pick < 0.45 && trees.length) place(trees[i % trees.length], x, y, z, 0.02 + r() * 0.012, r() * 6.3);
+      else if (pick < 0.65 && small.length) place(small[i % small.length], x, y, z, 6 + r() * 3, r() * 6.3);
+      else if (bushes.length) place(bushes[i % bushes.length], x, y, z, 0.012 + r() * 0.008, r() * 6.3);
+    }
+    for (const [proto, mats] of placed) {
+      for (const part of partsOf(proto)) {
+        const inst = new THREE.InstancedMesh(part.geometry, part.material, mats.length);
+        mats.forEach((m, i) => inst.setMatrixAt(i, _m.multiplyMatrices(m, part.local)));
+        inst.instanceMatrix.needsUpdate = true;
+        inst.computeBoundingSphere();
+        inst.receiveShadow = true;
+        g.add(inst);
+      }
     }
 
     // ---------- the drop ----------
