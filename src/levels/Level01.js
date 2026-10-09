@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
+import { CARS, HANDLER_MODEL, HANDLER_OPTIONS } from "./level2/carSelect.js";
+import { attachModel } from "./level2/attachModel.js";
+import { PoliceLights } from "./level2/carLights.js";
 import { showEndCard } from "../ui/EndCard.js";
 import { Hud } from "../core/Hud.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
@@ -198,17 +201,16 @@ const TRAIN_ZONE_NEAR = 55;
 const TRAIN_ZONE_FAR = 250;
 
 // --- the way out ---
-const BAY_Z = -3260; // service bay, ~110 m past the seal: a beat to breathe
-// Fires at the mouth of the bay rather than at the vehicle, because he needs
-// ~7 m to pull up from full speed and stopping ten metres past the thing you
-// were running for reads as an overshoot, not an arrival.
-const ESCAPE_Z = BAY_Z + 4;
-const ESCAPE_DECEL = 34; // m/s^2; ~0.65 s and 7 m to a standstill
-// He pulls up in 0.65 s, so this is the beat AFTER that: long enough to read
-// the bay, the work light and the vehicle he is about to steal before Redline
-// takes over. Reaching the vehicle is not an ending, it is the handoff — level
-// 02 is the same chase in a van.
-const ESCAPE_HANDOFF_TIME = 2.2;
+const BAY_Z = -3260; // service bay, ~110 m past the seal
+const SERVICE_CAR_LOCAL_Z = -6;
+const SERVICE_CAR_Z = BAY_Z + SERVICE_CAR_LOCAL_Z;
+// Kai runs all the way to the familiar blue car. The level hand-off happens
+// only when he is standing just in front of it — never at the gate.
+const ESCAPE_Z = SERVICE_CAR_Z + 2.8;
+const ESCAPE_DECEL = 34;
+// A tiny settling beat while the camera lands on the parked car. The police
+// chase itself stays in Level 01; Level 02 starts on the car picker.
+const ESCAPE_HANDOFF_TIME = 0.18;
 
 // --- boost / stamina tuning ---
 const BOOST_DRAIN = 28; // stamina per second while boosting
@@ -371,6 +373,17 @@ const HANDLER_SEALED_GLOW = 0.9; // fraction of full glow held at the bars, so h
 // deficit directly instead would leak ~3.06 m at 60 fps and ~3.17 m at 20 fps.
 const CLIP_PENALTY = 3;
 const STUMBLE_TAU = 0.45; // seconds; recovery time constant
+
+// --- health / damage ---------------------------------------------------------
+// Kai now has a visible life bar. Each obstacle hit drains a fixed amount;
+// hitting 0 HP triggers the caught overlay with a CONTINUE button (which
+// refills health and resumes from the current position instead of reloading).
+const MAX_HEALTH = 100;
+const OBSTACLE_DAMAGE = 18;      // HP lost per standard obstacle clip
+const SPECIAL_HAZARD_DAMAGE = 25; // HP lost per moving shrine hazard hit
+const FALLING_TREE_DAMAGE = 22;   // HP lost per falling-tree hit
+const HEALTH_PACK_HEAL = 35;     // HP restored by a life-saver pickup
+const HEALTH_PACK_COUNT = 12;    // number of life-saver packs along the route
 // Constant creep, m/s, on top of matching Kai's cruise. Zero means a clean run
 // holds the gap forever and only mistakes threaten it, which is what the pitch
 // describes. Raise it if playtests say a clean run has no tension — nothing
@@ -458,6 +471,7 @@ export class Level01 extends Level {
     // Kai model/controller code is imported or replaced.
     this._rewardItems = [];
     this._rewardMesh = null;
+    this._rewardDiscMesh = null;
     this._rewardDummy = new THREE.Object3D();
     this._rewardTime = 0;
     this.rewardCount = 0;
@@ -470,6 +484,9 @@ export class Level01 extends Level {
     this._templeHud = null;
     this._hudControls = {};
     this._hudButtons = {};
+    this._hudHandlerDist = null;
+    this._hudHandlerState = null;
+    this._hudHandlerPanel = null;
     this._virtualPressed = Object.create(null);
     this._virtualHeld = new Set();
     this._soundEnabled = true;
@@ -489,6 +506,24 @@ export class Level01 extends Level {
     this._impactLeanT = 0;
     this._impactLeanDir = 0;
 
+    // --- stumble / trip animation ---
+    // When Kai hits an obstacle the body pitches forward, one leg kicks up and
+    // the whole mesh wobbles for ~0.5 s before settling back. _stumbleT counts
+    // down from STUMBLE_ANIM_DURATION to 0; the update loop reads it.
+    this._stumbleT = 0;
+    this._stumbleDuration = 0.52;
+    this._stumbleDir = 0; // -1 left, +1 right, 0 centre
+
+    // --- health ---
+    // Separate from GameState.health so the level is self-contained. The HUD
+    // reads this._health directly; the continue button resets it.
+    this._health = MAX_HEALTH;
+    this._healthFlashT = 0; // brief red pulse when damage lands
+
+    // --- life-saver packs ---
+    this._healthPacks = [];
+    this._healthPackMesh = null;
+
     // Cursed shrine guardian set piece. It is dormant until Kai reaches the
     // temple-top approach, then it charges from ahead in the lane he is using.
     this.guardian = null;
@@ -502,6 +537,17 @@ export class Level01 extends Level {
     this._floorY = 0;
     this.securityGate = null;
     this.serviceVehicle = null;
+
+    // Final-stretch police pursuit. The actual Level-02 Ranger appears after
+    // the shrine gate closes and chases Kai to the blue car while Level 01 is
+    // still fully playable. No Kai/player implementation is added here.
+    this._endPolice = null;
+    this._endPoliceLights = null;
+    this._endPoliceActive = false;
+    this._endPoliceGap = 18;
+    this._endPoliceMerge = 0;
+    this._endPoliceSirenStarted = false;
+    this._level2Preload = null;
 
     // the southbound — one pooled rake reused for every event, since two are
     // never on the track at once
@@ -574,11 +620,20 @@ export class Level01 extends Level {
     this._buildObstacles(mats);
     this._buildTempleRewards();
     this._buildJetpackPickups();
+    this._buildHealthPacks();
     this._buildFallingTrees();
     this._buildSecurityGate(mats);
     this._buildServiceArea(mats);
     this._buildHandler();
+    this._buildEndPolicePursuit(assets);
     this._buildShrineGuardian();
+
+    // Preload Level 02's cars in the background. This is intentionally not
+    // awaited, so Level 01 starts normally but the eventual car picker is
+    // normally already cached when Kai reaches the blue car.
+    this._level2Preload = Promise.allSettled(
+      [HANDLER_MODEL, ...CARS.map((c) => c.path)].map((path) => assets.model(path)),
+    );
 
     // Player/camera hierarchy remains 1A-owned and is deliberately unchanged.
     this.player = new THREE.Group();
@@ -1628,6 +1683,57 @@ export class Level01 extends Level {
       }
     }
 
+    // Realistic-looking gold coin: a thin cylinder with a shiny metallic face
+    // and a subtle rim. The geometry is a flattened cylinder with a torus edge
+    // to give it a ridged coin feel.
+    const coinGroup = new THREE.Group();
+    coinGroup.name = "reward-coin-template";
+
+    const coinRadius = 0.26;
+    const coinThickness = 0.06;
+
+    // Main disc
+    const discGeo = new THREE.CylinderGeometry(coinRadius, coinRadius, coinThickness, 20);
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      emissive: new THREE.Color(0x6b4400),
+      emissiveIntensity: 0.9,
+      roughness: 0.18,
+      metalness: 0.92,
+    });
+    const disc = new THREE.Mesh(discGeo, goldMat);
+    disc.rotation.x = Math.PI / 2;
+    coinGroup.add(disc);
+
+    // Rim / edge ring for a ridged look
+    const rimGeo = new THREE.TorusGeometry(coinRadius, coinThickness * 0.45, 6, 20);
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xe8b800,
+      emissive: new THREE.Color(0x4a3000),
+      emissiveIntensity: 0.5,
+      roughness: 0.25,
+      metalness: 0.88,
+    });
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    coinGroup.add(rim);
+
+    // Inner embossed circle (the "face" detail)
+    const innerGeo = new THREE.CylinderGeometry(coinRadius * 0.55, coinRadius * 0.55, coinThickness + 0.01, 16);
+    const innerMat = new THREE.MeshStandardMaterial({
+      color: 0xffe066,
+      emissive: new THREE.Color(0x7a5500),
+      emissiveIntensity: 1.1,
+      roughness: 0.15,
+      metalness: 0.95,
+    });
+    const inner = new THREE.Mesh(innerGeo, innerMat);
+    inner.rotation.x = Math.PI / 2;
+    coinGroup.add(inner);
+
+    // Use the coin group as a template for InstancedMesh. Because InstancedMesh
+    // needs a single geometry, we merge the coin parts into one BufferGeometry.
+    // For simplicity and performance we keep the torus as the instanced mesh
+    // (it reads best at distance) and add the disc as a second instanced mesh.
     const geo = new THREE.TorusGeometry(0.28, 0.075, 8, 16);
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -1641,14 +1747,33 @@ export class Level01 extends Level {
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
 
+    // Second instanced mesh for the gold disc face — gives the coin a solid
+    // centre instead of being just a ring.
+    const discGeo2 = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16);
+    const discMat2 = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: new THREE.Color(0x6b4400),
+      emissiveIntensity: 1.5,
+      roughness: 0.15,
+      metalness: 0.92,
+    });
+    const discMesh = new THREE.InstancedMesh(discGeo2, discMat2, rewards.length);
+    discMesh.name = "temple-run-rewards-disc";
+    discMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    discMesh.frustumCulled = false;
+
     for (let i = 0; i < rewards.length; i++) {
       mesh.setColorAt(i, new THREE.Color(rewards[i].color));
+      discMesh.setColorAt(i, new THREE.Color(rewards[i].color));
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
 
     this._rewardItems = rewards;
     this._rewardMesh = mesh;
+    this._rewardDiscMesh = discMesh;
     this.root.add(mesh);
+    this.root.add(discMesh);
     this._updateRewardInstances(0);
   }
 
@@ -1676,8 +1801,19 @@ export class Level01 extends Level {
       }
       dummy.updateMatrix();
       this._rewardMesh.setMatrixAt(i, dummy.matrix);
+
+      // The disc face follows the same transform but is rotated 90deg so it
+      // sits flat inside the torus rim.
+      if (this._rewardDiscMesh) {
+        const discRot = dummy.rotation.clone();
+        discRot.x = Math.PI / 2;
+        dummy.rotation.copy(discRot);
+        dummy.updateMatrix();
+        this._rewardDiscMesh.setMatrixAt(i, dummy.matrix);
+      }
     }
     this._rewardMesh.instanceMatrix.needsUpdate = true;
+    if (this._rewardDiscMesh) this._rewardDiscMesh.instanceMatrix.needsUpdate = true;
   }
 
   _updateTempleRewards(dt, x, prevZ, state) {
@@ -1745,6 +1881,104 @@ export class Level01 extends Level {
       this.root.add(group);
 
       this._jetpackPickups.push({ ...def, x, group, collected: false, phase: Math.random() * Math.PI * 2 });
+    }
+  }
+
+  /**
+   * Life-saver packs: small red/white cross kits placed along the route.
+   * Collecting one restores HEALTH_PACK_HEAL HP. They are spaced so a clean
+   * run picks up ~6-8 of them, but a careless run can still reach 0.
+   */
+  _buildHealthPacks() {
+    this._healthPacks.length = 0;
+    const rng = makeRng(20261010);
+
+    // Distribute packs evenly along the course, skipping the fork zone and
+    // scripted set-piece zones where they would compete with obstacles.
+    const spacing = Math.floor((-GATE_Z - 200) / HEALTH_PACK_COUNT);
+    for (let i = 0; i < HEALTH_PACK_COUNT; i++) {
+      const d = 180 + i * spacing + Math.floor(rng() * 30);
+      const z = -d;
+      if (z < GATE_Z + 50) continue;
+      // Skip fork zone
+      if (z <= ROUTE_SPLIT_START_Z + 10 && z >= ROUTE_SPLIT_END_Z - 10) continue;
+
+      const lane = Math.floor(rng() * 3);
+      const x = LANE_X[lane] + this._routeOffsetAt(z, 0);
+
+      // Build a small red cross kit on a white background
+      const group = new THREE.Group();
+      group.name = "health-pack";
+
+      // White box base
+      const boxMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.4,
+        metalness: 0.1,
+      });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.36, 0.48), boxMat);
+      group.add(box);
+
+      // Red cross on top (two thin bars)
+      const crossMat = new THREE.MeshStandardMaterial({
+        color: 0xff2222,
+        emissive: new THREE.Color(0xff1111),
+        emissiveIntensity: 0.6,
+        roughness: 0.3,
+      });
+      const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.10), crossMat);
+      hBar.position.y = 0.19;
+      group.add(hBar);
+      const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.36), crossMat);
+      vBar.position.y = 0.19;
+      group.add(vBar);
+
+      // Subtle glow so it is visible in fog
+      const glow = new THREE.PointLight(0xff4444, 1.2, 6, 2);
+      glow.position.y = 0.3;
+      group.add(glow);
+
+      group.position.set(x, jungleCourseHeight(z) + 1.0, z);
+      this.root.add(group);
+
+      this._healthPacks.push({
+        x, z, lane, group, collected: false,
+        phase: rng() * Math.PI * 2,
+        healAmount: HEALTH_PACK_HEAL,
+      });
+    }
+  }
+
+  _updateHealthPacks(dt, x, prevZ) {
+    const playerY = this._floorY + this.y + this._flightLift + 1.05;
+
+    for (const p of this._healthPacks) {
+      if (p.collected) continue;
+
+      // Gentle spin and bob
+      p.phase += dt * 2.2;
+      p.group.rotation.y += dt * 1.8;
+      const bob = Math.sin(p.phase * 1.5) * 0.08;
+      p.group.position.y = jungleCourseHeight(p.z) + 1.0 + bob;
+
+      // Visibility culling
+      if (p.z < this.z - REWARD_VISIBLE_BEHIND || p.z > this.z + REWARD_VISIBLE_AHEAD) {
+        p.group.visible = false;
+        continue;
+      }
+      p.group.visible = true;
+
+      // Pickup test (same shape as reward collection)
+      const crossed = prevZ >= p.z - REWARD_PICKUP_Z && this.z <= p.z + REWARD_PICKUP_Z;
+      if (!crossed) continue;
+      if (Math.abs(x - p.x) > REWARD_PICKUP_X) continue;
+      if (Math.abs(playerY - (jungleCourseHeight(p.z) + 1.0)) > REWARD_PICKUP_Y) continue;
+
+      p.collected = true;
+      p.group.visible = false;
+      this._health = Math.min(MAX_HEALTH, this._health + p.healAmount);
+      this._showTransientBanner(`+${p.healAmount} HP RESTORED`, 1.2);
+      if (this._audio) this._audio.playOneShot("rewardChime", { volume: 0.42 });
     }
   }
 
@@ -1884,7 +2118,39 @@ export class Level01 extends Level {
         <div><span data-reward-count style="font-size:22px;font-weight:900">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">TOKENS</div></div>
         <div><span data-reward-score style="font-size:22px;font-weight:900;color:#ffdc72">0</span><div style="font-size:9px;letter-spacing:.13em;opacity:.6">SCORE</div></div>
       </div>
+      <div data-health-bar-wrap style="margin-top:8px;position:relative;height:8px;border-radius:999px;background:rgba(0,0,0,.6);overflow:hidden;border:1px solid rgba(227,187,98,.35);box-shadow:inset 0 1px 2px rgba(0,0,0,.8)">
+        <div data-health-fill style="position:absolute;inset:0 auto 0 0;width:100%;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.3),transparent 60%),linear-gradient(90deg,#c9442b,#f2934f);transition:width .25s ease"></div>
+        <div data-health-flash style="position:absolute;inset:0;border-radius:999px;background:rgba(255,60,40,.0);transition:background .12s"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:3px;font-size:8px;letter-spacing:.10em;opacity:.6">
+        <span data-health-text>HP 100 / 100</span>
+        <span data-health-icon style="color:#f2934f">❤</span>
+      </div>
       <div data-jetpack-status style="margin-top:7px;font-size:10px;letter-spacing:.1em;color:#8eeaff;opacity:.55">JETPACK — FIND A BOOSTER</div>
+    `;
+
+    // Handler panel — top-right, same plaque style as Level 2's handler box.
+    // Shows the Handler's distance and current state (LOSING_GROUND, CLOSING, etc.)
+    const handlerPanel = document.createElement("div");
+    Object.assign(handlerPanel.style, {
+      position: "absolute",
+      right: "70px",
+      top: "20px",
+      minWidth: "170px",
+      padding: "11px 13px",
+      background: "linear-gradient(135deg, rgba(8,20,11,.86), rgba(23,35,14,.70))",
+      border: "1px solid rgba(205,232,128,.42)",
+      borderRadius: "10px",
+      backdropFilter: "blur(5px)",
+      boxShadow: "0 10px 30px rgba(0,0,0,.28)",
+      transition: "border-color .2s, box-shadow .2s",
+    });
+    handlerPanel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <div style="font-size:10px;letter-spacing:.18em;color:#d8f69a;font-weight:900">THE HANDLER</div>
+        <span data-handler-dist style="font-size:10px;letter-spacing:.12em;color:#b8aa8a;font-weight:600">— m</span>
+      </div>
+      <div data-handler-state style="margin-top:5px;font-size:10px;font-weight:700;letter-spacing:.22em;color:#f2934f;white-space:nowrap">APPROACH</div>
     `;
 
     // Compact escape-route trail: back at the bottom centre, but intentionally
@@ -1895,6 +2161,12 @@ export class Level01 extends Level {
       left: "50%",
       bottom: "20px",
       transform: "translateX(-50%)",
+
+
+
+
+
+      
       width: "clamp(230px, 31vw, 360px)",
       padding: "7px 10px 6px",
       borderRadius: "10px",
@@ -1986,13 +2258,13 @@ export class Level01 extends Level {
 
     controls.append(actionControls, dpad);
 
-    // Sound and pause are compact clickable icons in the top-right. Tooltips
-    // and aria-labels keep them understandable without adding more HUD text.
+    // Sound and pause are compact clickable icons in the top-right, stacked
+    // below the handler panel so they never overlap.
     const topActions = document.createElement("div");
     Object.assign(topActions.style, {
       position: "absolute",
       right: "20px",
-      top: "18px",
+      top: "90px",
       display: "flex",
       gap: "8px",
       pointerEvents: "auto",
@@ -2025,13 +2297,20 @@ export class Level01 extends Level {
       </div>
     `;
 
-    root.append(stat, progress, pauseOverlay, controls, topActions);
+    root.append(stat, handlerPanel, progress, pauseOverlay, controls, topActions);
     document.body.append(root);
 
     this._templeHud = root;
     this._hudRewardCount = stat.querySelector("[data-reward-count]");
     this._hudRewardScore = stat.querySelector("[data-reward-score]");
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
+    this._hudHealthFill = stat.querySelector("[data-health-fill]");
+    this._hudHealthFlash = stat.querySelector("[data-health-flash]");
+    this._hudHealthText = stat.querySelector("[data-health-text]");
+    this._hudHealthIcon = stat.querySelector("[data-health-icon]");
+    this._hudHandlerDist = handlerPanel.querySelector("[data-handler-dist]");
+    this._hudHandlerState = handlerPanel.querySelector("[data-handler-state]");
+    this._hudHandlerPanel = handlerPanel;
     this._hudProgressFill = progress.querySelector("[data-progress-fill]");
     this._hudProgressDot = progress.querySelector("[data-progress-dot]");
     this._hudDistanceLeft = progress.querySelector("[data-distance-left]");
@@ -2196,6 +2475,53 @@ export class Level01 extends Level {
 
     if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
     if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
+
+    // --- health bar ---
+    if (this._hudHealthFill) {
+      const pct = THREE.MathUtils.clamp(this._health / MAX_HEALTH, 0, 1);
+      this._hudHealthFill.style.width = `${(pct * 100).toFixed(1)}%`;
+    }
+    if (this._hudHealthText) {
+      this._hudHealthText.textContent = `HP ${Math.ceil(this._health)} / ${MAX_HEALTH}`;
+    }
+    if (this._hudHealthFlash) {
+      // Red flash overlay fades out quickly after a hit
+      const flashAlpha = Math.max(0, this._healthFlashT) * 0.7;
+      this._hudHealthFlash.style.background = `rgba(255,60,40,${flashAlpha.toFixed(3)})`;
+    }
+
+    // --- handler panel (matches Level 2's handler box) ---
+    if (this._hudHandlerDist) {
+      const gap = this.state?.handlerGap ?? this.gap;
+      this._hudHandlerDist.textContent = `${Math.round(gap)} m`;
+    }
+    if (this._hudHandlerState) {
+      const hs = this.state?.handlerState || "APPROACH";
+      // Map internal state names to readable labels, same as Level 2
+      const labels = {
+        IDLE: "APPROACH",
+        LOSING_GROUND: "LOSING GROUND",
+        CLOSING: "CLOSING",
+        TRIGGERED: "TRIGGERED!",
+        CAUGHT: "CAUGHT",
+        SEALED: "SEALED",
+        GUARDIAN: "GUARDIAN",
+        POLICE_CHASE: "POLICE CHASE",
+      };
+      this._hudHandlerState.textContent = labels[hs] || hs;
+      // Colour: ember when dangerous, moss when safe
+      const dangerous = /CAUGHT|TRIGGERED|GUARDIAN|CLOSING|POLICE_CHASE/.test(hs);
+      this._hudHandlerState.style.color = dangerous ? "#f2934f" : "#bcd96a";
+      if (this._hudHandlerPanel) {
+        this._hudHandlerPanel.style.borderColor = dangerous
+          ? "rgba(242,147,79,.75)"
+          : "rgba(205,232,128,.42)";
+        this._hudHandlerPanel.style.boxShadow = dangerous
+          ? "0 10px 30px rgba(0,0,0,.28), 0 0 18px rgba(201,68,43,.35)"
+          : "0 10px 30px rgba(0,0,0,.28)";
+      }
+    }
+
     if (this._hudProgressFill) this._hudProgressFill.style.width = `${(progress * 100).toFixed(2)}%`;
     if (this._hudProgressDot) this._hudProgressDot.style.left = `${(progress * 100).toFixed(2)}%`;
     if (this._hudDistanceLeft) this._hudDistanceLeft.textContent = `${Math.ceil(left)} m LEFT`;
@@ -2250,6 +2576,9 @@ export class Level01 extends Level {
     this._templeHud = null;
     this._hudControls = {};
     this._hudButtons = {};
+    this._hudHandlerDist = null;
+    this._hudHandlerState = null;
+    this._hudHandlerPanel = null;
     this._soundButton = null;
     this._pauseButton = null;
     this._pauseOverlay = null;
@@ -2307,21 +2636,44 @@ export class Level01 extends Level {
       sub: title,
       lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
       action: {
-        label: "RESTART LEVEL",
-        key: "R",
-        bindKey: false, // R already restarts the level globally (Game._frame)
-        onClick: async () => {
+        label: "CONTINUE",
+        key: "SPACE",
+        onClick: () => {
           this._removeCaughtOverlay();
-          if (!this.game) return;
-          this.game.setPaused(false);
-          try {
-            await this.game.restart();
-          } catch (err) {
-            console.error("[level01] restart failed", err);
+          this._health = MAX_HEALTH;
+          this._healthFlashT = 0;
+          this.caught = false;
+          this.failCause = null;
+          this.finished = false;
+          if (this.state) {
+            this.state.alive = true;
+            this.state.failCause = null;
           }
+          this._stumbleT = 0;
+          this._stumbleDebt = 0;
+          this.speed = this.baseSpeed;
+          this.boostSpeed = 0;
+          if (this.game) this.game.setPaused(false);
         },
       },
-      extra: [{ label: "RELOAD GAME", onClick: () => window.location.reload() }],
+      extra: [
+        {
+          label: "RESTART LEVEL",
+          key: "R",
+          bindKey: false,
+          onClick: async () => {
+            this._removeCaughtOverlay();
+            if (!this.game) return;
+            this.game.setPaused(false);
+            try {
+              await this.game.restart();
+            } catch (err) {
+              console.error("[level01] restart failed", err);
+            }
+          },
+        },
+        { label: "RELOAD GAME", onClick: () => window.location.reload() },
+      ],
     });
   }
 
@@ -2596,18 +2948,100 @@ export class Level01 extends Level {
       wheel.position.set(x, 0.5, z);
       vehicle.add(wheel);
     }
-    vehicle.position.set(0, 0, -6);
+    vehicle.position.set(3.3, 0, SERVICE_CAR_LOCAL_Z);
     vehicle.rotation.y = Math.PI;
     vehicle.userData.isServiceVehicle = true;
     vehicle.userData.startsLevel2 = true;
     camp.add(vehicle);
 
     const workLight = new THREE.PointLight(0xffd39b, 2.1, 22, 2);
-    workLight.position.set(0, 5, -6);
+    workLight.position.set(3.3, 5, SERVICE_CAR_LOCAL_Z);
     camp.add(workLight);
 
     this.serviceVehicle = vehicle;
     this.root.add(camp);
+  }
+
+  /** Real Level-02 police Ranger used during Level 01's last 100 m. */
+  _buildEndPolicePursuit(assets) {
+    const car = new THREE.Group();
+    car.name = "level01-police-pursuit";
+    car.visible = false;
+    car.rotation.y = Math.PI;
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6d6247, roughness: 0.58, metalness: 0.12 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x17242a, roughness: 0.28, metalness: 0.35 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.72, 4.5), bodyMat);
+    body.position.y = 0.82;
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.72, 2.0), glassMat);
+    cabin.position.set(0, 1.45, -0.25);
+    body.castShadow = cabin.castShadow = true;
+    car.add(body, cabin);
+
+    this._endPolice = car;
+    this.root.add(car);
+    this._endPoliceLights = new PoliceLights(car);
+
+    attachModel(assets, car, HANDLER_MODEL, HANDLER_OPTIONS).then((model) => {
+      if (model && this._endPoliceLights) this._endPoliceLights.fit(model.userData.bounds, model);
+    }).catch((err) => console.warn("[level01] police Ranger model failed to load", err));
+  }
+
+  _startEndPolicePursuit() {
+    if (this._endPoliceActive || !this._endPolice) return;
+    this._endPoliceActive = true;
+    this._endPolice.visible = true;
+    this._endPoliceGap = 18;
+    this._endPoliceMerge = 0;
+
+    const routeX = this._routeOffsetAt(this.z, this._routeSide) + (LANE_X[this.lane] || 0);
+    // It bursts from a side service track on Kai's side of the sealed gate.
+    this._endPolice.position.set(routeX + 10.5, jungleCourseHeight(this.z + 14), this.z + 14);
+    this._endPolice.rotation.y = Math.PI * 0.73;
+
+    this._autoLook = Math.max(this._autoLook, 1.0);
+    this._showTransientBanner("POLICE BACKUP — GET TO THE BLUE CAR!", 1.8);
+
+    if (this._audio && !this._endPoliceSirenStarted) {
+      this._audio.attachPositional(this._endPolice, "policeSiren", {
+        loop: true, volume: 0.42, refDistance: 8, maxDistance: 80,
+      });
+      this._endPoliceSirenStarted = true;
+    }
+  }
+
+  _updateEndPolicePursuit(dt, state) {
+    if (!this._endPolice || this.caught) return;
+
+    if (!this._endPoliceActive
+        && this._gatePhase === "closed"
+        && this.z <= GATE_Z - 10
+        && !this.escaped) {
+      this._startEndPolicePursuit();
+    }
+    if (!this._endPoliceActive) return;
+
+    const car = this._endPolice;
+    const playerX = this._worldX;
+    if (!this.escaped) {
+      this._endPoliceMerge = Math.min(1, this._endPoliceMerge + dt * 0.72);
+      const gain = 1.65 + (this._endPoliceGap > 12 ? 0.75 : 0.25);
+      this._endPoliceGap = Math.max(6.8, this._endPoliceGap - gain * dt);
+
+      const targetX = playerX + Math.sin(this._worldTime * 3.2) * 0.18;
+      const k = 1 - Math.exp(-dt * (2.5 + this._endPoliceMerge * 5.5));
+      car.position.x += (targetX - car.position.x) * k;
+      car.position.z = this.z + this._endPoliceGap;
+      car.position.y = jungleCourseHeight(car.position.z);
+
+      const dx = playerX - car.position.x;
+      const dz = this.z - car.position.z;
+      car.rotation.y = Math.atan2(dx, dz);
+    }
+
+    this._endPoliceLights?.update(dt, this._endPoliceGap < 10 ? "TELEGRAPH" : "APPROACH");
+    state.handlerState = "POLICE_CHASE";
+    state.handlerGap = this._endPoliceGap;
   }
 
   _buildHandler() {
@@ -2892,9 +3326,9 @@ export class Level01 extends Level {
   }
 
   /**
-   * Hands the run to Redline. The service vehicle is the literal bridge between
-   * the two levels — level 02 is Kai driving the thing parked in this bay — so
-   * the chase continues rather than stopping on a win screen.
+   * Hands the run to Redline only after Kai reaches the blue service car. The
+   * police reveal/chase has already happened in Level 01, so Level 02 opens
+   * directly on car selection rather than replaying another cinematic.
    *
    * Two hazards, both handled here rather than in Game.js:
    *
@@ -3045,6 +3479,12 @@ export class Level01 extends Level {
       const drone = Math.sin(t * Math.PI * 2 * 71) * 0.022;
       return sub * beat + drone;
     });
+    const policeSiren = makeBuffer(2.0, (t) => {
+      const swap = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.92);
+      const hi = Math.sin(t * Math.PI * 2 * 690) * swap;
+      const lo = Math.sin(t * Math.PI * 2 * 465) * (1 - swap);
+      return (hi + lo) * 0.16;
+    });
 
     // Eight-second jungle pursuit loop: hand-drum pulse + pentatonic wooden
     // melody + a quiet bass drone. It is intentionally musical rather than an
@@ -3089,6 +3529,7 @@ export class Level01 extends Level {
     this._audio.buffers.set("rewardChime", rewardChime);
     this._audio.buffers.set("jetpackIgnite", jetpackIgnite);
     this._audio.buffers.set("tension", tension);
+    this._audio.buffers.set("policeSiren", policeSiren);
     this._audio.buffers.set("jungleMusic", music);
 
     const resume = () => {
@@ -3243,7 +3684,7 @@ export class Level01 extends Level {
     this.body.scale.y = this._bodySquash;
     this.body.position.y = 1.05 * this._bodySquash;
 
-    // --- obstacles: a clip costs ground, not health ---
+    // --- obstacles: a clip costs ground AND health ---
     const clipped = this._clipObstacles(x, prevZ);
     const fallingTreeClip = this._updateFallingTrees(dt, prevZ);
     const specialClip = this._updateAdventureHazards(dt, x, prevZ);
@@ -3255,6 +3696,29 @@ export class Level01 extends Level {
       this.boostSpeed = 0;
       this._shake = Math.max(this._shake, fallingTreeClip ? 0.5 : specialClip ? 0.58 : 0.35);
       if (this._audio) this._audio.playOneShot("impact", { volume: fallingTreeClip ? 0.8 : specialClip ? 0.9 : 0.6 });
+
+      // --- drain health on hit ---
+      const dmg = specialClip ? SPECIAL_HAZARD_DAMAGE
+        : fallingTreeClip ? FALLING_TREE_DAMAGE
+        : OBSTACLE_DAMAGE;
+      this._health = Math.max(0, this._health - dmg);
+      this._healthFlashT = 0.35; // red flash duration
+
+      // --- trip / stumble animation ---
+      this._stumbleT = this._stumbleDuration;
+      // Direction: which side the obstacle was on relative to Kai
+      const hitObstacle = clipped || (specialClip ? { x: this._specialImpactX } : null);
+      if (hitObstacle) {
+        const rel = x - (hitObstacle.x || 0);
+        this._stumbleDir = rel > 0.1 ? 1 : rel < -0.1 ? -1 : (Math.random() > 0.5 ? 1 : -1);
+      } else {
+        this._stumbleDir = Math.random() > 0.5 ? 1 : -1;
+      }
+
+      // Health depleted — game over
+      if (this._health <= 0) {
+        this._instantLose(state, "health", "Kai collapsed from exhaustion. The jungle claimed him.");
+      }
 
       if (specialClip && this._specialImpactType) {
         this._triggerHandlerFromMovingImpact(this._specialImpactType, this._specialImpactX, state);
@@ -3270,6 +3734,28 @@ export class Level01 extends Level {
     } else {
       this.body.rotation.z *= Math.exp(-18 * dt);
       if (Math.abs(this.body.rotation.z) < 0.001) this.body.rotation.z = 0;
+    }
+
+    // --- stumble / trip animation ---
+    // When Kai hits an obstacle the body pitches forward and tilts sideways
+    // for ~0.5 s. The animation is layered on top of the slide squash and the
+    // impact lean so multiple hits feel distinct.
+    if (this._stumbleT > 0) {
+      this._stumbleT = Math.max(0, this._stumbleT - dt);
+      const u = this._stumbleT / this._stumbleDuration; // 1 -> 0
+      // Forward pitch: a quick nose-dive that eases back
+      const pitchEnv = Math.sin(u * Math.PI); // peaks at u=0.5
+      this.body.rotation.x += this._stumbleDir * 0.18 * pitchEnv;
+      // Sideways wobble: two oscillations over the duration
+      const wobble = Math.sin(u * Math.PI * 3.5) * u;
+      this.body.rotation.z += this._stumbleDir * 0.14 * wobble;
+      // Slight vertical dip (legs buckle)
+      this.body.position.y -= 0.12 * pitchEnv;
+    }
+
+    // Health flash overlay decay
+    if (this._healthFlashT > 0) {
+      this._healthFlashT = Math.max(0, this._healthFlashT - dt);
     }
 
     this._updateStoryLetters(dt, state, x, prevZ);
@@ -3298,22 +3784,30 @@ export class Level01 extends Level {
     this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
     this._updateKai(dt);
     this._updateTempleRewards(dt, x, prevZ, state);
+    this._updateHealthPacks(dt, x, prevZ);
     this._updateTempleRunHUD();
 
     // --- the way out ---
-    // Reaching the vehicle is not an ending, it is the handoff: level 02 is the
-    // same chase in the van parked in this bay. Level 01 previously had no
-    // ending at all, so Kai ran out through the end of the geometry forever;
-    // then it had one that stopped him dead on a box with no way forward.
+    // The gate is NOT the level switch. Kai keeps running while the police
+    // Ranger chases him, and only stops when he reaches the familiar blue car.
     if (!this.caught && !this.escaped && this.z <= ESCAPE_Z) {
       this.escaped = true;
-      this._escapeSpeed = this.speed; // hand the ramp the speed he arrived with
+      this._escapeSpeed = 0;
+      this.speed = 0;
+      this._displaySpeed = 0;
       this._handOff = ESCAPE_HANDOFF_TIME;
-      this.finished = true; // no reader in Game yet — see the header note
-      state.handlerState = "SEALED";
+      this.finished = true;
+
+      state.level1Complete = true;
+      state.transitionFromLevel1 = true;
+      state.transitionSource = "blue-service-car";
+      state.transitionPoliceGap = this._endPoliceActive ? this._endPoliceGap : 12;
+      state.level1RewardCount = this.rewardCount;
+      state.level1RewardScore = this.rewardScore;
+      state.handlerState = "POLICE_CHASE";
+      this._showTransientBanner("CHOOSE YOUR ESCAPE CAR", 1.0);
     }
 
-    // a beat at the vehicle, then Redline
     if (this.escaped && !this._handedOff) {
       this._handOff -= dt;
       if (this._handOff <= 0) {
@@ -3333,6 +3827,7 @@ export class Level01 extends Level {
     this._updateHandler(dt, state);
     this._updateHandlerModel(dt);
     this._updateHandlerPressure(dt);
+    this._updateEndPolicePursuit(dt, state);
 
     // pooled scenery and obstacle meshes follow him; this also advances the
     // obstacle cursor, so it has to come after the clip test above

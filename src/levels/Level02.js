@@ -45,10 +45,27 @@ export class Level02 extends Level {
     super('level02');
     // the shape VehicleController already expects — filled from shared Input each frame
     this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
+
+    // Level 01 -> Level 02 cinematic hand-off. This lives entirely in Level 02
+    // so Level 01 never needs to know about vehicle models or car-selection UI.
+    this._fromLevel1 = false;
+    this._handoff = null;
+    this._handoffUi = null;
+    this._handoffCheckpoint = null;
+    this._handoffBarrier = null;
+    this._secondaryCamsSuppressed = false;
+    this._normalDriveStarted = false;
+    this._transitionPoliceGap = 12;
   }
 
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
+
+    // A direct Level 02 launch still opens the picker immediately. Coming from
+    // Level 01 instead plays a short in-world chase reveal first.
+    this._fromLevel1 = !!state?.transitionFromLevel1;
+    this._transitionPoliceGap = Math.max(8, Number(state?.transitionPoliceGap) || 12);
+    if (this._fromLevel1) state.transitionFromLevel1 = false;
 
     // ---- Level 1's jungle, exactly: same fog, sky, light rig, pollen and
     // light shafts (Level 1 runs toward -z, this road toward +z, so the sun
@@ -211,7 +228,307 @@ export class Level02 extends Level {
       onMute: () => this.sound.setMuted(!this.sound.muted),
     });
     this._buildShield();
-    this._openCarPicker();
+
+    if (this._fromLevel1) {
+      // Level 01 already handled the gate slam and police-car chase. Arrive at
+      // the blue service car and open the existing picker immediately — no
+      // second reveal, no depot replay, no extra cinematic.
+      this._prepareContinuousStartFromLevel1();
+      this._openCarPicker();
+    } else {
+      this._openCarPicker();
+    }
+  }
+
+  _prepareContinuousStartFromLevel1() {
+    this._hud?.setVisible(false);
+    this._controls?.setVisible(false);
+
+    // Keep secondary camera UI out of the car picker. It comes back the moment
+    // the player confirms the chosen car.
+    this.game.removeSecondaryCamera('rearview');
+    this.game.removeSecondaryCamera('minimap');
+    this._secondaryCamsSuppressed = true;
+
+    this.car.speed = 0;
+    this.car.heading = 0;
+    this.car.mesh.position.set(3.3, 0, 0);
+
+    // This is the same police Ranger that was on Kai's heels in Level 01. Put
+    // it at the transferred gap and keep its lights alive while the picker is
+    // open so the chase still feels present rather than reset.
+    this.handler.mesh.position.set(4.0, 0, -this._transitionPoliceGap);
+    this.handler.heading = 0;
+    this.handler.speed = 0;
+    this.handler.state = 'APPROACH';
+    this.handler.passive = true;
+    this.policeLights.update(0, 'APPROACH');
+
+    if (this._baseFov === undefined) this._baseFov = this.game.camera.fov;
+  }
+
+  /**
+   * Level 01 -> Level 02: no loading card, no black cut. The player arrives in
+   * the same jungle, hears the ranger before seeing it, then the police-lit
+   * pursuit vehicle tears through a wooden checkpoint. The camera pans to the
+   * parked escape car and only then opens the existing car picker.
+   *
+   * There is deliberately no Kai character implementation here. The camera
+   * implies his final sprint and later "entry" into the chosen car, which keeps
+   * ownership of the player model/controller with Level 1A.
+   */
+  _startLevel1Handoff() {
+    this._hud?.setVisible(false);
+    this._controls?.setVisible(false);
+
+    // The mirror/minimap would look like UI clutter during the cinematic.
+    this.game.removeSecondaryCamera('rearview');
+    this.game.removeSecondaryCamera('minimap');
+    this._secondaryCamsSuppressed = true;
+
+    this.car.speed = 0;
+    this.car.mesh.position.set(0, 0, 14);
+    this.car.heading = 0;
+
+    this.handler.mesh.position.set(1.8, 0, -72);
+    this.handler.heading = 0;
+    this.handler.speed = 0;
+    this.handler.state = 'APPROACH';
+
+    this._buildHandoffCheckpoint();
+    this._buildHandoffUi();
+
+    this._handoff = {
+      phase: 'silence',
+      t: 0,
+      barrierHit: false,
+      pickerOpened: false,
+    };
+
+    const cam = this.game.camera;
+    cam.position.set(8.5, 3.2, -18);
+    cam.lookAt(0, 1.1, -42);
+    if (this._baseFov === undefined) this._baseFov = cam.fov;
+    cam.fov = Math.max(55, this._baseFov - 4);
+    cam.updateProjectionMatrix();
+  }
+
+  _buildHandoffCheckpoint() {
+    const group = new THREE.Group();
+    group.position.set(0, 0, -7);
+
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5b3b22, roughness: 0.92 });
+    const gold = new THREE.MeshStandardMaterial({
+      color: 0xb58b3b, roughness: 0.66, emissive: 0x2b1d06, emissiveIntensity: 0.18,
+    });
+
+    const postGeo = new THREE.BoxGeometry(0.42, 3.4, 0.42);
+    for (const x of [-5.1, 5.1]) {
+      const p = new THREE.Mesh(postGeo, wood);
+      p.position.set(x, 1.7, 0);
+      p.castShadow = p.receiveShadow = true;
+      group.add(p);
+    }
+
+    const cross = new THREE.Group();
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.42, 0.5), wood);
+    beam.castShadow = true;
+    cross.add(beam);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.8, 0.16), gold);
+    plate.position.set(0, 0.72, 0.04);
+    cross.add(plate);
+    cross.position.set(0, 2.45, 0);
+    group.add(cross);
+
+    // A few side crates make the spot read as an abandoned expedition depot.
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x78603d, roughness: 0.9 });
+    for (const [x,z,s] of [[-6.4,2.2,1],[6.2,1.4,.85],[-6.0,-2.1,.7]]) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(1.1*s, 1.1*s, 1.1*s), crateMat);
+      c.position.set(x, 0.55*s, z);
+      c.rotation.y = x * 0.17;
+      c.castShadow = c.receiveShadow = true;
+      group.add(c);
+    }
+
+    this._handoffCheckpoint = group;
+    this._handoffBarrier = cross;
+    this.root.add(group);
+  }
+
+  _buildHandoffUi() {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position:fixed;inset:0;z-index:19;pointer-events:none;color:#f4ecd6;
+      font-family:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+    `;
+    el.innerHTML = `
+      <div class="bp-letterbox top" style="position:absolute;left:0;right:0;top:0;height:7vh;background:rgba(0,0,0,.72);transition:height .45s ease"></div>
+      <div class="bp-letterbox bottom" style="position:absolute;left:0;right:0;bottom:0;height:7vh;background:rgba(0,0,0,.72);transition:height .45s ease"></div>
+      <div class="bp-kicker" style="position:absolute;left:50%;top:17%;transform:translate(-50%,-50%);
+        font-size:11px;letter-spacing:.38em;color:#d9b45a;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s"></div>
+      <div class="bp-title" style="position:absolute;left:50%;top:23%;transform:translate(-50%,-50%);
+        font-size:clamp(20px,3.4vw,38px);font-weight:800;letter-spacing:.18em;text-shadow:0 3px 14px #000;opacity:0;transition:opacity .3s"></div>
+      <div class="bp-sub" style="position:absolute;left:50%;top:29%;transform:translate(-50%,-50%);
+        font:600 11px system-ui;letter-spacing:.15em;color:#f1e7c6;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s"></div>`;
+    document.body.appendChild(el);
+    this._handoffUi = el;
+  }
+
+  _handoffText(kicker = '', title = '', sub = '') {
+    if (!this._handoffUi) return;
+    const k = this._handoffUi.querySelector('.bp-kicker');
+    const t = this._handoffUi.querySelector('.bp-title');
+    const s = this._handoffUi.querySelector('.bp-sub');
+    k.textContent = kicker; t.textContent = title; s.textContent = sub;
+    k.style.opacity = kicker ? '1' : '0';
+    t.style.opacity = title ? '1' : '0';
+    s.style.opacity = sub ? '1' : '0';
+  }
+
+  _finishHandoffUi() {
+    if (!this._handoffUi) return;
+    const el = this._handoffUi;
+    for (const b of el.querySelectorAll('.bp-letterbox')) b.style.height = '0';
+    this._handoffText();
+    setTimeout(() => el.remove(), 500);
+    this._handoffUi = null;
+  }
+
+  _restoreSecondaryCameras() {
+    if (!this._secondaryCamsSuppressed) return;
+    this.game.addSecondaryCamera('rearview', this._rearview, { x: 0.02, y: 0.02, w: 0.25, h: 0.18 });
+    this.game.addSecondaryCamera('minimap', this._minimap, { x: 0.73, y: 0.02, w: 0.25, h: 0.25 });
+    this._secondaryCamsSuppressed = false;
+  }
+
+  _updateLevel1Handoff(dt) {
+    const h = this._handoff;
+    if (!h) return false;
+
+    h.t += dt;
+    this._time += dt;
+    this._updateWorld(dt);
+    this.policeLights.update(dt, h.phase === 'escape' ? 'TELEGRAPH' : 'APPROACH');
+
+    const cam = this.game.camera;
+    const hp = this.handler.mesh.position;
+    const cp = this.car.mesh.position;
+
+    if (h.phase === 'silence') {
+      // A breath after the gate. Then the lights arrive before the vehicle.
+      this._handoffText('BLACKOUT PROTOCOL', 'GATE SEALED', '...');
+      hp.z = -72 + Math.min(1, h.t / 1.0) * 10;
+      cam.position.lerp(new THREE.Vector3(8.5, 3.2, -18), 1 - Math.exp(-dt * 5));
+      cam.lookAt(0, 1.0, hp.z + 8);
+      if (h.t > 1.05) { h.phase = 'reveal'; h.t = 0; }
+      return true;
+    }
+
+    if (h.phase === 'reveal') {
+      this._handoffText('BACKUP ON THE ROAD', 'RUN — FIND A VEHICLE', 'THE GATE ONLY BOUGHT A FEW SECONDS');
+      hp.z += (18 + 16 * Math.min(1, h.t / 1.6)) * dt;
+      hp.x = 1.8 + Math.sin(h.t * 2.3) * 0.45;
+
+      // First watch the police-lit ranger barrel toward the checkpoint.
+      const targetCam = new THREE.Vector3(7.5, 2.8, -11);
+      cam.position.lerp(targetCam, 1 - Math.exp(-dt * 3.5));
+      const lookZ = THREE.MathUtils.lerp(hp.z, -7, THREE.MathUtils.smoothstep(h.t, 0.9, 2.0));
+      cam.lookAt(0, 1.0, lookZ);
+
+      if (!h.barrierHit && hp.z >= -9.5) {
+        h.barrierHit = true;
+        this.sound.crash(0.7);
+        this.shake = Math.max(this.shake, 0.75);
+      }
+      if (h.barrierHit && this._handoffBarrier) {
+        const u = Math.min(1, (hp.z + 9.5) / 7.5);
+        this._handoffBarrier.rotation.z = -u * 0.62;
+        this._handoffBarrier.position.y = -u * 1.6;
+        this._handoffBarrier.position.z = u * 1.1;
+      }
+
+      if (h.t > 2.65) { h.phase = 'depot'; h.t = 0; }
+      return true;
+    }
+
+    if (h.phase === 'depot') {
+      this._handoffText('EXPEDITION DEPOT', 'CHOOSE YOUR ESCAPE CAR', 'THE POLICE LIGHTS ARE GETTING CLOSER');
+      // Pan off the pursuer and land on the parked player vehicle.
+      const targetCam = new THREE.Vector3(-6.5, 2.7, 19);
+      cam.position.lerp(targetCam, 1 - Math.exp(-dt * 2.5));
+      cam.lookAt(cp.x, 0.9, cp.z);
+
+      // Hold the ranger just beyond the smashed checkpoint, lights flashing.
+      hp.z += (-13 - hp.z) * (1 - Math.exp(-dt * 2.5));
+
+      if (h.t > 1.15 && !h.pickerOpened) {
+        h.pickerOpened = true;
+        this._handoff = null;
+        this._finishHandoffUi();
+        this._openCarPicker();
+      }
+      return true;
+    }
+
+    if (h.phase === 'enter') {
+      // The picker has already closed. Without owning Kai's model we sell the
+      // entry through camera motion, suspension dip and sound.
+      this._handoffText('BLACKOUT PROTOCOL', 'GET IN.', '');
+      const u = THREE.MathUtils.clamp(h.t / 0.9, 0, 1);
+      const doorSide = cp.x - 1.7;
+      cam.position.lerp(new THREE.Vector3(doorSide, 1.65, cp.z + 1.1), 1 - Math.exp(-dt * 8));
+      cam.lookAt(cp.x, 0.85, cp.z);
+      this.car.mesh.position.y = -Math.sin(u * Math.PI) * 0.07;
+
+      if (!h.doorHit && h.t > 0.56) {
+        h.doorHit = true;
+        this.sound.thump(0.28, -0.3);
+      }
+      if (h.t > 0.95) { h.phase = 'launch'; h.t = 0; this.car.mesh.position.y = 0; }
+      return true;
+    }
+
+    if (h.phase === 'launch') {
+      this._handoffText('LEVEL 02', 'REDLINE', 'DRIVE');
+      const launchT = Math.min(1, h.t / 1.25);
+      this.car.speed = THREE.MathUtils.lerp(0, 12, launchT);
+      cp.z += this.car.speed * dt;
+
+      // The pursuer comes through the broken checkpoint as the player launches.
+      hp.z += Math.max(10, this.car.speed * 0.82) * dt;
+      this.policeLights.update(dt, 'TELEGRAPH');
+
+      const desired = new THREE.Vector3(cp.x, 3.0, cp.z - 7.2);
+      cam.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
+      cam.lookAt(cp.x, 1.0, cp.z + 6);
+
+      this.sound.update(dt, {
+        speed: this.car.speed, maxSpeed: this.car.maxSpeed, throttle: true, boosting: false,
+        skid: false, scrape: 0, falls: 0,
+        handler: { dist: Math.max(1, cp.z - hp.z), dx: hp.x - cp.x, attacking: false },
+        drones: [],
+      });
+
+      if (h.t > 1.55) {
+        this._handoff = null;
+        this._finishHandoffUi();
+        this._restoreSecondaryCameras();
+        this._hud?.setVisible(true);
+        this._hud?.setCar(CARS[this._carIndex].name);
+        this._controls?.setVisible(true);
+
+        // Start the actual chase with a readable gap instead of immediately
+        // ramming the player out of the cinematic.
+        this.handler.mesh.position.set(cp.x, 0, cp.z - 32);
+        this.handler.speed = 0;
+        this.handler.state = 'APPROACH';
+        this.handler.nextAttackAt = this.handler.elapsed + 8;
+        this._normalDriveStarted = true;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   /** The SHIELD reward's bubble round the car. */
@@ -354,6 +671,27 @@ export class Level02 extends Level {
     this._selectingCar = false;
     this._confirmingCar = false;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
+
+    if (this._fromLevel1 && !this._normalDriveStarted) {
+      // Selection is the only pause between running and driving. Once DRIVE is
+      // pressed, return control immediately; the normal chase camera eases out
+      // of the picker orbit instead of cutting through another cinematic.
+      this._normalDriveStarted = true;
+      this.handler.passive = false;
+      this.handler.state = 'APPROACH';
+      this.handler.mesh.position.z = this.car.mesh.position.z - this._transitionPoliceGap;
+      this.handler.mesh.position.x = this.car.mesh.position.x + 0.7;
+      this.handler.speed = Math.max(8, Math.min(14, this.car.maxSpeed * 0.28));
+      this._restoreSecondaryCameras();
+      this._hud?.setVisible(true);
+      this._hud?.setCar(CARS[this._carIndex].name);
+      this._controls?.setVisible(true);
+      this._flash('LEVEL 02 — REDLINE', '#e3bb62');
+      this._fromLevel1 = false;
+      return;
+    }
+
+    this._restoreSecondaryCameras();
     this._hud?.setVisible(true);
     this._hud?.setCar(CARS[this._carIndex].name);
     this._controls?.setVisible(true);
@@ -362,6 +700,13 @@ export class Level02 extends Level {
   /* ======================== per frame ======================== */
 
   update(dt, state) {
+    // Legacy hand-off support. The continuous Level 01 path no longer creates
+    // this state; it reaches the blue car first and opens the picker directly.
+    if (this._handoff) {
+      this._updateLevel1Handoff(dt);
+      return;
+    }
+
     // car picker orbit camera
     if (this._selectingCar) {
       this._updateCarPicker(dt);
@@ -807,6 +1152,18 @@ export class Level02 extends Level {
   _updateCarPicker(dt) {
     this._updateSecondaryCams();
     this._updateWorld(dt);
+    if (this._fromLevel1 && !this._normalDriveStarted) {
+      // The menu is a pause in gameplay, not a pause in the world: police
+      // lights keep flashing behind the selected car and the ranger idles at
+      // the smashed checkpoint so the chase still feels present.
+      this.policeLights.update(dt, 'APPROACH');
+      this.sound.update(dt, {
+        speed: 0, maxSpeed: this.car.maxSpeed, throttle: false, boosting: false,
+        skid: false, scrape: 0, falls: 0,
+        handler: { dist: this._transitionPoliceGap, dx: this.handler.mesh.position.x - this.car.mesh.position.x, attacking: false },
+        drones: [],
+      });
+    }
     if (this.input.pressed('left')) this._selectCar(this._carIndex - 1);
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
     if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
@@ -915,6 +1272,8 @@ export class Level02 extends Level {
     this.game?.camera?.clearViewOffset();
     this._arrow?.remove();
     this._controls?.destroy();
+    this._handoffUi?.remove();
+    this._handoffUi = null;
     this.course?.dispose();
     clearTimeout(this._hitStop);
     if (this.state) this.state.timeScale = 1;
