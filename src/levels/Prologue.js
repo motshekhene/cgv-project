@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Level } from '../core/Level.js';
-import { attachCharacter } from '../core/Characters.js';
+import { loadCast, makeKai, makeHandler } from '../intros/cast.js';
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -25,13 +25,15 @@ import {
  *      closest thing Kai has to family, and he is sitting at the fire when
  *      the scene opens — lit properly, face showing, the one clear look the
  *      player ever gets until the last two minutes of the game.
- *   2. There is a horn on a stone deep in the forest. While it hangs there,
- *      the company believes someone still tends the valley, so nobody comes
- *      to cut the trees. Ingram pays Kai a year of the company's wages for
- *      one night's work to take it down.
+ *   2. The company wants to cut this forest down, but its men will not go
+ *      past the old stone up the ridge: they are scared of the horn on it.
+ *      The story goes that if the horn ever leaves the stone, the whole
+ *      forest goes silent. Ingram calls that an old story, and pays Kai a
+ *      year of the company's wages to bring it down before morning. No horn,
+ *      nothing left to scare the men off, and the cutting can start.
  *   3. The moment Kai lifts it off the stone, every sound in the forest stops
- *      at once. He understands what he has done, turns around, and runs it
- *      back. Level 01 is that run.
+ *      at once. The story was true. He turns onto the old trail down the
+ *      mountain and runs. Level 01 is that run.
  *
  * Shape:
  *   title    the title fades up over the live scene. The click that starts
@@ -42,7 +44,9 @@ import {
  *            advance — the card mechanic pointed at faces instead of text.
  *   leave    Ingram whistles two notes and walks off into the dark.
  *   rise     Kai gets up; control returns.
- *   walk     the stone is a few metres away across open ground. No obstacles.
+ *   walk     the old marked path winds up through the trees to the stone:
+ *            glowing cairns to follow, ruins, an owl, a gate. The forest is
+ *            as loud as it will ever be — the walk is what the silence takes.
  *   choice   the scene turns him to face the horn first — he cannot be asked
  *            to take what he has not seen — then E takes it and Q gives him
  *            a moment of doubt and puts the prompt back, so taking it is
@@ -56,8 +60,10 @@ import {
  *            and the way out in the same frame, so the player works out the
  *            problem by looking at it. No pursuer is shown here — whoever
  *            the silence woke first appears in level 01, mid-run.
- *   flee     control returns and he runs, the night dying into level 01's
- *            morning around him — he is racing the sun, and loses.
+ *   flee     control returns and he runs — third person now, the camera
+ *            behind him so his whole body shows where he is going — down a
+ *            straight trail lined with cairns, through a second gate, the
+ *            night dying into level 01's morning around him.
  *
  * HOW THE TEXT LOOKS — the old screens were monospace on black, which was
  * right for a server room and wrong for a forest:
@@ -81,28 +87,45 @@ import {
  * once, and the silence does not lift again inside this scene.
  */
 
-// The clearing. Same geography idea as before: the fire is the south anchor,
-// the stone sits off the line, and the trail mouth is the only way out.
+// The geography: the camp at the south, a winding marked path up through the
+// trees to the glade where the stone stands, and from the glade one straight
+// trail east, down the mountain — the way out, and where level 01 starts.
+// Everywhere Kai can stand is a circle or a strip of path (_clampWalk).
 const SEAT = { x: 0, z: 10.8, eye: 1.14 };  // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
 const INGRAM_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
-const WALKOFF = { x: -10.8, z: -4.5 };     // where Ingram leaves the fire
-const STONE = { x: 4.2, z: -2.6 };         // the low stone, horn on it
-const TRAIL = { x: 0, z: -16 };            // the way out; level 01 starts there
-const CLEARING_R = 15.5;  // walkable radius
-const CORRIDOR_X = 3.4;   // half-width of the trail mouth gap — wide enough
-                          // to hit at a dead run without threading a needle
+const WALKOFF = { x: -9.6, z: 3.2 };       // where Ingram leaves the fire
+const CAMP = { x: 0, z: 8.4, r: 6.0 };
+// the old path to the stone. Smoothed through these points; ~35 m of bends.
+const WALK_PTS = [[0, 4.6], [-4.2, -1.6], [1.0, -7.8], [5.6, -13.0], [2.6, -18.8], [0, -22.6]];
+const PATH_HW = 1.6;                       // half-width of the walkable path
+const GLADE = { x: 0, z: -27.2, r: 5.0 };
+const STONE = { x: 0, z: -29.2 };          // the low stone, horn on it
+const STAG_AT = { x: 8.6, z: -12.6 };      // the stag statue at the third bend
+// the way out: dead straight, east from the glade. Lined with cairns both
+// sides and a gate at each end, so there is never a question where to run.
+const RUN_FROM = { x: 0, z: -26.4 };
+const RUN_TO = { x: 54, z: -26.4 };
+const RUN_HW = 2.3;
+const RUN_EXIT_X = 46;                     // level 01 starts here
+const RUN_YAW = -Math.PI / 2;              // facing +X, down the trail
 const STAND_EYE = 1.7;
 const WALK = 3.0;
-const RUN = 4.6;          // once he has the horn — he is not strolling out
+const RUN = 5.2;          // once he has the horn — he is not strolling out
 const LOOK = 0.0022;
 
-// the pull-back vantage: high in the south-east, looking north-west — Kai
-// foreground at the stone with the horn lit, the trail mouth open in the
-// middle distance, and the whole silent valley around him. One frame, the
-// whole problem.
-const WIDE_POS = new THREE.Vector3(12.2, 5.8, 5.2);
-const WIDE_LOOK = new THREE.Vector3(-1.8, 0.8, -8.8);
+// the chase camera for the run: behind him and a little above, so his whole
+// body is in frame and the trail ahead of him too
+const CHASE_BACK = 4.8;
+const CHASE_HIGH = 2.3;
+const CHASE_AHEAD = 4.0;
+const WIDE_TURN = 2.5;    // into the wide shot, when he turns to the trail
+
+// the pull-back vantage: high to the south-west of the glade, looking east —
+// Kai at the stone with the horn lit, the straight trail and its gate running
+// away from him in the same frame. One frame, the whole problem.
+const WIDE_POS = new THREE.Vector3(-6.0, 4.4, -21.0);
+const WIDE_LOOK = new THREE.Vector3(8.0, 0.6, -27.0);
 
 // the conversation two-shot: behind Kai's right shoulder at the log — him
 // lower-centre, Ingram across the flames, the fire between. The title, the
@@ -113,6 +136,7 @@ const SHOT_LOOK = new THREE.Vector3(-1.0, 1.25, 6.3);
 const RISE_CUT = 1.0;  // rise holds the two-shot until here, then cuts
 
 const HORN_CYAN = 0x4fd6e0;  // the horn — matches how the level 01 pickup glows
+const CAIRN_GLOW = 0xb6e3a0; // the old markers: pale moss, never the horn's cyan
 const HORN_HEX = '#4fd6e0';
 const INGRAM_AMBER = '#ffb03a';  // the fire, then the lamp
 const KAI_GREEN = '#9ed36a';
@@ -138,15 +162,18 @@ const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 
 // The conversation, word for word. It has to carry everything the old four
 // cards carried: his name, the job, who is asking, and why he says yes.
+// Plain on purpose: the company wants the trees, its men are scared of the
+// horn, Ingram wants the horn gone so the cutting can start, and pays Kai.
 const SCRIPT = [
   { who: 'INGRAM', text: 'Kai. You came.' },
-  { who: 'INGRAM', text: 'You know the stone up past the ridge?' },
-  { who: 'KAI', text: 'Everyone knows it.' },
-  { who: 'INGRAM', text: "There's a horn on it. Bring it to me before morning." },
-  { who: 'KAI', text: 'That horn is the only thing keeping the company out of this forest.' },
-  { who: 'INGRAM', text: 'I know. While it hangs there, the company believes someone still tends this valley.' },
-  { who: 'INGRAM', text: 'Take it down, and they will know nobody is left to stop them.' },
-  { who: 'INGRAM', text: "One night. I'll pay you a year of the company's wages for it." },
+  { who: 'INGRAM', text: 'You know the old stone, up past the ridge?' },
+  { who: 'KAI', text: 'The one with the horn on it. Everyone knows it.' },
+  { who: 'INGRAM', text: 'The company wants to cut down this forest.' },
+  { who: 'INGRAM', text: "But their men won't go past that stone. They're scared of the horn." },
+  { who: 'KAI', text: 'Everyone is. They say if it ever leaves the stone, the whole forest goes silent.' },
+  { who: 'INGRAM', text: 'Old stories. Bring me the horn before morning. No horn, nothing left to scare them — and the cutting can start.' },
+  { who: 'KAI', text: 'You want them to cut it down?' },
+  { who: 'INGRAM', text: "It's coming either way. This way, you get a year of the company's wages for one night." },
   { who: 'KAI', text: 'Why me?' },
   { who: 'INGRAM', text: 'Because a guide out at night is a normal thing. Anyone else would be noticed.' },
   { who: 'INGRAM', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
@@ -168,6 +195,8 @@ class Sfx {
     this.chirpT = 1.2;
     this.frogT = 3.0;
     this.popT = 0.2;
+    this.owlT = 2.0;
+    this.owls = false;      // owls call once he is out on the path
     this.alive = true;      // is the forest still making sound?
     this.firePower = 1;     // the fire is dying all scene, 1 -> 0.45
   }
@@ -266,6 +295,29 @@ class Sfx {
     o.start(t); o.stop(t + 0.34);
   }
 
+  /** An owl somewhere up in the trees: two soft falling hoots. */
+  owl() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = this.t;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 900;
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (pan) { pan.pan.value = Math.random() * 1.4 - 0.7; lp.connect(pan); pan.connect(this.master); }
+    else lp.connect(this.master);
+    for (const [d, f, dur] of [[0, 410, 0.34], [0.52, 396, 0.56]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f, t + d);
+      o.frequency.exponentialRampToValueAtTime(f * 0.9, t + d + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t + d);
+      g.gain.linearRampToValueAtTime(0.06, t + d + 0.07);
+      g.gain.exponentialRampToValueAtTime(0.0004, t + d + dur);
+      o.connect(g); g.connect(lp);
+      o.start(t + d); o.stop(t + d + dur + 0.05);
+    }
+  }
+
   /** Called every frame from update() — schedules the night life. */
   tickNight(dt) {
     if (!this.ctx || this.muted || !this.alive) return;
@@ -273,6 +325,10 @@ class Sfx {
     if (this.chirpT <= 0) { this.chirpT = 0.4 + Math.random() * 1.9; this._insect(); }
     this.frogT -= dt;
     if (this.frogT <= 0) { this.frogT = 3.2 + Math.random() * 5.2; this._frog(); }
+    if (this.owls) {
+      this.owlT -= dt;
+      if (this.owlT <= 0) { this.owlT = 7 + Math.random() * 6; this.owl(); }
+    }
   }
 
   /** One pop of the fire — a tiny filtered noise burst. */
@@ -409,6 +465,67 @@ class Sfx {
   }
 }
 
+/* ==========================================================================
+   The route. Every place Kai can stand is one of these: a strip of path
+   (a segment with a half-width) or a circle (a segment of zero length).
+   ========================================================================== */
+const strip = (ax, az, bx, bz, r) => ({ ax, az, bx, bz, r });
+const ring = (c) => strip(c.x, c.z, c.x, c.z, c.r);
+const _near = { x: 0, z: 0, d: 0 };
+
+/** Nearest point of a shape's spine to (x, z), and how far it is. */
+function nearSpine(sh, x, z) {
+  const ex = sh.bx - sh.ax, ez = sh.bz - sh.az;
+  const L2 = ex * ex + ez * ez;
+  const k = L2 > 0 ? THREE.MathUtils.clamp(((x - sh.ax) * ex + (z - sh.az) * ez) / L2, 0, 1) : 0;
+  _near.x = sh.ax + ex * k;
+  _near.z = sh.az + ez * k;
+  _near.d = Math.hypot(x - _near.x, z - _near.z);
+  return _near;
+}
+
+/** How far outside the nearest shape (x, z) is: ≤ 0 means inside one. */
+function outside(shapes, x, z) {
+  let best = Infinity;
+  for (const sh of shapes) best = Math.min(best, nearSpine(sh, x, z).d - sh.r);
+  return best;
+}
+
+/** An angle difference brought into -PI..PI, so turns go the short way round. */
+function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/**
+ * A flat ribbon of path along a polyline, `hw` either side. The UVs keep the
+ * mud texture at the same ~1.4 m tile the old straight path had.
+ */
+function ribbon(points, hw) {
+  const pos = [], uv = [], idx = [];
+  let s = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
+    const tx = b.x - a.x, tz = b.z - a.z, tl = Math.hypot(tx, tz) || 1;
+    const nx = -tz / tl, nz = tx / tl;
+    if (i > 0) s += Math.hypot(p.x - points[i - 1].x, p.z - points[i - 1].z);
+    pos.push(p.x + nx * hw, 0, p.z + nz * hw, p.x - nx * hw, 0, p.z - nz * hw);
+    uv.push(0, s / 28, (hw * 2) / 3.36, s / 28);
+    if (i > 0) {
+      const j = i * 2;
+      idx.push(j - 2, j, j - 1, j - 1, j, j + 1);   // wound to face up
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /* ========================================================================== */
 export class Prologue extends Level {
   constructor() {
@@ -434,7 +551,12 @@ export class Prologue extends Level {
     this._skySaid = false;        // said the sky-is-turning line yet?
     this._aimFromYaw = 0;
     this._aimFromPitch = 0;
-    this.halfway = false;         // said the open-ground line yet?
+    this.walkS = 0;               // furthest he has got along the path, metres
+    this.beats = {};              // the walk's thoughts, each said once
+    this.heading = 0;             // which way his body faces (yaw convention)
+    this._fled = false;           // has the run started? (the chase camera)
+    this._moving = false;
+    this._moveYaw = 0;
     this.beatT = 0;               // counts down to the next heartbeat
     this.dawnK = 0;               // 0 = night, 1 = level 01's morning
     this._dawnApplied = -1;
@@ -455,6 +577,56 @@ export class Prologue extends Level {
 
     this.blockers = [];
     this.sfx = new Sfx();
+    this._buildRoute();
+  }
+
+  /**
+   * The walk path as ~65 short strips along a smoothed curve through
+   * WALK_PTS, and the shape lists the movement clamp and the tree placement
+   * use. During the run only the glade and the straight trail are open, so
+   * there is nowhere to go but the right way.
+   */
+  _buildRoute() {
+    const curve = new THREE.CatmullRomCurve3(
+      WALK_PTS.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal',
+    );
+    const N = 64;
+    this.walkLen = curve.getLength();
+    this.walkPath = curve.getSpacedPoints(N).map((p, i) => ({ x: p.x, z: p.z, s: (i / N) * this.walkLen }));
+    const strips = [];
+    for (let i = 1; i < this.walkPath.length; i++) {
+      const a = this.walkPath[i - 1], b = this.walkPath[i];
+      strips.push(strip(a.x, a.z, b.x, b.z, PATH_HW));
+    }
+    const run = strip(RUN_FROM.x, RUN_FROM.z, RUN_TO.x, RUN_TO.z, RUN_HW);
+    this.walkShapes = [ring(CAMP), ring(GLADE), ...strips];
+    this.fleeShapes = [ring(GLADE), run];
+    // what the forest keeps clear of: the route, the trail running on out
+    // of sight past the exit, Ingram's way out of the camp, and the wide
+    // shot's camera and its line to the stone
+    this.clearShapes = [
+      ...this.walkShapes,
+      strip(RUN_FROM.x, RUN_FROM.z, RUN_TO.x + 40, RUN_TO.z, RUN_HW),
+      strip(INGRAM_AT.x, INGRAM_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
+      strip(WIDE_POS.x, WIDE_POS.z, 0, -26.6, 1.9),
+    ];
+  }
+
+  /** Where he is along the walk path: the nearest sample's distance, metres. */
+  _pathS(x, z) {
+    let best = Infinity, s = 0;
+    for (const p of this.walkPath) {
+      const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (d < best) { best = d; s = p.s; }
+    }
+    return s;
+  }
+
+  /** A point on the walk path `ahead` metres past where he is (the prompt arrow aims at it). */
+  _pathAhead(ahead) {
+    const want = Math.max(this.walkS, this._pathS(this.px, this.pz)) + ahead;
+    for (const p of this.walkPath) if (p.s >= want) return p;
+    return STONE;
   }
 
   /* ==================================================== build */
@@ -466,7 +638,7 @@ export class Prologue extends Level {
 
     this._ensureSerif();
     this._buildSky();
-    const kit = await loadJungleKit(assets);
+    const [kit, cast] = await Promise.all([loadJungleKit(assets), loadCast(assets)]);
     if (!this.scene) return; // torn down while loading
     const mats = await createJungleMaterials(assets, 60);
     if (!this.scene) return;
@@ -476,7 +648,8 @@ export class Prologue extends Level {
     this._buildFire();
     this._buildStone();
     this._buildJungle();
-    this._buildFigures();
+    this._buildMarkers();
+    this._buildFigures(cast);
     this._buildHud();
 
     this._onClick = () => {
@@ -551,14 +724,14 @@ export class Prologue extends Level {
     this.sun.position.copy(SUN_DIR).multiplyScalar(60);
     this.root.add(this.sun, this.sun.target);
 
-    // ground mist, five soft cards drifting round the clearing
+    // ground mist, soft cards lying in the hollows along the route
     this.mist = [];
     const mistMat = () => new THREE.MeshBasicMaterial({
       color: 0x8fa4b4, transparent: true, opacity: 0.05, depthWrite: false,
     });
     for (const [x, z, w, rot] of [
-      [-4, 2, 11, 0.4], [5, -6, 13, 1.2], [-7, -9, 10, 2.2],
-      [2, 6, 9, 0.1], [-2, -12, 12, 1.8],
+      [-3, 1, 10, 0.4], [3, -10, 11, 1.2], [1.5, -19, 9, 2.2],
+      [2, 9, 9, 0.1], [0, -27, 12, 1.8], [17, -26.4, 13, 0.1], [33, -26, 12, 1.7],
     ]) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.32), mistMat());
       m.rotation.x = -Math.PI / 2;
@@ -568,16 +741,20 @@ export class Prologue extends Level {
       this.mist.push(m);
     }
 
-    // fireflies. One Points cloud, opacity pulsing in update(). They keep
-    // going after the silence — the valley is not dead, it is holding still.
-    const n = 220;
+    // fireflies, thickest along the path and in the glade. One Points cloud,
+    // opacity pulsing in update(). They keep going after the silence — the
+    // valley is not dead, it is holding still.
+    const n = 260;
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
+      const p = i % 4 === 0
+        ? { x: GLADE.x, z: GLADE.z }
+        : this.walkPath[Math.floor(Math.random() * this.walkPath.length)];
       const a = Math.random() * Math.PI * 2;
-      const r = 3 + Math.random() * 13;
-      pos[i * 3] = Math.cos(a) * r;
+      const r = 1.5 + Math.random() * 5;
+      pos[i * 3] = p.x + Math.cos(a) * r;
       pos[i * 3 + 1] = 0.4 + Math.random() * 2.6;
-      pos[i * 3 + 2] = Math.sin(a) * r;
+      pos[i * 3 + 2] = p.z + Math.sin(a) * r;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -588,31 +765,52 @@ export class Prologue extends Level {
     this.fireflies = new THREE.Points(geo, this.fireflyMat);
     this.root.add(this.fireflies);
 
-    // god rays arrive only with the dawn, so they start at zero
+    // god rays arrive only with the dawn, so they start at zero — and they
+    // fall on the run trail, so the morning is where he is going
     this.shafts = [];
-    for (const [x, z, w] of [[-3.5, -4, 2.2], [4.5, 2, 2.6], [-5.5, -12, 2.0]]) {
+    for (const [x, z, w] of [[12, -24.2, 2.4], [24, -28.4, 2.6], [36, -24.6, 2.2], [46, -27.6, 2.8]]) {
       const shaft = createLightShaft(w, 0xffe2b0, 0);
       shaft.position.set(x, 15, z);
       this.root.add(shaft);
       this.shafts.push(shaft);
     }
+
+    // moonlight down through a gap in the canopy, onto the stone. The one
+    // cold bright thing at the top of the path: it pulls him up the last
+    // bends, and it fades as the dawn takes over.
+    this.moonShaft = createLightShaft(3.4, 0xbcd0e8, 0.075);
+    this.moonShaft.position.set(STONE.x, 15, STONE.z + 0.6);
+    this.root.add(this.moonShaft);
   }
 
   /* ---------------------------------------------------- ground */
   _buildGround() {
-    // forest floor everywhere, and a dirt path worn from the fire to the
-    // trail mouth — the line every phase of this scene walks
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(CLEARING_R + 14, 40), this.mats.forest);
+    // forest floor under the whole route. The circle is far bigger than the
+    // old clearing's, so its UVs are scaled to keep the same tile size.
+    const groundGeo = new THREE.CircleGeometry(80, 48);
+    const uv = groundGeo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2.7, uv.getY(i) * 2.7);
+    const ground = new THREE.Mesh(groundGeo, this.mats.forest);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.05;
+    ground.position.set(16, -0.05, -10);
     ground.receiveShadow = true;
     this.root.add(ground);
 
-    const path = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 28), this.mats.trail);
-    path.rotation.x = -Math.PI / 2;
-    path.position.set(0, 0.01, -3.4); // fire (z 8) to trail mouth (z -17.4)
-    path.receiveShadow = true;
-    this.root.add(path);
+    // the old path, worn into the floor from the camp up to the glade
+    const walk = new THREE.Mesh(ribbon(this.walkPath, PATH_HW - 0.15), this.mats.trail);
+    walk.position.y = 0.012;
+    walk.receiveShadow = true;
+    this.root.add(walk);
+
+    // the trail down the mountain: one straight road out of the glade that
+    // keeps going past the exit, so it reads as a way and not a dead end
+    const run = new THREE.Mesh(
+      ribbon([{ x: RUN_FROM.x, z: RUN_FROM.z }, { x: RUN_TO.x + 40, z: RUN_TO.z }], RUN_HW - 0.2),
+      this.mats.trail,
+    );
+    run.position.y = 0.014;
+    run.receiveShadow = true;
+    this.root.add(run);
 
     // the trampled ground around the fire, where the ground is just earth
     const apron = new THREE.Mesh(new THREE.CircleGeometry(3.4, 24), this.mats.trail);
@@ -621,20 +819,18 @@ export class Prologue extends Level {
     apron.receiveShadow = true;
     this.root.add(apron);
 
-    // the path keeps going past the mouth, so the way out reads as a road
-    // that continues and not a hole that ends
-    const out = new THREE.Mesh(new THREE.CircleGeometry(4.5, 20), this.mats.trail);
-    out.rotation.x = -Math.PI / 2;
-    out.position.set(0, 0.01, -19.5);
-    out.receiveShadow = true;
-    this.root.add(out);
+    // and round the stone, where the valley has walked up to look at it
+    const worn = new THREE.Mesh(new THREE.CircleGeometry(3.6, 24), this.mats.trail);
+    worn.rotation.x = -Math.PI / 2;
+    worn.position.set(GLADE.x, 0.016, GLADE.z);
+    worn.receiveShadow = true;
+    this.root.add(worn);
 
-    // moonlight through the gap. The exit has to be findable at night from
-    // the stone, with no lamp and no chase yet — the mouth is the one cold
-    // bright thing on the far side of the dark, and his feet go to it.
-    this.mouthLight = new THREE.PointLight(0x9fb4cc, 1.4, 13, 2);
-    this.mouthLight.position.set(0, 2.8, -15);
-    this.root.add(this.mouthLight);
+    // the far end of the trail: the first warm light of the morning, where
+    // the forest opens. It grows with the dawn — the run is toward it.
+    this.exitLight = new THREE.PointLight(0xffd29a, 0, 20, 2);
+    this.exitLight.position.set(RUN_EXIT_X + 2, 3.2, RUN_TO.z);
+    this.root.add(this.exitLight);
   }
 
   /* ---------------------------------------------------- the fire */
@@ -829,92 +1025,181 @@ export class Prologue extends Level {
     const add = (x0, x1, z0, z1) => this.blockers.push({ x0, x1, z0, z1 });
     add(FIRE.x - 0.8, FIRE.x + 0.8, FIRE.z - 0.8, FIRE.z + 0.8);          // the fire
     add(STONE.x - 1.1, STONE.x + 1.1, STONE.z - 1.0, STONE.z + 1.0);      // the stone
-    add(-9.5, -5.5, -14.5, -11.5);        // the stag and its stones
   }
 
   /* ---------------------------------------------------- the jungle round it */
+  /**
+   * The forest closes in on the route from both sides: trees on a jittered
+   * grid wherever they are a little way off the route (never on it), a band
+   * of undergrowth right at its edges, and rocks between. So the way is
+   * always the open ground, and everything else is trees.
+   */
   _buildJungle() {
     const trees = [this.kit.tree1, this.kit.tree2, this.kit.tree3, this.kit.tree4, this.kit.ruinTree];
-
-    // The tree line, ringed round the clearing. The gap at the north end is
-    // the trail mouth: the only way out, and exactly where level 01 starts.
-    let seed = 4711;
-    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-    const COUNT = 42;
-    for (let i = 0; i < COUNT; i++) {
-      const a = (i / COUNT) * Math.PI * 2 + rnd() * 0.12;
-      const x = Math.cos(a), z = Math.sin(a);
-      // leave the gap: north, within the corridor width
-      if (z < -0.86 && Math.abs(x) < 4.0) continue;
-      const r = CLEARING_R + 3.5 + rnd() * 11;
-      const proto = trees[i % trees.length];
-      placeProp(this.root, cloneProp(proto), Math.cos(a) * r, -0.05, Math.sin(a) * r, {
-        s: 0.021 + rnd() * 0.014, ry: rnd() * Math.PI * 2, shadow: false,
-      });
-    }
-    // two trunks framing the mouth, clear of the running lane
-    placeProp(this.root, cloneProp(this.kit.tree2), -4.3, -0.05, -15.2, { s: 0.03, ry: 0.6 });
-    placeProp(this.root, cloneProp(this.kit.tree3), 4.4, -0.05, -14.8, { s: 0.032, ry: 2.4 });
-
-    // undergrowth between the ring and the clearing
     const bushes = [this.kit.bush1, this.kit.bush2, this.kit.bush3];
     const grasses = [this.kit.grass1, this.kit.grass2, this.kit.grass3];
-    for (let i = 0; i < 46; i++) {
-      const a = rnd() * Math.PI * 2;
-      const r = CLEARING_R - 1.5 + rnd() * 6;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (z < -0.8 && Math.abs(x) < 3.8) continue;         // keep the mouth clear
-      const set = i % 3 === 0 ? grasses : bushes;
-      placeProp(this.root, cloneProp(set[i % set.length]), x, 0, z, {
-        s: 0.01 + rnd() * 0.006, ry: rnd() * Math.PI * 2, shadow: false,
-      });
-    }
-    for (let i = 0; i < 16; i++) {
-      const a = rnd() * Math.PI * 2;
-      const r = CLEARING_R + rnd() * 5;
-      placeProp(this.root, cloneProp(this.kit['rock' + (1 + (i % 3))]),
-        Math.cos(a) * r, -0.15, Math.sin(a) * r,
-        { s: 0.011 + rnd() * 0.007, ry: rnd() * Math.PI * 2, shadow: false });
+    const clear = this.clearShapes;
+    let seed = 4711;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    // the forest is a few hundred copies of a dozen models: collected here
+    // and drawn instanced at the end (_scatter), not one clone apiece
+    const plant = new Map();
+    const put = (proto, x, y, z, s, ry) => {
+      if (!plant.has(proto)) plant.set(proto, []);
+      plant.get(proto).push([x, y, z, s, ry]);
+    };
+
+    let n = 0;
+    for (let gx = -24; gx <= 72; gx += 4.8) {
+      for (let gz = -46; gz <= 28; gz += 4.8) {
+        const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
+        const out = outside(clear, x, z);
+        if (out < 1.5 || out > 9.5) continue;
+        put(trees[n++ % trees.length], x, -0.05, z, 0.021 + rnd() * 0.014, rnd() * Math.PI * 2);
+      }
     }
 
-    // relics the trail will keep meeting — the valley was lived in long
-    // before anyone cut a line through it
-    placeProp(this.root, cloneProp(this.kit.stag), -7.5, 0, -13, { s: 0.0105, ry: 0.55 });
-    placeProp(this.root, cloneProp(this.kit.column), -6.2, 0, -11.4, { s: 0.014, ry: 0.2 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), -8.6, 0, -11.8, { s: 0.012, ry: 1.4 });
-    placeProp(this.root, cloneProp(this.kit.deadTree), 8.8, 0, -9.6, { s: 0.02, ry: 1.1 });
+    // undergrowth right along the edges, so the line of the path is drawn
+    // in leaves as well as in mud
+    let b = 0;
+    for (let gx = -16; gx <= 64; gx += 2.7) {
+      for (let gz = -38; gz <= 20; gz += 2.7) {
+        const x = gx + (rnd() - 0.5) * 2, z = gz + (rnd() - 0.5) * 2;
+        const out = outside(clear, x, z);
+        if (out < 0.3 || out > 2.4 || rnd() < 0.3) continue;
+        const set = b++ % 3 === 0 ? grasses : bushes;
+        put(set[b % set.length], x, 0, z, 0.01 + rnd() * 0.006, rnd() * Math.PI * 2);
+      }
+    }
+    for (let i = 0, tries = 0; i < 22 && tries < 400; tries++) {
+      const x = -14 + rnd() * 76, z = -36 + rnd() * 52;
+      const out = outside(clear, x, z);
+      if (out < 0.6 || out > 4) continue;
+      put(this.kit['rock' + (1 + (i % 3))], x, -0.15, z, 0.011 + rnd() * 0.007, rnd() * Math.PI * 2);
+      i++;
+    }
+    for (const [proto, list] of plant) this._scatter(proto, list);
+
+    // relics the path keeps meeting — the valley was lived in long before
+    // anyone cut a line through it: two columns at the first bend, a dead
+    // tree, the stag watching the third bend, the fox watching the stone
+    placeProp(this.root, cloneProp(this.kit.column), -7.0, 0, -0.8, { s: 0.014, ry: 0.2 });
+    placeProp(this.root, cloneProp(this.kit.columnShort), -6.9, 0, -3.3, { s: 0.012, ry: 1.4 });
+    placeProp(this.root, cloneProp(this.kit.deadTree), -2.6, 0, -8.6, { s: 0.02, ry: 1.1 });
+    placeProp(this.root, cloneProp(this.kit.stag), STAG_AT.x, 0, STAG_AT.z, { s: 0.0105, ry: -1.3 });
+    placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, -29.8, { s: 0.0105, ry: 0.9 });
+  }
+
+  /**
+   * Every copy of one model as instanced meshes — one per mesh inside the
+   * model, so a tree costs its few materials once for the whole forest
+   * instead of once per tree. `list` is [x, y, z, scale, yaw] per copy.
+   */
+  _scatter(proto, list) {
+    if (!proto || !list.length) return;
+    proto.updateMatrixWorld(true);
+    const toProto = new THREE.Matrix4().copy(proto.matrixWorld).invert();
+    const place = new THREE.Matrix4(), rel = new THREE.Matrix4(), m = new THREE.Matrix4();
+    const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    const p = new THREE.Vector3(), sc = new THREE.Vector3();
+    proto.traverse((o) => {
+      if (!o.isMesh) return;
+      rel.multiplyMatrices(toProto, o.matrixWorld);
+      const inst = new THREE.InstancedMesh(o.geometry, o.material, list.length);
+      list.forEach(([x, y, z, s, ry], i) => {
+        place.compose(p.set(x, y, z), q.setFromAxisAngle(up, ry), sc.set(s, s, s));
+        inst.setMatrixAt(i, m.multiplyMatrices(place, rel));
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      inst.computeBoundingSphere();
+      inst.castShadow = o.castShadow;
+      inst.receiveShadow = o.receiveShadow;
+      this.root.add(inst);
+    });
+  }
+
+  /**
+   * The old markers: knee-high stacks of stones with a pale moss glow on top,
+   * one every few metres along the walk and both sides of the run trail, so
+   * the way reads at night from any distance. And two gates: one at the top
+   * of the path into the glade, one on the trail out — run through it.
+   */
+  _buildMarkers() {
+    const spots = [];
+    // the walk: alternate sides, a stride outside the path's edge
+    for (let s = 3, side = 1; s < this.walkLen - 2; s += 4.4, side = -side) {
+      const i = Math.min(this.walkPath.length - 2, Math.round((s / this.walkLen) * (this.walkPath.length - 1)));
+      const a = this.walkPath[i], b = this.walkPath[i + 1];
+      const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const nx = -(b.z - a.z) / tl, nz = (b.x - a.x) / tl;
+      spots.push([a.x + nx * (PATH_HW + 0.35) * side, a.z + nz * (PATH_HW + 0.35) * side]);
+    }
+    // the run: both sides, all the way to the light
+    for (let x = 6; x <= RUN_TO.x; x += 5) {
+      spots.push([x, RUN_TO.z - RUN_HW - 0.35], [x, RUN_TO.z + RUN_HW + 0.35]);
+    }
+
+    const stoneGeo = new THREE.DodecahedronGeometry(1, 0);
+    const stones = new THREE.InstancedMesh(stoneGeo, this.matRock, spots.length * 3);
+    this.matCairn = new THREE.MeshStandardMaterial({
+      color: 0x3d4a36, roughness: 0.8, emissive: CAIRN_GLOW, emissiveIntensity: 0.9,
+    });
+    const caps = new THREE.InstancedMesh(stoneGeo, this.matCairn, spots.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const p = new THREE.Vector3(), sc = new THREE.Vector3();
+    let k = 0;
+    spots.forEach(([x, z], i) => {
+      let y = 0;
+      for (const r of [0.26, 0.2, 0.15]) {
+        q.setFromEuler(e.set(i * 0.7, i * 1.3 + r * 9, 0));
+        m.compose(p.set(x, y + r * 0.75, z), q, sc.set(r, r * 0.8, r));
+        stones.setMatrixAt(k++, m);
+        y += r * 1.35;
+      }
+      q.setFromEuler(e.set(0, i * 2.1, 0));
+      m.compose(p.set(x, y + 0.06, z), q, sc.set(0.11, 0.09, 0.11));
+      caps.setMatrixAt(i, m);
+    });
+    stones.castShadow = true;
+    this.root.add(stones, caps);
+
+    // the gates: the arch model sized to span the way, turned across it
+    const proto = this.kit.gateArch;
+    const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3());
+    const across = Math.max(size.x, size.z) || 1;
+    const end = this.walkPath[this.walkPath.length - 1], prev = this.walkPath[this.walkPath.length - 5];
+    const pathYaw = Math.atan2(end.x - prev.x, end.z - prev.z);
+    const spanAlongX = size.x >= size.z;   // which way the model's opening faces
+    for (const [x, z, yaw, width] of [
+      [end.x, end.z, pathYaw, PATH_HW * 2 + 2.4],
+      [9, RUN_TO.z, Math.PI / 2, RUN_HW * 2 + 2.6],
+    ]) {
+      const gate = cloneProp(proto);
+      gate.scale.setScalar(width / across);
+      gate.position.set(x, -0.05, z);
+      gate.rotation.y = yaw + (spanAlongX ? 0 : Math.PI / 2);
+      this.root.add(gate);
+    }
   }
 
   /* ---------------------------------------------------- the two figures */
-  _buildFigures() {
+  /**
+   * The game's own two characters (intros/cast.js): the Mixamo Kai, and the
+   * Handler's build as Ingram — bare-faced, because this is the one time the
+   * player sees him. Each stands in an outer group that the scene moves and
+   * turns with the same yaw convention as the camera (0 = facing -Z).
+   */
+  _buildFigures(cast) {
     // ---- Ingram, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
     this.ingram = new THREE.Group();
-    const torso = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.34, 0.9, 4, 10),
-      new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.85 }),
-    );
-    torso.position.y = 1.08;
-    torso.castShadow = true;
-    this.ingram.add(torso);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 14, 10),
-      new THREE.MeshStandardMaterial({ color: 0x6e5a48, roughness: 0.8 }),
-    );
-    head.position.y = 1.8;
-    head.castShadow = true;
-    this.ingram.add(head);
-    // the long coat — the same one the player will spend three levels
-    // learning to dread, seen here in firelight for the only time
-    const coat = new THREE.Mesh(this.geoBox, this.matWood);
-    coat.scale.set(0.82, 1.4, 0.4);
-    coat.position.y = 0.74;
-    coat.castShadow = true;
-    this.ingram.add(coat);
-
     this.ingram.position.set(INGRAM_AT.x, 0, INGRAM_AT.z);
     this.ingram.rotation.y = Math.PI;       // faces Kai across the flames
     this.root.add(this.ingram);
+    const ing = this.ingramF = makeHandler(this.ingram, cast.handler, { helmet: false });
+    ing.root.rotation.y = Math.PI;          // the rig faces +Z; the group's 0 is -Z
+    // the boss's ember undertone belongs to the fight, not to a man at a fire
+    for (const m of ing.materials) if (m.userData.baseEmissive) m.userData.baseEmissive.setHex(0x000000);
 
     // his lamp, hanging from one hand. Amber, like the fire, then the chase,
     // then the helmet coming off.
@@ -922,69 +1207,82 @@ export class Prologue extends Level {
       color: 0x777c70, roughness: 0.6, metalness: 0.4,
       emissive: 0xffb03a, emissiveIntensity: 0.6,
     });
-    this.ingramLamp = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.2, 10), this.matLamp);
-    this.ingramLamp.position.set(0.42, 0.62, 0.1);
-    this.ingram.add(this.ingramLamp);
+    const lamp = new THREE.Group();
+    lamp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.2, 10), this.matLamp));
     this.ingramLampLight = new THREE.PointLight(0xffb03a, 2.2, 8, 2);
-    this.ingramLampLight.position.set(0.42, 0.68, 0.1);
-    this.ingram.add(this.ingramLampLight);
+    this.ingramLampLight.position.y = 0.06;
+    lamp.add(this.ingramLampLight);
+    this._hang(ing, 'PalmL', lamp, 0.14, [0.42, 0.62, -0.1]);
 
-    // whatever the downloaded rig looks like, it steps into this group. It
-    // loads in the background, so the blocky figure above is what the player
-    // sees until it lands — and forever if it never does.
-    this.ingramModel = attachCharacter(this.assets, 'handler', this.ingram, {
-      onReady: (h) => {
-        // after he walks off, the model must never show a face again
-        if (this.phase !== 'title' && this.phase !== 'talk' && this.phase !== 'leave') {
-          this._silenceIngram();
-        }
-      },
-    });
-
-    // ---- Kai himself. On screen in the fire two-shot and in the wide
-    //      pull-back; hidden whenever the camera is his own eyes. ----
-    this.matKai = new THREE.MeshStandardMaterial({ color: 0x45566e, roughness: 0.7 });
+    // ---- Kai himself. On screen in the fire two-shot, the wide pull-back
+    //      and the whole run; hidden whenever the camera is his own eyes. ----
     this.kai = new THREE.Group();
-    const kTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.82, 4, 10), this.matKai);
-    kTorso.position.y = 1.02; kTorso.castShadow = true;
-    this.kai.add(kTorso);
-    const kHead = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), this.matKai);
-    kHead.position.y = 1.64; kHead.castShadow = true;
-    this.kai.add(kHead);
-    for (const sx of [-0.19, 0.19]) {
-      const leg = new THREE.Mesh(this.geoBox, this.matKai);
-      leg.scale.set(0.17, 0.62, 0.17);
-      leg.position.set(sx, 0.31, 0);
-      this.kai.add(leg);
-    }
     this.kai.visible = false;
     this.root.add(this.kai);
+    const kai = this.kaiF = makeKai(this.kai, cast.kai);
+    kai.root.rotation.y = Math.PI;
+    if (kai.key) kai.key.visible = false;   // no Key in this story: no technology at all
+    this._lendWalk(kai, ing);
 
-    // Same swap-in pattern as Ingram: blocky Kai until the rig lands. Once
-    // it does he sits to the fire — the two-shot holds on him for the whole
-    // conversation, so the sitting pose matters the moment it arrives.
-    this.kaiModel = attachCharacter(this.assets, 'kai', this.kai, {
-      onReady: () => {
-        if (this._inFireShot() && this.kaiModel) this.kaiModel.play('sitting');
-      },
-    });
-
-    // the log Kai sits on, and one stump for his heels
-    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 1.5, 8), this.matWood);
+    // He sits to the fire, and the log goes where he sits: measured off his
+    // hips in the sitting clip, so he is on it and not floating over it.
+    this.kai.position.set(SEAT.x, 0, SEAT.z + 0.3);
+    let seatY = 0.44, seatZ = SEAT.z + 0.35, seatX = SEAT.x;
+    if (kai.actions.sitting) {
+      kai.play('sitting', { fade: 0 });
+      kai.update(0.01);
+      this.kai.updateMatrixWorld(true);
+      const hips = kai.bone('Hips');
+      if (hips) {
+        const h = hips.getWorldPosition(new THREE.Vector3());
+        seatY = h.y - 0.1;
+        seatX = h.x;
+        seatZ = h.z + 0.04;
+      }
+    }
+    const R = 0.2;
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.1, 1.5, 9), this.matWood);
     log.rotation.z = Math.PI / 2;
-    log.position.set(SEAT.x, 0.16, SEAT.z + 0.35);
+    log.position.set(seatX, Math.max(R, seatY - R), seatZ);
     log.castShadow = true;
+    log.receiveShadow = true;
     this.root.add(log);
     this._buildBlockers();
   }
 
-  /** Swap every material on Ingram for the matte-black one. One way. */
-  _silenceIngram() {
-    if (!this.ingramModel || !this.ingramModel.root) return;
-    this.ingramModel.root.traverse((o) => {
-      if (o.isMesh) o.material = this.matDark;
-    });
-    // his lamp stays lit — the lamp IS him, from here to the shrine
+  /**
+   * Parent a prop to a bone so it moves with the hand, undoing the rig's
+   * scale so the prop keeps its size. `reach` sets it out along the bone
+   * (a Mixamo hand's +Y runs down the fingers); with no bone (the capsule
+   * stand-in) it sits at `fallback` on the body.
+   */
+  _hang(fighter, boneName, obj, reach, fallback) {
+    const b = fighter.bone(boneName);
+    if (b) {
+      fighter.root.updateMatrixWorld(true);
+      const s = b.getWorldScale(new THREE.Vector3()).x || 1;
+      obj.scale.setScalar(1 / s);
+      obj.position.set(0, reach / s, 0);
+      b.add(obj);
+    } else {
+      obj.position.set(...fallback);
+      fighter.pivot.add(obj);
+    }
+  }
+
+  /**
+   * The monk build has no walk of his own. Kai's walk is on the same Mixamo
+   * skeleton, so Ingram borrows its rotations (not its hip travel — the two
+   * builds are not the same size) for his walk into the dark.
+   */
+  _lendWalk(from, to) {
+    if (to.actions.walk || !from.actions.walk || !to.mixer) return;
+    const clip = from.actions.walk.getClip();
+    const tracks = clip.tracks.filter((t) =>
+      t.name.endsWith('.quaternion') && to.bones[t.name.slice(0, -'.quaternion'.length)]);
+    if (tracks.length) {
+      to.actions.walk = to.mixer.clipAction(new THREE.AnimationClip('walk', clip.duration, tracks));
+    }
   }
 
   /* ==================================================== hud */
@@ -1105,10 +1403,10 @@ export class Prologue extends Level {
       this.hud.sub.style.top = '33%';
       this.hud.shade.style.opacity = '0';   // no bottom band needed up there
     } else {
-      // Kai's words, on Kai — measured on his chest in the two-shot, where
+      // Kai's words, on Kai — measured on his back in the two-shot, where
       // he sits at the left of frame (his head stays clear above the text)
       this.hud.sub.style.left = '30%';
-      this.hud.sub.style.top = '63%';
+      this.hud.sub.style.top = '80%';
       this.hud.shade.style.opacity = '1';
     }
     this.hud.sub.style.opacity = '1';
@@ -1194,20 +1492,28 @@ export class Prologue extends Level {
     const dz = (-cos * f - sin * s) * sp * dt;
     if (!this._blocked(this.px + dx, this.pz)) this.px += dx;
     if (!this._blocked(this.px, this.pz + dz)) this.pz += dz;
+    this._moving = len > 0;
+    if (this._moving) this._moveYaw = Math.atan2(-dx, -dz);
+    this._clampWalk();
+  }
 
-    // The clearing has an edge: tree line all the way round, open only where
-    // the trail mouth cuts through it. Until he has the horn there is nothing
-    // out there but the dark, so the rope of shadow at the mouth holds him.
-    if (this.pz < -14) {
-      this.px = THREE.MathUtils.clamp(this.px, -CORRIDOR_X, CORRIDOR_X);
-      this.pz = Math.max(this.pz, -21);
-    } else if (this.phase !== 'flee' && this.pz < -11.5) {
-      this.pz = -11.5;
-    } else {
-      const r = Math.hypot(this.px, this.pz);
-      const rMax = CLEARING_R - 0.6;
-      if (r > rMax) { this.px *= rMax / r; this.pz *= rMax / r; }
+  /**
+   * Keep him on the route: inside the camp, the path, or the glade — and
+   * during the run only the glade and the straight trail. Off it, he is
+   * put back on the nearest edge, so he slides along it instead of sticking.
+   */
+  _clampWalk() {
+    const shapes = this.phase === 'flee' ? this.fleeShapes : this.walkShapes;
+    let best = Infinity, bx = 0, bz = 0, bd = 1, br = 0;
+    for (const sh of shapes) {
+      const n = nearSpine(sh, this.px, this.pz);
+      const out = n.d - sh.r;
+      if (out <= 0) return;
+      if (out < best) { best = out; bx = n.x; bz = n.z; bd = n.d; br = sh.r; }
     }
+    const k = (br - 0.001) / bd;
+    this.px = bx + (this.px - bx) * k;
+    this.pz = bz + (this.pz - bz) * k;
   }
 
   _look() {
@@ -1225,17 +1531,22 @@ export class Prologue extends Level {
     if (this.hud && this.hud.lock) this.hud.lock.style.opacity = '0';
   }
 
-  /** Screen-space arrow toward a point in the clearing, relative to where he looks. */
+  /** Screen-space arrow toward a point, relative to where he (or the chase camera) looks. */
   _arrowTo(tx, tz) {
     let d = this._yawTo(tx, tz) - this.yaw;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
     if (Math.abs(d) < 0.55) return '&uarr;';
+    if (Math.abs(d) > 2.6) return '&darr;';
     return d > 0 ? '&larr;' : '&rarr;';
   }
 
-  _trailArrow() { return this._arrowTo(TRAIL.x, TRAIL.z); }
-  _stoneArrow() { return this._arrowTo(STONE.x, STONE.z); }
+  /** Down the trail: aim a few metres ahead of him along it, never back at the glade. */
+  _trailArrow() { return this._arrowTo(Math.max(this.px + 6, RUN_FROM.x + 8), RUN_TO.z); }
+  _pathArrow() {
+    const p = this._pathAhead(4);
+    return this._arrowTo(p.x, p.z);
+  }
 
   /** Yaw that points the camera at a place, from where he is standing. */
   _yawTo(tx, tz) {
@@ -1243,7 +1554,6 @@ export class Prologue extends Level {
   }
 
   _yawToStone() { return this._yawTo(STONE.x, STONE.z); }
-  _yawToTrail() { return this._yawTo(TRAIL.x, TRAIL.z); }
 
   /* ==================================================== night -> dawn */
   /** k = 0 is the clearing at night; k = 1 is level 01's exact morning. */
@@ -1275,7 +1585,9 @@ export class Prologue extends Level {
     }
     for (const m of this.mist) m.material.opacity = 0.05 * (1 - k);
     this.fireflyMat.opacity = 0.8 * (1 - k);
-    if (this.mouthLight) this.mouthLight.intensity = 1.4 * (1 - k);
+    if (this.moonShaft) this.moonShaft.material.uniforms.uOpacity.value = 0.075 * (1 - k);
+    if (this.exitLight) this.exitLight.intensity = 2 + 10 * k;
+    if (this.matCairn) this.matCairn.emissiveIntensity = 0.9 * (1 - k * 0.6);
   }
 
   /* ==================================================== key moments */
@@ -1327,29 +1639,36 @@ export class Prologue extends Level {
       (this.phase === 'rise' && this.t <= RISE_CUT);
   }
 
+  /** The run's camera: from the wide shot's turn to the end of the scene. */
+  _inChase() {
+    return this._fled || (this.phase === 'wide' && this.t > WIDE_TURN);
+  }
+
   _updateCamera() {
     const cam = this.game.camera;
-    this._fp.set(this.px, this.eye, this.pz);
+    const shot = this._inFireShot();
+    const chase = this._inChase();
 
-    // where first-person is looking, as a point in the world
-    const cp = Math.cos(this.pitch);
-    this._dir.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
-    this._look3.copy(this._fp).addScaledVector(this._dir, 6);
+    // the base pose the wide shot pulls back from and returns to: his eyes
+    // on the walk, the chase camera behind him on the run
+    if (chase) {
+      const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+      this._fp.set(this.px + s * CHASE_BACK, CHASE_HIGH, this.pz + c * CHASE_BACK);
+      this._look3.set(this.px - s * CHASE_AHEAD, 1.0, this.pz - c * CHASE_AHEAD);
+    } else {
+      this._fp.set(this.px, this.eye, this.pz);
+      const cp = Math.cos(this.pitch);
+      this._dir.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+      this._look3.copy(this._fp).addScaledVector(this._dir, 6);
+    }
 
     // Kai is drawn whenever the camera is outside his head: the fire
-    // two-shot at the start, the wide pull-back at the stone. First person
-    // hides him — the camera is his eyes.
-    const shot = this._inFireShot();
-    this.kai.visible = shot || this.cine > 0.34;
-    if (this.kai.visible) {
-      if (shot) {
-        // seated at the log, feet to the flames
-        this.kai.position.set(SEAT.x, 0.12, SEAT.z + 0.3);
-        this.kai.rotation.y = 0;
-      } else {
-        this.kai.position.set(this.px, 0, this.pz);
-        this.kai.rotation.y = this.yaw;
-      }
+    // two-shot, the wide pull-back, and the whole run. First person hides
+    // him — the camera is his eyes.
+    this.kai.visible = shot || chase || this.cine > 0.34;
+    if (this.kai.visible && !shot) {
+      this.kai.position.set(this.px, 0, this.pz);
+      this.kai.rotation.y = this.heading;
     }
 
     if (this.cine > 0) {
@@ -1357,7 +1676,7 @@ export class Prologue extends Level {
       cam.position.lerpVectors(this._fp, WIDE_POS, k);
       this._look3.lerp(WIDE_LOOK, k);
       cam.lookAt(this._look3);
-      const want = 58 + 10 * k;
+      const want = (chase ? 62 : 58) + (68 - (chase ? 62 : 58)) * k;
       if (Math.abs(cam.fov - want) > 0.05) { cam.fov = want; cam.updateProjectionMatrix(); }
     } else if (shot) {
       // THE TWO-SHOT — one camera, two people. Locked off on its sticks,
@@ -1374,6 +1693,16 @@ export class Prologue extends Level {
       }
       cam.lookAt(this._look3);
       const want = 46;
+      if (Math.abs(cam.fov - want) > 0.05) {
+        cam.fov += (want - cam.fov) * 0.08;
+        cam.updateProjectionMatrix();
+      }
+    } else if (chase) {
+      // THE RUN — behind him and a little above: his whole body, which way
+      // it is going, and the straight trail ahead of it
+      cam.position.copy(this._fp);
+      cam.lookAt(this._look3);
+      const want = 62;
       if (Math.abs(cam.fov - want) > 0.05) {
         cam.fov += (want - cam.fov) * 0.08;
         cam.updateProjectionMatrix();
@@ -1409,20 +1738,12 @@ export class Prologue extends Level {
     this.sfx.tickNight(dt);
     this.sfx.tickFire(dt);
 
-    // fireflies hold still until they don't; mist crawls
+    // fireflies pulse along the route; mist crawls
     this.fireflyMat.opacity = (0.55 + Math.sin(this.t * 1.7) * 0.25) * (1 - this.dawnK);
-    this.fireflies.rotation.y += dt * 0.006;
     for (const m of this.mist) m.rotation.z += dt * 0.012;
 
-    if (this.kaiModel) this.kaiModel.update(dt);
-    if (this.ingramModel) this.ingramModel.update(dt);
-
-    // the horn rides just in front of him, at about the height he'd carry it
-    if (this.carried && this.carried.children.length) {
-      this.carried.position.set(
-        this.px - Math.sin(this.yaw) * 0.42, 1.08, this.pz - Math.cos(this.yaw) * 0.42,
-      );
-    }
+    this.kaiF.update(dt);
+    this.ingramF.update(dt);
 
     // heartbeat, from the first touch of the horn
     if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
@@ -1446,8 +1767,8 @@ export class Prologue extends Level {
       // starts the forest and hands the scene to Ingram.
       case 'title': {
         // the figures settle into the shot while the title holds
-        if (!this._ingramIdled) { this._ingramIdled = true; if (this.ingramModel) this.ingramModel.play('idle'); }
-        if (!this._kaiSeated) { this._kaiSeated = true; if (this.kaiModel) this.kaiModel.play('sitting'); }
+        if (!this._ingramIdled) { this._ingramIdled = true; this.ingramF.play('idle'); }
+        if (!this._kaiSeated) { this._kaiSeated = true; this.kaiF.play('sitting'); }
         break;
       }
 
@@ -1459,12 +1780,10 @@ export class Prologue extends Level {
         // the fire is dying all through the conversation
         this.sfx.firePower = Math.max(0.45, 1 - this.t * 0.012);
         // Ingram is alive at the fire: breathing weight, the lamp swinging
-        if (this.ingramModel) {
-          if (!this._ingramIdled) { this._ingramIdled = true; this.ingramModel.play('idle'); }
-        }
+        if (!this._ingramIdled) { this._ingramIdled = true; this.ingramF.play('idle'); }
         this.ingram.rotation.y = Math.PI + Math.sin(this.t * 0.4) * 0.03;
         // ...and so is Kai, on his log across the flames
-        if (!this._kaiSeated) { this._kaiSeated = true; if (this.kaiModel) this.kaiModel.play('sitting'); }
+        if (!this._kaiSeated) { this._kaiSeated = true; this.kaiF.play('sitting'); }
         break;
       }
 
@@ -1472,9 +1791,9 @@ export class Prologue extends Level {
       case 'leave': {
         if (!this._whistled && this.t > 0.6) { this._whistled = true; this.sfx.whistle(); }
         if (this.t > 1.4) {
-          if (this.ingramModel) this.ingramModel.play('walk');
           // out along the west tree line, unhurried — a man with nowhere to be
           const k = Math.min(1, (this.t - 1.4) / 4.6);
+          this.ingramF.play(k < 1 ? 'walk' : 'idle', { fade: 0.4, speed: 1.3 });
           const ease = k * k * (3 - 2 * k);
           this.ingram.position.set(
             THREE.MathUtils.lerp(INGRAM_AT.x, WALKOFF.x, ease),
@@ -1499,38 +1818,36 @@ export class Prologue extends Level {
         break;
       }
 
-      // He gets to his feet — the two-shot holds on him standing up, then
-      // cuts into his eyes exactly when control comes back.
+      // He gets to his feet — the two-shot holds on him standing up (the
+      // sitting clip blending out into his stance), then cuts into his eyes
+      // exactly when control comes back.
       case 'rise': {
         const k = Math.min(1, this.t / RISE_CUT);
         this.eye = THREE.MathUtils.lerp(SEAT.eye, STAND_EYE, k);
-        this.pz = THREE.MathUtils.lerp(SEAT.z, SEAT.z + 0.75, k);
-        if (!this._kaiRose) { this._kaiRose = true; if (this.kaiModel) this.kaiModel.play('standing'); }
+        if (!this._kaiRose) { this._kaiRose = true; this.kaiF.play('idle', { fade: 0.9 }); }
         if (this.t > RISE_CUT) {
           this.phase = 'walk';
           this.t = 0;
           this.seated = false;        // off the log: he can turn freely
           this.standing = true;       // and he can walk
-          if (this.kaiModel) this.kaiModel.play('walk');
-          this.yaw = this._yawToStone();
+          this.yaw = this._yawTo(WALK_PTS[1][0], WALK_PTS[1][1]);   // past the fire, up the path
+          this.sfx.owls = true;
           this._say('A year of wages. For one walk in the dark.');
           this._onLockChange();
         }
         break;
       }
 
-      // THE WALK. No threat yet — this stretch is only the fire behind him
-      // and the dark under the trees ahead. About five seconds of open grass.
+      // THE WALK. The old path winds up through the trees: cairns glowing
+      // either side, ruins, an owl, the stag, the gate. The forest is as
+      // loud as it will ever be — this is what the silence is going to take.
       case 'walk': {
         this._prompt(
           '<span style="color:' + INGRAM_AMBER + '">THE STONE</span> &nbsp; ' +
-          '<span style="font-size:24px;color:' + INGRAM_AMBER + '">' + this._stoneArrow() + '</span>',
+          '<span style="font-size:24px;color:' + INGRAM_AMBER + '">' + this._pathArrow() + '</span>',
         );
-        if (!this.halfway &&
-            Math.hypot(this.px - STONE.x, this.pz - STONE.z) < 6) {
-          this.halfway = true;
-          this._say('Everyone in the valley could tell you what this stone means.');
-        }
+        this.walkS = Math.max(this.walkS, this._pathS(this.px, this.pz));
+        this._walkBeats();
         if (Math.hypot(this.px - STONE.x, this.pz - STONE.z) < 2.35) {
           this.phase = 'choice';
           this.t = 0;
@@ -1640,11 +1957,12 @@ export class Prologue extends Level {
         if (this.t > 1.5 && !this._quietSaid) {
           this._quietSaid = true;
           this._say('Everything just went quiet.', null, true);
-          this._say("That's not supposed to happen.");
+          this._say('The stories were true.');
         }
         if (this._quietSaid && !this._talking() && this.t > 4.2) {
           this.phase = 'wide';
           this.t = 0;
+          this._wideFrom = this.yaw;        // he turns from the stone to the trail
           this.standing = false;            // the shot takes the controls back
           // the last of the fire settles to embers behind him
           this.sfx.firePower = 0.3;
@@ -1662,11 +1980,19 @@ export class Prologue extends Level {
         else {
           this.cine = 0;
           this.standing = true;
+          this._fled = true;                // the chase camera, from here to the end
           this.phase = 'flee';
           this.t = 0;
           this.sfx.alarm();
-          if (this.kaiModel) this.kaiModel.play('run');
           this._onLockChange();
+        }
+        // in the held frame he turns from the stone to face the trail; the
+        // camera that comes back down is behind him, looking where he'll run
+        if (this.phase === 'wide') {
+          const k = THREE.MathUtils.smoothstep(this.t, 2.2, 3.4);
+          this.heading = this._wideFrom + wrapAngle(RUN_YAW - this._wideFrom) * k;
+          if (this.t > WIDE_TURN) { this.yaw = RUN_YAW; this.pitch = 0; }
+          this.kaiF.play(k > 0 && k < 1 ? 'walk' : 'idle', { fade: 0.3, speed: 0.6 });
         }
         // the first grey of morning creeps in while he stands there — the
         // night is already dying, and Ingram said "before morning"
@@ -1680,14 +2006,23 @@ export class Prologue extends Level {
       }
 
       case 'flee': {
-        // he runs the only line there is: across the open ground, through the
-        // mouth, out onto the trail. Nothing is shown behind him — whoever
-        // the silence woke does not appear until level 01, mid-run.
+        // he runs the only line there is: out of the glade and dead straight
+        // down the cairn-lined trail, through the second gate. Nothing is
+        // shown behind him — whoever the silence woke does not appear until
+        // level 01, mid-run. The camera is behind him: his body turns to
+        // where he is going, and the trail is always ahead of it.
+        if (this._moving) {
+          this.heading += wrapAngle(this._moveYaw - this.heading) * (1 - Math.exp(-10 * dt));
+          this.kaiF.play('run', { fade: 0.2, speed: RUN / 5.18 });
+        } else {
+          this.kaiF.play('idle', { fade: 0.25 });
+        }
 
         // dawn coming up while he runs — the night is ending around him, and
         // Ingram said "before morning". The run IS the night ending; by the
-        // mouth of the trail it is level 01's morning already.
-        this.dawnK = Math.max(this.dawnK, Math.min(1, this.t / 12));
+        // end of the trail it is level 01's morning already.
+        const along = (this.px - 2) / (RUN_EXIT_X - 2);
+        this.dawnK = Math.max(this.dawnK, Math.min(1, Math.max(this.t / 11, along)));
         this._applyDawn(this.dawnK);
         if (!this._skySaid && this.t > 3) {
           this._skySaid = true;
@@ -1698,13 +2033,70 @@ export class Prologue extends Level {
           '<b style="color:' + KAI_GREEN + '">RUN</b> &nbsp; ' +
           '<span style="font-size:24px;color:' + KAI_GREEN + '">' + this._trailArrow() + '</span>',
         );
-        const atTrail = this.pz < -17.4 && Math.abs(this.px) < CORRIDOR_X;
-        if (atTrail) this._exit(state);
+        if (this.px > RUN_EXIT_X) this._exit(state);
+        break;
+      }
+
+      // the fade to level 01: if he was running, he keeps running into it
+      case 'done': {
+        if (this._fled) {
+          this.px -= Math.sin(this.heading) * RUN * dt;
+          this.pz -= Math.cos(this.heading) * RUN * dt;
+          this.kaiF.play('run', { fade: 0.2, speed: RUN / 5.18 });
+        }
         break;
       }
     }
 
+    // in his own eyes his body faces where he looks; the wide shot and the
+    // run steer it themselves above
+    if (!this._fled && this.phase !== 'wide') this.heading = this.yaw;
+
     this._updateCamera();
+    this._carry();
+  }
+
+  /**
+   * Where the horn rides once it is his: in his right hand whenever his
+   * body is on screen, and just in front of his eyes, chest height, when
+   * the camera is his own.
+   */
+  _carry() {
+    if (!this.carried || !this.carried.children.length) return;
+    const palm = this.kai.visible ? this.kaiF.bone('PalmR') : null;
+    if (palm) {
+      this.kai.updateMatrixWorld(true);
+      palm.getWorldPosition(this.carried.position);
+      this.carried.rotation.y = this.heading;
+    } else {
+      this.carried.position.set(
+        this.px - Math.sin(this.yaw) * 0.42, 1.08, this.pz - Math.cos(this.yaw) * 0.42,
+      );
+      this.carried.rotation.y = 0;
+    }
+  }
+
+  /**
+   * The walk's thoughts, in order, each once. One waits for the last to
+   * finish, so a fast walker gets them late rather than piled up.
+   */
+  _walkBeats() {
+    const s = this.walkS;
+    if (s > 12 && !this.beats.owl) { this.beats.owl = true; this.sfx.owl(); }
+    if (this._talking()) return;
+    const stag = Math.hypot(this.px - STAG_AT.x, this.pz - STAG_AT.z) < 4.5;
+    const list = [
+      ['markers', s > 2.5, "The old markers. Stay with them and you can't get lost."],
+      ['ruins', s > 8, 'People lived up here once. Long before the company.'],
+      ['loud', s > 14, 'Listen to it. The whole forest is awake tonight.'],
+      ['stag', stag || s > 22, 'Nobody comes up this far. Not even the company men.'],
+      ['gate', s > this.walkLen - 5, "The gate. It's just past here."],
+    ];
+    for (const [key, ready, line] of list) {
+      if (this.beats[key]) continue;
+      if (ready) { this.beats[key] = true; this._say(line); }
+      return;                       // strictly in order
+    }
   }
 
   /* ==================================================== teardown */
@@ -1720,8 +2112,10 @@ export class Prologue extends Level {
     }
     this.hud = {};
 
-    if (this.kaiModel) this.kaiModel.dispose();
-    if (this.ingramModel) this.ingramModel.dispose();
+    // the rigs' meshes go with this.root; their skeletons' bone textures do not
+    for (const f of [this.kaiF, this.ingramF]) {
+      f?.root?.traverse((o) => { if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose(); });
+    }
     this.mist = [];               // drop the references; super disposes the meshes
     this.scene.fog = null;
     this.game.camera.fov = 62;
