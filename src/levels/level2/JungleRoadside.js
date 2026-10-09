@@ -30,7 +30,7 @@ function rng(seed) {
 
 /** Flattens a prototype into [{ geometry, material, local matrix }]. */
 const _partsCache = new WeakMap();
-function partsOf(proto) {
+export function partsOf(proto) {
   if (_partsCache.has(proto)) return _partsCache.get(proto);
   const root = proto.clone(true);
   root.position.set(0, 0, 0);

@@ -24,7 +24,7 @@ assets/jungle/     every model and texture the game uses (index: assets/jungle/R
 assets/characters/ kai-bryce.glb, handler-monk.glb (+ .json), built by tools/build-character.py; kai.fbx, handler.fbx are the old fallbacks
 public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
-intros/            the Level 1 intro on its own page: npm run intro:l1
+intros/            the Level 1 intro and the Level 1 → 2 drive-out on their own pages: npm run intro:l1 / intro:l2
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
 ```
@@ -36,8 +36,10 @@ Raw source packs (`.blend` files, 4K originals, zips) are **not** committed — 
 `npm run dev` plays the whole thing in order:
 
 ```
-level01-intro → level01 → level02 → level03
+level01-intro → level01 → level02-intro → level02 → level03
 ```
+
+Level 1 ends with a short finish scene at the bay: Kai runs in to the car (the one you picked for Level 2, in its paint), looks back at the Handler hammering on the sealed gate, gets in and the headlights come on, then the ESCAPED card. `level02-intro` is the drive-out scene that follows: Kai takes the car out of the jungle onto the River Road, and Level 2 picks up with him already driving (no car picker; it's still on V / the CAR button, and a restart shows it).
 
 Jump straight to any piece with `?level=`, e.g. `http://localhost:5173/?level=level03`. The intro skips with Space / Enter / click. The order is set in `src/main.js`.
 

@@ -59,6 +59,7 @@ export class Traffic {
     this.assets = assets;
     this.cfg = { count, spawnMin, spawnMax, despawnBehind, despawnAhead, minSpeed, maxSpeed };
     this.pool = [];
+    this.obstacles = null;   // Obstacles (obstacles.js), set by Level02: cars change lane round them
   }
 
   async init(playerZ = 0) {
@@ -112,6 +113,7 @@ export class Traffic {
       if (dz < 14) near++;
       if (Math.abs(w.x - LANES[lane]) < 2 && dz < 30) return false;   // same lane, too close
     }
+    if (this.obstacles && this.obstacles.blocks(LANES[lane], v.halfW, z - 15, z + 15)) return false;
     return near < 2;                                                  // always leave 2 lanes open
   }
 
@@ -128,7 +130,7 @@ export class Traffic {
     v.parked = z > this.endZ - 320;
     v.holder.visible = !v.parked;
     if (v.parked) { v.z = -1e6; v.speed = 0; v.holder.position.z = v.z; return; }
-    v.x = LANES[lane]; v.z = z; v.yaw = 0; v.vx = 0; v.spin = 0; v.hitT = 0;
+    v.x = v.laneX = LANES[lane]; v.z = z; v.yaw = 0; v.vx = 0; v.spin = 0; v.hitT = 0;
     const [lo, hi] = v.type ? v.type.speed : [minSpeed, maxSpeed];
     v.baseSpeed = v.speed = rand(lo, hi);
     // a fresh colour every time it respawns, so the road never looks cloned
@@ -166,8 +168,23 @@ export class Traffic {
         if (g > -1 && g < gap) { gap = g; leader = w; }
       }
       const blocked = leader && gap < 10;
+      // a tree or an animal in its lane ahead: pull into the nearest clear lane,
+      // or stop short of it if there isn't one
+      let stopFor = Infinity;
+      if (this.obstacles && !v.vx && this.obstacles.blocks(v.laneX, v.halfW, v.z, v.z + 45)) {
+        const free = LANES.filter((x) => !this.obstacles.blocks(x, v.halfW, v.z - 8, v.z + 45))
+          .sort((a, b) => Math.abs(a - v.x) - Math.abs(b - v.x));
+        if (free.length) v.laneX = free[0];
+        else stopFor = 0;
+      }
+      if (!v.vx && v.laneX !== undefined && v.x !== v.laneX) {
+        const step = 3.2 * dt;
+        v.x = Math.abs(v.laneX - v.x) < step ? v.laneX : v.x + Math.sign(v.laneX - v.x) * step;
+        v.yaw = THREE.MathUtils.lerp(v.yaw, Math.sign(v.laneX - v.x) * 0.12, Math.min(1, dt * 4));
+      } else if (!v.spin) v.yaw *= Math.exp(-4 * dt);
+      const want = Math.min(v.baseSpeed, stopFor);
       v.speed = blocked ? Math.min(v.speed, leader.speed)
-                        : THREE.MathUtils.lerp(v.speed, v.baseSpeed, Math.min(1, dt));
+                        : THREE.MathUtils.lerp(v.speed, want, Math.min(1, dt * (stopFor === 0 ? 2 : 1)));
 
       v.z += v.speed * dt;
       spinWheels(v.model, v.speed, 0, dt);
@@ -176,7 +193,7 @@ export class Traffic {
         v.yaw += v.spin * dt;
         const damp = Math.exp(-2.2 * dt);
         v.vx *= damp; v.spin *= damp;
-        if (Math.abs(v.vx) < 0.05) v.vx = 0;
+        if (Math.abs(v.vx) < 0.05) { v.vx = 0; v.laneX = LANES.reduce((a, b) => (Math.abs(b - v.x) < Math.abs(a - v.x) ? b : a)); }
         if (Math.abs(v.spin) < 0.02) v.spin = 0;
       }
       v.hitT = Math.max(0, v.hitT - dt);

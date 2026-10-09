@@ -71,12 +71,8 @@ const LEVEL_CONTROLS = {
       { label: 'SKIP THE INTRO', action: 'skipScene' },
     ],
   },
-  'level01-intro': {
-    title: 'THE TRAIL \u2014 INTRO',
-    rows: [{ label: 'SKIP', action: 'skip' }],
-  },
   level01: {
-    title: 'LEVEL 1 \u2014 THE TRAIL',
+    title: 'LEVEL 1 \u2014 THE OLD TRAIL',
     rows: [
       { label: 'STEER', keys: 'A / D \u00b7 \u2190 / \u2192' },
       { label: 'JUMP', action: 'jump' },
@@ -86,8 +82,12 @@ const LEVEL_CONTROLS = {
       { label: 'RESTART', action: 'restart' },
     ],
   },
+  'level02-intro': {
+    title: 'THE RIVER ROAD \u2014 DRIVE-OUT',
+    rows: [{ label: 'SKIP', action: 'skip' }],
+  },
   level02: {
-    title: 'LEVEL 2 \u2014 RIVER ROAD',
+    title: 'LEVEL 2 \u2014 THE RIVER ROAD',
     rows: [
       { label: 'DRIVE / REVERSE', keys: 'W / S' },
       { label: 'STEER', keys: 'A / D \u00b7 \u2190 / \u2192' },
@@ -98,14 +98,15 @@ const LEVEL_CONTROLS = {
     ],
   },
   level03: {
-    title: 'LEVEL 3 \u2014 THE SHRINE',
+    title: 'LEVEL 3 \u2014 THE FALLS',
     rows: [
       { label: 'ATTACK', action: 'attack' },
       { label: 'KICK', action: 'kick' },
       { label: 'BLOCK', action: 'block' },
       { label: 'DODGE', action: 'dodge' },
-      { label: 'ABILITY', action: 'ability' },
-      { label: 'LOCK ON', action: 'lockOn' },
+      { label: 'THE HORN \u00b7 SLOW TIME', action: 'ability' },
+      { label: 'CAMERA \u00b7 LOCK ON', action: 'lockOn' },
+      { label: 'NEXT LINE', action: 'skip' },
       { label: 'INTERACT', action: 'interact' },
       { label: 'RESTART', action: 'restart' },
     ],

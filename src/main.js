@@ -4,22 +4,28 @@ import { Prologue } from "./levels/Prologue.js";
 import { Level01 } from "./levels/Level01.js";
 import { Level02 } from "./levels/Level02.js";
 import { Level03 } from "./levels/Level03.js";
-import { TrailIntro } from "./intros/level1/TrailIntro.js";
+import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
 import { mountControlsOverlay } from "./ui/ControlsOverlay.js";
+import { ensureDialogueFont } from "./ui/dialogue.js";
 
 /**
  * The full run, in order:
  *
- *   prologue → level01 → level02 → level03
+ *   prologue → level01 → level02-intro → level02 → level03
  *
- * The prologue is the intro of record (1A): it ends with Kai bursting onto
- * the trail at dawn — Level 1's first frame — so it hands straight to
- * level01. TrailIntro, the level-1 cutscene, stays registered for its own
- * work; open it on its own with ?level=level01-intro. Levels hand off
- * forward themselves (Level01 → level02, Level02 → level03). Any piece can
+ * The prologue is the intro of record: the fire, Baba Zwane, the horn on the
+ * stone. It ends with Kai running onto the trail at dawn, Level 1's first
+ * frame, so it hands straight to level01. Level 1 ends with Kai getting into
+ * the car; level02-intro is him driving out of the jungle onto the River
+ * Road, so Level 2 picks up already driving, and Level 2 ends over the falls
+ * where Level 3 begins. The levels hand off forward themselves. Any piece can
  * be opened on its own with ?level=<name>, e.g. ?level=level03.
+ *
+ * (The old server-room story's Level 1 cutscene, TrailIntro, is no longer
+ * part of the run: the prologue replaced it.)
  */
+ensureDialogueFont(); // the one serif the dialogue, cards and HUD names share
 const game = new Game();
 
 /**
@@ -40,9 +46,16 @@ function goTo(name) {
 }
 
 game.registerLevel("prologue", () => new Prologue());
-game.registerLevel("level01-intro", () => new TrailIntro({ onDone: () => goTo("level01") }));
 game.registerLevel("level01", () => new Level01());
-game.registerLevel("level02", () => new Level02());
+game.registerLevel("level02-intro", () => new DriveOutIntro({ onDone: () => { level02FromIntro = true; goTo("level02"); } }));
+// straight from the drive-out scene: no car picker, you're already driving
+// (the picker is still on V / the CAR button). A restart shows it as usual.
+let level02FromIntro = false;
+game.registerLevel("level02", () => {
+  const level = new Level02({ fromIntro: level02FromIntro });
+  level02FromIntro = false;
+  return level;
+});
 game.registerLevel("level03", () => new Level03());
 
 /**
@@ -86,7 +99,7 @@ game.start();
 
 // Level 1's models and textures download while the intro plays, so the
 // hand-off is instant. AssetRegistry caches them; Level 1 clones its own copies.
-if (first === "prologue" || first === "level01-intro") {
+if (first === "prologue") {
   Promise.all([loadJungleKit(game.assets), createJungleMaterials(game.assets)]).catch((err) =>
     console.warn("[game] level 1 preload failed; it will load on its own", err),
   );

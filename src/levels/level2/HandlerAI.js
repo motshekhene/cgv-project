@@ -56,6 +56,22 @@ const _v = new THREE.Vector2();
  * He gets more aggressive over ~90 s (shorter harass, quicker wind-up,
  * harder hits) and rubber-bands back if you boost far ahead.
  *
+ * Fair play:
+ *   - every wind-up gives at least a full second of warning
+ *   - no move starts while a fallen tree, rocks or a car is just ahead of
+ *     you: you need room to dodge
+ *   - giveSpace(s) after you crash into something: he backs off, cancels a
+ *     move that hasn't landed, and his bumps don't hurt for a few seconds
+ *   - tailgating taps cost 2 at most
+ *   - no move while cars box you in on both sides: every counter needs a
+ *     lane to move into
+ *   - a hit never chains into another: after a tyre shot, a drone or a
+ *     spike strip lands he gives you space too (Level02 calls giveSpace)
+ *
+ * Smooth driving: where he wants to be (tx, tz) is eased, not snapped, so a
+ * new state, a new move or a car to steer round doesn't jerk him across the
+ * road. Only the committed charge (SHUNT) and the old SLAM aim directly.
+ *
  * Hooks (set by Level02):
  *   onAttackResolved(hit)  a move landed     hit = { move, label, damage, impact, side }
  *   onContact(hit)         a smaller bump    hit = { damage, impact, side }
@@ -113,7 +129,9 @@ export class HandlerAI {
     this.traffic = null;         // Traffic, set by Level02 — he drives round it
 
     // fairness
-    this.nextAttackAt = 8;       // grace period before the first move
+    this.nextAttackAt = 10;      // grace period before the first move
+    this.graceUntil = 0;         // giveSpace(): no moves, no damage until then
+    this.obstacles = null;       // Obstacles, set by Level02: he won't attack into them
     this.avoiding = null;        // traffic car he's currently steering round
 
     this.onAttackResolved = null;
@@ -151,12 +169,39 @@ export class HandlerAI {
   _fairToAttack() {
     if (this.passive) return false;                // the finale: he backs off near the falls
     if (this.elapsed < this.nextAttackAt) return false;
+    if (this.elapsed < this.graceUntil) return false;
     if (this.weapons && this.weapons.threatActive) return false;   // one threat at a time
+    if (this._hazardAhead()) return false;         // you're busy dodging the road already
+    if (this._boxedIn(-1) && this._boxedIn(1)) return false;   // cars both sides: nowhere to dodge to
     return true;
   }
 
-  /** Bumps only cost health while he's actually on the attack. */
+  /** Something solid on the road just in front of you (a tree, rocks, an animal, a car)? */
+  _hazardAhead() {
+    const p = this.target.mesh.position;
+    const look = 25 + Math.max(0, this.target.speed) * 1.2;
+    const near = (o) => o.z - p.z > -2 && o.z - p.z < look && Math.abs(o.x - p.x) < (o.halfW || 1) + 4;
+    if (this.obstacles && this.obstacles.pool.some((o) => o.holder?.visible && o.state !== 'gone' && near(o))) return true;
+    if (this.traffic && this.traffic.pool.some((v) => !v.parked && near(v))) return true;
+    return false;
+  }
+
+  /**
+   * You just crashed into something: he eases off for `seconds` — no new
+   * moves, an unlanded move is called off, and contact doesn't hurt.
+   */
+  giveSpace(seconds = 2.5) {
+    this.graceUntil = Math.max(this.graceUntil, this.elapsed + seconds);
+    if (['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'HARASS'].includes(this.state) && !this.moveLanded) {
+      this.state = 'RECOVER';
+      this.stateTimer = 0;
+      this._cooldown();
+    }
+  }
+
+  /** Bumps only cost health while he's actually on the attack (and not while giving you space). */
   get hostile() {
+    if (this.elapsed < this.graceUntil) return false;
     return this.state === 'HARASS' || ATTACK_STATES.includes(this.state);
   }
 
@@ -284,7 +329,7 @@ export class HandlerAI {
       }
 
       case 'TELEGRAPH': {
-        const windUp = THREE.MathUtils.lerp(1.1, 0.85, a);   // never less than 0.85 s of warning
+        const windUp = THREE.MathUtils.lerp(1.4, 1.05, a);   // never less than a second of warning
         const tell = 0.35;                // he holds still for this long before going
         const move = this.nextMove;
         if (move === 'SLAM') {
@@ -395,8 +440,23 @@ export class HandlerAI {
       case 'RECOVER':
         tx = laneBehind();
         tz = p.z - LEN - 6;
-        if (this.stateTimer > 1.3) this._enter('APPROACH');
+        if (this.stateTimer > 1.3 && this.elapsed >= this.graceUntil) this._enter('APPROACH');
         break;
+    }
+
+    // giving you space: hang well back whatever else he was doing
+    if (this.elapsed < this.graceUntil && !this.passive) { tz = Math.min(tz, p.z - LEN - 12); tx = laneBehind(); }
+
+    // ---------- ease the targets ----------
+    // a committed charge aims straight; everything else glides to its new spot
+    const direct = ['SHUNT', 'SLAM'].includes(this.state);
+    if (this._tx === undefined || direct) { this._tx = tx; this._tzOff = tz - p.z; }
+    else {
+      const k = 1 - Math.exp(-dt * 3.5);
+      this._tx += (tx - this._tx) * k;
+      this._tzOff += (tz - p.z - this._tzOff) * (1 - Math.exp(-dt * 4.5));
+      tx = this._tx;
+      tz = p.z + this._tzOff;
     }
 
     // never plan a path through the car while level with it
@@ -425,8 +485,8 @@ export class HandlerAI {
       : THREE.MathUtils.clamp(car.speed + THREE.MathUtils.clamp((tz - m.z) * 1.6, -14, 14), 0, topSpeed);
     this.speed += THREE.MathUtils.clamp(Math.min(desired, trafficCap) - this.speed, -decel * dt, accel * dt);
 
-    const wantLat = THREE.MathUtils.clamp((tx - m.x) * 3, -maxLat, maxLat);
-    const latAccel = this.state === 'SLAM' ? 60 : 24;
+    const wantLat = THREE.MathUtils.clamp((tx - m.x) * (direct ? 3 : 2.2), -maxLat, maxLat);
+    const latAccel = this.state === 'SLAM' ? 60 : direct ? 24 : 16;
     this.latVel += THREE.MathUtils.clamp(wantLat - this.latVel, -latAccel * dt, latAccel * dt);
 
     m.z += this.speed * dt;
@@ -604,7 +664,7 @@ export class HandlerAI {
     const fromBehind = c.localZ < -c.half.l * 0.4;
     if (this.damageCooldown === 0 && this.hostile && fromBehind && c.impulse > 1.2 && !this._hurt) {
       this.damageCooldown = 0.9;
-      const damage = Math.min(3, Math.round(c.impulse * 0.4));
+      const damage = Math.min(2, Math.max(1, Math.round(c.impulse * 0.3)));
       if (this.onContact) this.onContact({ damage, impact: Math.min(0.6, 0.15 + c.impulse / 12), side });
     }
   }

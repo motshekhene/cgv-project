@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { CARS, HANDLER_MODEL, HANDLER_OPTIONS } from "./level2/carSelect.js";
+import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, loadSavedCar, loadSavedPaint } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
-import { PoliceLights } from "./level2/carLights.js";
+import { PoliceLights, CarLights } from "./level2/carLights.js";
 import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
@@ -16,6 +16,7 @@ import { showEndCard } from "../ui/EndCard.js";
 import { THEME_CSS } from "../ui/theme.js";
 import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
+import { PAINTS, applyPaint, detectPaint } from "./level2/paint.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -209,16 +210,27 @@ const TRAIN_ZONE_NEAR = 55;
 const TRAIN_ZONE_FAR = 250;
 
 // --- the way out ---
-const BAY_Z = -3260; // service bay, ~110 m past the seal
+const BAY_Z = -3260; // service bay, ~110 m past the seal: a beat to breathe
 const SERVICE_CAR_LOCAL_Z = -6;
-const SERVICE_CAR_Z = BAY_Z + SERVICE_CAR_LOCAL_Z;
-// Kai runs all the way to the familiar blue car. The level hand-off happens
-// only when he is standing just in front of it — never at the gate.
-const ESCAPE_Z = SERVICE_CAR_Z + 2.8;
-const ESCAPE_DECEL = 34;
-// A tiny settling beat while the camera lands on the parked car. The police
-// chase itself stays in Level 01; Level 02 starts on the car picker.
-const ESCAPE_HANDOFF_TIME = 0.18;
+// Fires at the mouth of the bay rather than at the vehicle, because he needs
+// ~7 m to pull up from full speed and stopping ten metres past the thing you
+// were running for reads as an overshoot, not an arrival. The finish scene
+// then walks him the rest of the way to the driver's door.
+const ESCAPE_Z = BAY_Z + 4;
+const ESCAPE_DECEL = 34; // m/s^2; ~0.65 s and 7 m to a standstill
+
+// --- the finish scene ---
+// Reaching the bay takes the camera for a short scene instead of stopping Kai
+// dead under a win card: he runs in and pulls up at the driver's door, turns
+// to look back at the Marshal beating on the sealed gate, then gets in and
+// the headlights come on. The ESCAPED card lands over a slow orbit of the car,
+// and CONTINUE carries on into the drive-out scene from the car's engine.
+const FINALE_ARRIVE = 1.7; // run-in to the driver's door
+const FINALE_LOOK = 3.8; // ...looking back at the gate until here
+const FINALE_IN = 4.45; // in the car, door shut
+const FINALE_LIGHTS = 4.75; // headlights on
+const FINALE_CARD = 5.6; // the ESCAPED card
+const FINALE_BANGS = [2.35, 3.05]; // the Marshal hitting the bars
 
 // --- boost / stamina tuning ---
 const BOOST_DRAIN = 28; // stamina per second while boosting
@@ -477,8 +489,8 @@ export class Level01 extends Level {
     this.failCause = null;
     this.escaped = false;
     this._escapeSpeed = 0; // the speed he arrived at the bay with, ramped to 0
-    this._handOff = 0; // counts down once he has stopped, then Redline takes over
     this._handedOff = false;
+    this._finale = null; // the finish scene, once he reaches the bay
     this._handlerSealed = false;
     this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
@@ -2966,7 +2978,45 @@ export class Level01 extends Level {
     camp.add(workLight);
 
     this.serviceVehicle = vehicle;
+    this._bayBox = [base, cab, ...vehicle.children.filter((c) => c.geometry?.type === "CylinderGeometry")];
+    this._bayCar = { model: null, bounds: { min: new THREE.Vector3(-1.05, 0, -2.05), max: new THREE.Vector3(1.05, 1.85, 2.05) } };
+    // headlights, off until Kai is in
+    this._bayLights = new CarLights(vehicle);
+    this._setBayLights(0);
+    this._workLight = workLight;
     this.root.add(camp);
+    // the car Level 2 hands you, in its paint, so the bay's car is the one he
+    // drives out in. Loaded in the background: the blue van stands in for it
+    // until it arrives, and for good if it can't be loaded.
+    this._attachBayCar(vehicle);
+  }
+
+  async _attachBayCar(vehicle) {
+    const def = CARS[loadSavedCar()] || CARS[0];
+    if (!def || !this.assets) return;
+    const model = await attachModel(this.assets, vehicle, def.path, {
+      length: def.length, yaw: def.yaw || 0, ground: def.ground || null, wheels: def.wheels || null,
+      keepPlaceholder: true,
+    });
+    if (!model || !this.serviceVehicle) return; // failed, or torn down meanwhile
+    const paint = PAINTS[loadSavedPaint()];
+    if (def.paintable !== false && paint) applyPaint(model, paint.color, detectPaint(model));
+    model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    for (const m of this._bayBox) m.visible = false;
+    this._bayCar = { model, bounds: model.userData.bounds };
+    this._bayLights.fit(model.userData.bounds, model);
+    this._setBayLights(this._finale && this._finale.t >= FINALE_LIGHTS ? 1 : 0);
+  }
+
+  /** 0 = off, 1 = on: the headlamps' glow. */
+  _setBayLights(k) {
+    const L = this._bayLights;
+    if (!L) return;
+    // lamps only: in the small bay the beams just burnt a white patch into
+    // the mud in front of the camera
+    for (const s of L.spots) s.visible = false;
+    for (const m of L._headMats || []) m.emissiveIntensity = 2.2 * k;
+    for (const m of L.heads) m.material.color.setScalar(0.25 + 0.75 * k);
   }
 
   /** Real Level-02 police Ranger used during Level 01's last 100 m. */
@@ -3355,7 +3405,10 @@ export class Level01 extends Level {
    */
   _startLevel02() {
     const game = this.game;
-    if (!game || !game.levels || !game.levels.has("level02")) {
+    // the drive-out scene (Kai takes the car out onto the River Road) when
+    // it's registered, straight into level 02 when it isn't
+    const next = game?.levels?.has("level02-intro") ? "level02-intro" : "level02";
+    if (!game || !game.levels || !game.levels.has(next)) {
       // running level 01 on its own, e.g. from a test page. Stay put rather
       // than throwing out of a rAF callback.
       console.warn("[level01] reached the vehicle, but no level02 is registered");
@@ -3365,13 +3418,268 @@ export class Level01 extends Level {
     game.setPaused(true);
     Promise.resolve().then(async () => {
       try {
-        await game.setLevel("level02");
+        await game.setLevel(next);
       } catch (err) {
-        console.error("[level01] handoff to level02 failed", err);
+        console.error(`[level01] handoff to ${next} failed`, err);
       } finally {
         game.setPaused(false);
       }
     });
+  }
+
+  /* ------------------------------------------------------------ the finish scene */
+
+  /** Kai has reached the bay: hand him and the camera to the finish scene. */
+  _startFinale(x) {
+    const vehicle = this.serviceVehicle;
+    if (!vehicle) {
+      this._showEscapedCard();
+      return;
+    }
+    vehicle.updateWorldMatrix(true, false);
+    const { min, max } = this._bayCar.bounds;
+    const midZ = (min.z + max.z) / 2;
+    // the driver's door: the car's right-hand side (it faces +z in its own
+    // frame), a touch forward of the middle
+    const door = vehicle.localToWorld(new THREE.Vector3(min.x - 0.5, 0, midZ + 0.35));
+    const seat = vehicle.localToWorld(new THREE.Vector3(min.x * 0.35, 0, midZ + 0.35));
+    const centre = vehicle.localToWorld(new THREE.Vector3(0, 0, midZ));
+    const start = new THREE.Vector3(x, 0, this.z);
+    // round the back of the car on the door side, so he never runs through it
+    const wide = new THREE.Vector3(door.x + 1.1, 0, Math.max(door.z + 4.5, Math.min(start.z - 2, max.z + centre.z + 1.5)));
+    this._finale = {
+      t: 0,
+      door, seat, centre,
+      path: new THREE.CatmullRomCurve3([start, wide, door]),
+      fogFrom: this.scene.fog ? this.scene.fog.density : 0,
+      cam: this.game?.camera ? this.game.camera.position.clone() : new THREE.Vector3(),
+      aim: new THREE.Vector3(x, this._floorY + 1.5, this.z - 9),
+      shot: "",
+      bangs: 0,
+      stride: 0,
+    };
+    // Kai's own rig is posed by hand from here; undo any slide/jump lean
+    this.airborne = false;
+    this.sliding = false;
+    this.y = 0;
+    this._lookBack = 0;
+    this._autoLook = 0;
+    if (this.kai) {
+      this.kai.visual.position.set(0, 0, 0);
+      this.kai.visual.rotation.set(0, 0, 0);
+    }
+    if (this._templeHud) {
+      this._templeHud.style.transition = "opacity .5s ease";
+      this._templeHud.style.opacity = "0";
+      this._templeHud.style.pointerEvents = "none";
+    }
+    this._showLetterbox(true);
+  }
+
+  /** Cinema bars, so the scene reads as the game taking the camera. */
+  _showLetterbox(on) {
+    if (typeof document === "undefined") return;
+    if (!this._letterbox) {
+      if (!on) return;
+      this._letterbox = [0, 1].map((i) => {
+        const bar = document.createElement("div");
+        Object.assign(bar.style, {
+          position: "fixed", left: "0", right: "0", height: "11vh", background: "#000",
+          zIndex: "40", pointerEvents: "none", transition: "transform .7s cubic-bezier(.2,.7,.2,1)",
+          transform: `translateY(${i ? "100%" : "-100%"})`,
+          [i ? "bottom" : "top"]: "0",
+        });
+        document.body.append(bar);
+        return bar;
+      });
+      // let the closed position land before sliding in
+      requestAnimationFrame(() => requestAnimationFrame(() => this._showLetterbox(true)));
+      return;
+    }
+    this._letterbox.forEach((bar, i) => {
+      bar.style.transform = on ? "translateY(0)" : `translateY(${i ? "100%" : "-100%"})`;
+    });
+  }
+
+  _removeLetterbox() {
+    for (const bar of this._letterbox || []) bar.remove();
+    this._letterbox = null;
+  }
+
+  /**
+   * The finish scene, run in place of the level's update once Kai is at the
+   * bay. Three shots and a hold:
+   *
+   *   arrive  0.0  low by the car's nose, Kai sprints in and pulls up at the driver's door
+   *   look    1.7  over his shoulder, long lens up the trail: the Handler at the
+   *               sealed gate, beating on the bars (two flashes and a thud)
+   *   in      3.8  wide on the car: he gets in, the door thuds, the headlights come on
+   *   hold    5.6  ESCAPED card over a slow orbit of the car, engine ticking over
+   */
+  _updateFinale(dt, state) {
+    const F = this._finale;
+    const f = (F.t += dt);
+    const kai = this.kai;
+    const { door, seat, centre } = F;
+    // the company ranger has pulled up behind him, lights still going, as he gets in
+    if (this._endPoliceActive) this._endPoliceLights?.update(dt, "TELEGRAPH");
+    const smooth = (a, b, v) => THREE.MathUtils.smoothstep(v, a, b);
+    const groundY = (z) => jungleCourseHeight(z);
+
+    // ---- Kai
+    const pos = this.player.position;
+    let heading = 0;
+    let anim = "idle";
+    if (f < FINALE_ARRIVE) {
+      // decelerating sprint: fast in, easing to a stop at the door
+      const k = f / FINALE_ARRIVE;
+      const u = 1 - (1 - k) * (1 - k);
+      const p = F.path.getPointAt(u);
+      const tan = F.path.getTangentAt(u);
+      heading = Math.atan2(tan.x, tan.z);
+      F.heading = heading;
+      pos.set(p.x, groundY(p.z), p.z);
+      anim = k < 0.88 ? "run" : "idle";
+      const pace = (1 - k) * 2; // 2 -> 0, in path-lengths per second
+      F.stride += pace * F.path.getLength() * dt;
+      if (F.stride > 2.2 && anim === "run") {
+        F.stride = 0;
+        this._audio?.playFootstep({ volume: 0.45, pitchVariance: 0.08, minInterval: 0, dt });
+      }
+      if (kai && anim === "run") {
+        if (kai.currentName !== "run") kai.play("run", { fade: 0.15 });
+        kai.current.timeScale = 0.55 + 0.85 * (1 - k);
+      }
+    } else if (f < FINALE_LOOK) {
+      // turns round at the door to look back the way he came
+      const back = 0; // facing +z, up the trail
+      heading = THREE.MathUtils.lerp(F.heading, back, smooth(FINALE_ARRIVE, FINALE_ARRIVE + 0.6, f));
+      pos.set(door.x, groundY(door.z), door.z);
+    } else if (f < FINALE_IN) {
+      // and gets in: a turn to the door and a step down into the seat
+      const k = smooth(FINALE_LOOK + 0.15, FINALE_IN, f);
+      const into = Math.atan2(seat.x - door.x, seat.z - door.z);
+      heading = THREE.MathUtils.lerp(0, into, smooth(FINALE_LOOK, FINALE_LOOK + 0.3, f));
+      pos.lerpVectors(door, seat, k);
+      pos.y = groundY(pos.z) - 0.45 * k;
+      anim = k > 0.05 ? "run" : "idle";
+      if (kai && anim === "run") {
+        if (kai.currentName !== "run") kai.play("run", { fade: 0.12 });
+        kai.current.timeScale = 0.5;
+      }
+    }
+    const inCar = f >= FINALE_IN;
+    if (kai) {
+      kai.root.visible = !inCar;
+      kai.root.rotation.y = heading;
+      if (anim === "idle" && kai.currentName !== "idle") kai.play("idle", { fade: 0.3 });
+      kai.update(dt);
+    } else {
+      this.body.visible = !inCar;
+    }
+
+    // ---- the gate and the Handler behind it
+    for (; F.bangs < FINALE_BANGS.length && f >= FINALE_BANGS[F.bangs]; F.bangs++) {
+      this._gateFlash = Math.max(this._gateFlash, 0.85);
+      this._shake = Math.max(this._shake, 0.1);
+      this._audio?.playOneShot("gateSlam", { volume: 0.3 });
+    }
+    this._updateGate(dt);
+    this._updateHandler(dt, state);
+
+    // ---- the car: door shuts, engine catches, headlights on
+    if (F.slammed !== true && f >= FINALE_IN) {
+      F.slammed = true;
+      this._audio?.playOneShot("impact", { volume: 0.35 });
+      this._shake = Math.max(this._shake, 0.06);
+    }
+    const lights = smooth(FINALE_LIGHTS, FINALE_LIGHTS + 0.25, f) * (f < FINALE_LIGHTS + 0.12 ? 0.35 : 1);
+    this._setBayLights(lights);
+    const vehicle = this.serviceVehicle;
+    vehicle.position.y = f > FINALE_LIGHTS ? Math.sin(f * 55) * 0.008 : 0; // ticking over
+    vehicle.rotation.z = f > FINALE_LIGHTS ? Math.sin(f * 31) * 0.002 : 0;
+    if (f > FINALE_LIGHTS && !F.revved) {
+      F.revved = true;
+      this._shake = Math.max(this._shake, 0.09);
+    }
+
+    // ---- camera
+    const cy = groundY(centre.z);
+    const cam = this.game.camera;
+    let shot, want, look, fov, rate;
+    if (f < FINALE_ARRIVE) {
+      shot = "arrive";
+      // eased in from the chase camera, ending low beside the car's nose
+      want = new THREE.Vector3(centre.x + 2.6, cy + 1.9, centre.z - 7.5);
+      look = new THREE.Vector3(pos.x, pos.y + 1.1, pos.z);
+      fov = this._baseFov - 8;
+      rate = THREE.MathUtils.lerp(2.2, 6, smooth(0, 1.2, f));
+    } else if (f < FINALE_LOOK) {
+      shot = "look";
+      const k = smooth(FINALE_ARRIVE, FINALE_LOOK, f);
+      want = new THREE.Vector3(door.x + 0.85, cy + 1.95 - k * 0.15, door.z - 2.6 + k * 0.5);
+      const h = this.handler.position;
+      look = new THREE.Vector3(h.x * 0.6 + door.x * 0.4, h.y + 1.6, h.z);
+      fov = THREE.MathUtils.lerp(34, 24, k);
+      rate = Infinity;
+    } else if (f < FINALE_CARD) {
+      shot = "in";
+      const k = smooth(FINALE_LOOK, FINALE_CARD, f);
+      want = new THREE.Vector3(centre.x + 4.6 - k * 0.6, cy + 3.0 + k * 0.4, centre.z - 8.4 + k * 0.6);
+      look = new THREE.Vector3(centre.x + 0.4, cy + 0.9, centre.z);
+      fov = this._baseFov - 10;
+      rate = Infinity;
+    } else {
+      shot = "hold";
+      // a slow orbit round the front of the car, carried on from the wide
+      const a0 = Math.atan2(4.6 - 0.6, -8.4 + 0.6);
+      const a = a0 + (f - FINALE_CARD) * 0.11;
+      want = new THREE.Vector3(centre.x + Math.sin(a) * 8.6, cy + 3.4, centre.z + Math.cos(a) * 8.6);
+      look = new THREE.Vector3(centre.x, cy + 0.9, centre.z);
+      fov = this._baseFov - 10;
+      rate = 4;
+    }
+    if (shot !== F.shot && F.shot !== "") rate = Infinity; // a cut, not a pan
+    if (shot === "hold" && F.shot === "in") rate = 4; // the orbit carries on from the wide
+    F.shot = shot;
+    const k = rate === Infinity ? 1 : 1 - Math.exp(-rate * dt);
+    F.cam.lerp(want, k);
+    F.aim.lerp(look, rate === Infinity ? 1 : 1 - Math.exp(-(rate + 2) * dt));
+    cam.position.copy(F.cam);
+    if (this._shake > 0) {
+      this._shake = Math.max(0, this._shake - dt * 1.6);
+      const amp = this._shake * this._shake * 0.7;
+      cam.position.x += (Math.random() * 2 - 1) * amp;
+      cam.position.y += (Math.random() * 2 - 1) * amp;
+    }
+    cam.lookAt(F.aim);
+    if (Math.abs(cam.fov - fov) > 0.01) {
+      cam.fov = rate === Infinity ? fov : cam.fov + (fov - cam.fov) * (1 - Math.exp(-4 * dt));
+      cam.updateProjectionMatrix();
+    }
+
+    // ---- the world round it
+    // thin the fog for the long look back, so the gate reads at 100 m
+    if (this.scene.fog) {
+      const thin = smooth(FINALE_ARRIVE - 0.2, FINALE_ARRIVE + 0.1, f) * (1 - smooth(FINALE_LOOK, FINALE_LOOK + 0.01, f));
+      this.scene.fog.density = THREE.MathUtils.lerp(F.fogFrom, 0.0055, thin);
+    }
+    this.key.position.set(centre.x - 35, 55 + cy, centre.z - 40);
+    this.key.target.position.set(centre.x, cy, centre.z);
+    this._displaySpeed *= Math.exp(-3 * dt);
+    state.normalizedSpeed = THREE.MathUtils.clamp(this._displaySpeed / this.maxSpeed, 0, 1);
+    updateJungleSpeedWarp(this.speedWarpMaterial, dt, state.normalizedSpeed);
+    this._updateTunnelDetail(1);
+    updateJungleWildlife(this._wildlife, dt, this.z, this._worldX);
+    if (this._workLight) this._workLight.intensity = 2.1 + (f > FINALE_LIGHTS ? 0 : Math.sin(f * 23) * 0.05);
+    if (this._musicTrack) this._musicTrack.setVolume(this._soundEnabled ? 0.12 : 0);
+    if (this._tensionTrack) this._tensionTrack.setVolume(0);
+
+    if (!this._handedOff && f >= FINALE_CARD) {
+      this._handedOff = true;
+      this._showLetterbox(false);
+      this._showEscapedCard();
+    }
   }
 
   /** Grabs the game camera for the AudioListener once it exists — safe to call every frame until it succeeds. */
@@ -3490,6 +3798,12 @@ export class Level01 extends Level {
 
     if (!this._audioReady) this._ensureAudio();
     if (!this.caught && !this.escaped) this._storyBeats(dt, state);
+
+    // the finish scene owns Kai and the camera once he's at the bay
+    if (this._finale) {
+      this._updateFinale(dt, state);
+      return;
+    }
 
     // --- speed: the gear table + boost, both feeding Shader 1 ---
     // A single linear ramp to 22 m/s over 2 km was "not constant" on paper and
@@ -3726,29 +4040,16 @@ export class Level01 extends Level {
     // Ranger chases him, and only stops when he reaches the familiar blue car.
     if (!this.caught && !this.escaped && this.z <= ESCAPE_Z) {
       this.escaped = true;
-      this._escapeSpeed = 0;
-      this.speed = 0;
-      this._displaySpeed = 0;
-      this._handOff = ESCAPE_HANDOFF_TIME;
-      this.finished = true;
-
+      this._escapeSpeed = this.speed; // hand the ramp the speed he arrived with
+      this.finished = true; // no reader in Game yet — see the header note
       state.level1Complete = true;
-      state.transitionFromLevel1 = true;
-      state.transitionSource = "blue-service-car";
-      state.transitionPoliceGap = this._endPoliceActive ? this._endPoliceGap : 12;
       state.level1RewardCount = this.rewardCount;
       state.level1RewardScore = this.rewardScore;
-      state.handlerState = "POLICE_CHASE";
-      this._showTransientBanner("CHOOSE YOUR ESCAPE CAR", 1.0);
+      state.handlerState = "SEALED";
+      // from the next frame the finish scene takes over (see _updateFinale)
+      this._startFinale(x);
     }
 
-    if (this.escaped && !this._handedOff) {
-      this._handOff -= dt;
-      if (this._handOff <= 0) {
-        this._handedOff = true;
-        this._showEscapedCard();
-      }
-    }
 
     // Interlude I — must run BEFORE _updateHandler, which reads this._gatePhase
     // to decide whether he is sealed. The other way round it saw the previous
@@ -4042,6 +4343,7 @@ export class Level01 extends Level {
     }
     this._removeCaughtOverlay();
     this._removeEscapedCard();
+    this._removeLetterbox();
     this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);

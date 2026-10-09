@@ -6,7 +6,7 @@ import { HandlerWeapons } from './level2/HandlerWeapons.js';
 import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
-import { Skids, Smoke } from './level2/skids.js';
+import { Skids, Smoke, TyreTracks } from './level2/skids.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
@@ -25,6 +25,8 @@ import { Level2Sound } from './level2/sound.js';
 import { MudSplash } from './level2/MudSplash.js';
 import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
+import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
+import { Rain } from './level2/rain.js';
 
 /**
  * Level 02 — The River Road. Kai drives off the trail with the horn, the
@@ -36,7 +38,9 @@ import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
  *
  * The River Road is a journey: Level 1's jungle and mud trail, ~4 km long,
  * rewards along the way (pickups.js), and at the end the road goes over a
- * waterfall (course.js). The car goes with it — a short fall cinematic and
+ * waterfall (course.js). It's a gravel road, so there's little traffic: the
+ * jungle is what's in the way — fallen trees, rockfalls, branches and animals
+ * crossing (obstacles.js). The car goes with it — a short fall cinematic and
  * the splash in the pool, where Level 2 ends (Level 3 opens in that pool).
  *
  * What each member contributed:
@@ -45,31 +49,18 @@ import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
  *   2B — RoadSystem, secondary camera support in Game.js, rearview + minimap
  */
 export class Level02 extends Level {
-  constructor() {
+  /** opts.fromIntro: arriving from the drive-out scene, so skip the car picker and drive. */
+  constructor({ fromIntro = false } = {}) {
     super('level02');
+    this.fromIntro = fromIntro;
     // the shape VehicleController already expects — filled from shared Input each frame
     this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
 
-    // Level 01 -> Level 02 cinematic hand-off. This lives entirely in Level 02
-    // so Level 01 never needs to know about vehicle models or car-selection UI.
-    this._fromLevel1 = false;
-    this._handoff = null;
-    this._handoffUi = null;
-    this._handoffCheckpoint = null;
-    this._handoffBarrier = null;
-    this._secondaryCamsSuppressed = false;
-    this._normalDriveStarted = false;
-    this._transitionPoliceGap = 12;
+    this._announced = false; // the level's title and Kai's first thought, once
   }
 
   async init(scene, assets, input, state) {
     super.init(scene, assets, input, state);
-
-    // A direct Level 02 launch still opens the picker immediately. Coming from
-    // Level 01 instead plays a short in-world chase reveal first.
-    this._fromLevel1 = !!state?.transitionFromLevel1;
-    this._transitionPoliceGap = Math.max(8, Number(state?.transitionPoliceGap) || 12);
-    if (this._fromLevel1) state.transitionFromLevel1 = false;
 
     // ---- Level 1's jungle, exactly: same fog, sky, light rig, pollen and
     // light shafts (Level 1 runs toward -z, this road toward +z, so the sun
@@ -95,6 +86,14 @@ export class Level02 extends Level {
     this._sun = sun;
     this._sunOffset = new THREE.Vector3(-35, 55, 75);     // Level 1: (x - 35, 55, z - 75)
 
+    // a jungle shower over the whole drive (rain.js); the light dims and the
+    // haze greys under it, and the pollen and light shafts go
+    this._rain = new Rain(this.root);
+    this._fogClear = new THREE.Color(FOG);
+    this._fogRain = new THREE.Color(0xa9b2a6);
+    this._camPrev = new THREE.Vector3();
+    this._camVel = new THREE.Vector3();
+
     this._pollen = createPollen(500);
     this._pollen.scale.x = 2.2;                            // the road is wider than Kai's trail
     this.root.add(this._pollen);
@@ -117,6 +116,8 @@ export class Level02 extends Level {
     this.course = new Course(this.root, { endZ: COURSE_END, roadWidth: this.road.roadWidth });
     this.pickups = new Pickups(this.root, { start: 150, end: COURSE_END - 300 });
     this._rewards = 0;
+    // most of the traffic is gone: the jungle gets in the way instead
+    this.obstacles = new Obstacles(this.root, { start: 220, end: COURSE_END - 420, avoid: this.pickups.items });
     this._jungleReady = this._buildJungle(assets);
 
     // ---- 2A's vehicle + handler ----
@@ -156,6 +157,7 @@ export class Level02 extends Level {
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.4 + hit.impact * 0.8);
       const extra = hit.kind === 'drone' ? '' : '  · TYRE DAMAGED';
+      this.handler.giveSpace(2.5);                 // no follow-up while you recover
       this._flash(`${hit.label}  -${hit.damage}${extra}`, '#f2934f');
     };
     this.weapons.onWarn = (text) => { this._flash(text, '#e3bb62'); this.sound.warn(); };
@@ -174,10 +176,16 @@ export class Level02 extends Level {
     this.carLights = new CarLights(this.car.mesh);
     this.policeLights = new PoliceLights(this.handler.mesh);
     this.skids = new Skids(this.root);
+    this.tracks = new TyreTracks(this.root);       // tread prints in the mud from every wheel
     this.smoke = new Smoke(this.root);
     this.mudSplash = new MudSplash(this.root);
-    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END });
-    this.handler.traffic = this.traffic;          // so he steers round it
+    // only a few cars here and there: it's a gravel road, not a motorway
+    this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 5, spawnMin: 200, spawnMax: 550, despawnAhead: 900 });
+    this.traffic.obstacles = this.obstacles;      // they pull round fallen trees
+    // he steers round traffic and the solid obstacles alike
+    this._roadUsers = { pool: [] };
+    this.handler.traffic = this._roadUsers;
+    this.handler.obstacles = this.obstacles;      // he won't start a move with a tree in front of you
 
     // ---- chase camera helpers ----
     this._camOffset = new THREE.Vector3();
@@ -234,6 +242,7 @@ export class Level02 extends Level {
     await this._selectCar(this._carIndex);
     const handlerModel = await this.handler.attachModel(assets, HANDLER_MODEL, HANDLER_OPTIONS);
     if (handlerModel) this.policeLights.fit(handlerModel.userData.bounds, handlerModel);
+    this._handlerBounds = handlerModel?.userData.bounds;
 
     await this.traffic.init(this.car.mesh.position.z);
     await this._jungleReady;
@@ -245,307 +254,25 @@ export class Level02 extends Level {
       onMute: () => this.sound.setMuted(!this.sound.muted),
     });
     this._buildShield();
-
-    if (this._fromLevel1) {
-      // Level 01 already handled the gate slam and police-car chase. Arrive at
-      // the blue service car and open the existing picker immediately — no
-      // second reveal, no depot replay, no extra cinematic.
-      this._prepareContinuousStartFromLevel1();
-      this._openCarPicker();
-    } else {
-      this._openCarPicker();
-    }
-  }
-
-  _prepareContinuousStartFromLevel1() {
-    this._hud?.setVisible(false);
-    this._controls?.setVisible(false);
-
-    // Keep secondary camera UI out of the car picker. It comes back the moment
-    // the player confirms the chosen car.
-    this.game.removeSecondaryCamera('rearview');
-    this.game.removeSecondaryCamera('minimap');
-    this._secondaryCamsSuppressed = true;
-
-    this.car.speed = 0;
-    this.car.heading = 0;
-    this.car.mesh.position.set(3.3, 0, 0);
-
-    // This is the same police Ranger that was on Kai's heels in Level 01. Put
-    // it at the transferred gap and keep its lights alive while the picker is
-    // open so the chase still feels present rather than reset.
-    this.handler.mesh.position.set(4.0, 0, -this._transitionPoliceGap);
-    this.handler.heading = 0;
-    this.handler.speed = 0;
-    this.handler.state = 'APPROACH';
-    this.handler.passive = true;
-    this.policeLights.update(0, 'APPROACH');
-
-    if (this._baseFov === undefined) this._baseFov = this.game.camera.fov;
+    if (this.fromIntro) this._startDriving();
+    else this._openCarPicker();
   }
 
   /**
-   * Level 01 -> Level 02: no loading card, no black cut. The player arrives in
-   * the same jungle, hears the ranger before seeing it, then the police-lit
-   * pursuit vehicle tears through a wooden checkpoint. The camera pans to the
-   * parked escape car and only then opens the existing car picker.
-   *
-   * There is deliberately no Kai character implementation here. The camera
-   * implies his final sprint and later "entry" into the chosen car, which keeps
-   * ownership of the player model/controller with Level 1A.
+   * Picks up from the drive-out scene: the car you saw is already at speed,
+   * the chase camera is where the scene left it, and the HUD comes up.
    */
-  _startLevel1Handoff() {
-    this._hud?.setVisible(false);
-    this._controls?.setVisible(false);
-
-    // The mirror/minimap would look like UI clutter during the cinematic.
-    this.game.removeSecondaryCamera('rearview');
-    this.game.removeSecondaryCamera('minimap');
-    this._secondaryCamsSuppressed = true;
-
-    this.car.speed = 0;
-    this.car.mesh.position.set(0, 0, 14);
-    this.car.heading = 0;
-
-    this.handler.mesh.position.set(1.8, 0, -72);
-    this.handler.heading = 0;
-    this.handler.speed = 0;
-    this.handler.state = 'APPROACH';
-
-    this._buildHandoffCheckpoint();
-    this._buildHandoffUi();
-
-    this._handoff = {
-      phase: 'silence',
-      t: 0,
-      barrierHit: false,
-      pickerOpened: false,
-    };
-
+  _startDriving() {
+    this.car.speed = Math.min(this.car.maxSpeed, 27);
+    this.handler.speed = this.car.speed;
+    this._hud?.setVisible(true);
+    this._hud?.setCar(CARS[this._carIndex].name);
+    this._controls?.setVisible(true);
     const cam = this.game.camera;
-    cam.position.set(8.5, 3.2, -18);
-    cam.lookAt(0, 1.1, -42);
-    if (this._baseFov === undefined) this._baseFov = cam.fov;
-    cam.fov = Math.max(55, this._baseFov - 4);
-    cam.updateProjectionMatrix();
-  }
-
-  _buildHandoffCheckpoint() {
-    const group = new THREE.Group();
-    group.position.set(0, 0, -7);
-
-    const wood = new THREE.MeshStandardMaterial({ color: 0x5b3b22, roughness: 0.92 });
-    const gold = new THREE.MeshStandardMaterial({
-      color: 0xb58b3b, roughness: 0.66, emissive: 0x2b1d06, emissiveIntensity: 0.18,
-    });
-
-    const postGeo = new THREE.BoxGeometry(0.42, 3.4, 0.42);
-    for (const x of [-5.1, 5.1]) {
-      const p = new THREE.Mesh(postGeo, wood);
-      p.position.set(x, 1.7, 0);
-      p.castShadow = p.receiveShadow = true;
-      group.add(p);
-    }
-
-    const cross = new THREE.Group();
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.42, 0.5), wood);
-    beam.castShadow = true;
-    cross.add(beam);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.8, 0.16), gold);
-    plate.position.set(0, 0.72, 0.04);
-    cross.add(plate);
-    cross.position.set(0, 2.45, 0);
-    group.add(cross);
-
-    // A few side crates make the spot read as an abandoned expedition depot.
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x78603d, roughness: 0.9 });
-    for (const [x,z,s] of [[-6.4,2.2,1],[6.2,1.4,.85],[-6.0,-2.1,.7]]) {
-      const c = new THREE.Mesh(new THREE.BoxGeometry(1.1*s, 1.1*s, 1.1*s), crateMat);
-      c.position.set(x, 0.55*s, z);
-      c.rotation.y = x * 0.17;
-      c.castShadow = c.receiveShadow = true;
-      group.add(c);
-    }
-
-    this._handoffCheckpoint = group;
-    this._handoffBarrier = cross;
-    this.root.add(group);
-  }
-
-  _buildHandoffUi() {
-    const el = document.createElement('div');
-    el.style.cssText = `
-      position:fixed;inset:0;z-index:19;pointer-events:none;color:#f4ecd6;
-      font-family:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
-    `;
-    el.innerHTML = `
-      <div class="bp-letterbox top" style="position:absolute;left:0;right:0;top:0;height:7vh;background:rgba(0,0,0,.72);transition:height .45s ease"></div>
-      <div class="bp-letterbox bottom" style="position:absolute;left:0;right:0;bottom:0;height:7vh;background:rgba(0,0,0,.72);transition:height .45s ease"></div>
-      <div class="bp-kicker" style="position:absolute;left:50%;top:17%;transform:translate(-50%,-50%);
-        font-size:11px;letter-spacing:.38em;color:#d9b45a;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s"></div>
-      <div class="bp-title" style="position:absolute;left:50%;top:23%;transform:translate(-50%,-50%);
-        font-size:clamp(20px,3.4vw,38px);font-weight:800;letter-spacing:.18em;text-shadow:0 3px 14px #000;opacity:0;transition:opacity .3s"></div>
-      <div class="bp-sub" style="position:absolute;left:50%;top:29%;transform:translate(-50%,-50%);
-        font:600 11px system-ui;letter-spacing:.15em;color:#f1e7c6;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s"></div>`;
-    document.body.appendChild(el);
-    this._handoffUi = el;
-  }
-
-  _handoffText(kicker = '', title = '', sub = '') {
-    if (!this._handoffUi) return;
-    const k = this._handoffUi.querySelector('.bp-kicker');
-    const t = this._handoffUi.querySelector('.bp-title');
-    const s = this._handoffUi.querySelector('.bp-sub');
-    k.textContent = kicker; t.textContent = title; s.textContent = sub;
-    k.style.opacity = kicker ? '1' : '0';
-    t.style.opacity = title ? '1' : '0';
-    s.style.opacity = sub ? '1' : '0';
-  }
-
-  _finishHandoffUi() {
-    if (!this._handoffUi) return;
-    const el = this._handoffUi;
-    for (const b of el.querySelectorAll('.bp-letterbox')) b.style.height = '0';
-    this._handoffText();
-    setTimeout(() => el.remove(), 500);
-    this._handoffUi = null;
-  }
-
-  _restoreSecondaryCameras() {
-    if (!this._secondaryCamsSuppressed) return;
-    this.game.addSecondaryCamera('rearview', this._rearview, { x: 0.02, y: 0.02, w: 0.25, h: 0.18 });
-    this.game.addSecondaryCamera('minimap', this._minimap, { x: 0.73, y: 0.02, w: 0.25, h: 0.25 });
-    this._secondaryCamsSuppressed = false;
-  }
-
-  _updateLevel1Handoff(dt) {
-    const h = this._handoff;
-    if (!h) return false;
-
-    h.t += dt;
-    this._time += dt;
-    this._updateWorld(dt);
-    this.policeLights.update(dt, h.phase === 'escape' ? 'TELEGRAPH' : 'APPROACH');
-
-    const cam = this.game.camera;
-    const hp = this.handler.mesh.position;
-    const cp = this.car.mesh.position;
-
-    if (h.phase === 'silence') {
-      // A breath after the gate. Then the lights arrive before the vehicle.
-      this._handoffText('THE GATE', 'SEALED BEHIND YOU', 'IT WON\u2019T HOLD HIM LONG');
-      hp.z = -72 + Math.min(1, h.t / 1.0) * 10;
-      cam.position.lerp(new THREE.Vector3(8.5, 3.2, -18), 1 - Math.exp(-dt * 5));
-      cam.lookAt(0, 1.0, hp.z + 8);
-      if (h.t > 1.05) { h.phase = 'reveal'; h.t = 0; }
-      return true;
-    }
-
-    if (h.phase === 'reveal') {
-      this._handoffText('THE MARSHAL', 'RUN \u2014 FIND A VEHICLE', 'HE IS THROUGH THE GATE');
-      hp.z += (18 + 16 * Math.min(1, h.t / 1.6)) * dt;
-      hp.x = 1.8 + Math.sin(h.t * 2.3) * 0.45;
-
-      // First watch the police-lit ranger barrel toward the checkpoint.
-      const targetCam = new THREE.Vector3(7.5, 2.8, -11);
-      cam.position.lerp(targetCam, 1 - Math.exp(-dt * 3.5));
-      const lookZ = THREE.MathUtils.lerp(hp.z, -7, THREE.MathUtils.smoothstep(h.t, 0.9, 2.0));
-      cam.lookAt(0, 1.0, lookZ);
-
-      if (!h.barrierHit && hp.z >= -9.5) {
-        h.barrierHit = true;
-        this.sound.crash(0.7);
-        this.shake = Math.max(this.shake, 0.75);
-      }
-      if (h.barrierHit && this._handoffBarrier) {
-        const u = Math.min(1, (hp.z + 9.5) / 7.5);
-        this._handoffBarrier.rotation.z = -u * 0.62;
-        this._handoffBarrier.position.y = -u * 1.6;
-        this._handoffBarrier.position.z = u * 1.1;
-      }
-
-      if (h.t > 2.65) { h.phase = 'depot'; h.t = 0; }
-      return true;
-    }
-
-    if (h.phase === 'depot') {
-      this._handoffText('THE LOGGING CAMP', 'CHOOSE YOUR ESCAPE CAR', 'HIS LIGHTS ARE GETTING CLOSER');
-      // Pan off the pursuer and land on the parked player vehicle.
-      const targetCam = new THREE.Vector3(-6.5, 2.7, 19);
-      cam.position.lerp(targetCam, 1 - Math.exp(-dt * 2.5));
-      cam.lookAt(cp.x, 0.9, cp.z);
-
-      // Hold the ranger just beyond the smashed checkpoint, lights flashing.
-      hp.z += (-13 - hp.z) * (1 - Math.exp(-dt * 2.5));
-
-      if (h.t > 1.15 && !h.pickerOpened) {
-        h.pickerOpened = true;
-        this._handoff = null;
-        this._finishHandoffUi();
-        this._openCarPicker();
-      }
-      return true;
-    }
-
-    if (h.phase === 'enter') {
-      // The picker has already closed. Without owning Kai's model we sell the
-      // entry through camera motion, suspension dip and sound.
-      this._handoffText('THE LOGGING CAMP', 'GET IN.', '');
-      const u = THREE.MathUtils.clamp(h.t / 0.9, 0, 1);
-      const doorSide = cp.x - 1.7;
-      cam.position.lerp(new THREE.Vector3(doorSide, 1.65, cp.z + 1.1), 1 - Math.exp(-dt * 8));
-      cam.lookAt(cp.x, 0.85, cp.z);
-      this.car.mesh.position.y = -Math.sin(u * Math.PI) * 0.07;
-
-      if (!h.doorHit && h.t > 0.56) {
-        h.doorHit = true;
-        this.sound.thump(0.28, -0.3);
-      }
-      if (h.t > 0.95) { h.phase = 'launch'; h.t = 0; this.car.mesh.position.y = 0; }
-      return true;
-    }
-
-    if (h.phase === 'launch') {
-      this._handoffText('LEVEL 02', 'THE RIVER ROAD', 'DRIVE');
-      const launchT = Math.min(1, h.t / 1.25);
-      this.car.speed = THREE.MathUtils.lerp(0, 12, launchT);
-      cp.z += this.car.speed * dt;
-
-      // The pursuer comes through the broken checkpoint as the player launches.
-      hp.z += Math.max(10, this.car.speed * 0.82) * dt;
-      this.policeLights.update(dt, 'TELEGRAPH');
-
-      const desired = new THREE.Vector3(cp.x, 3.0, cp.z - 7.2);
-      cam.position.lerp(desired, 1 - Math.exp(-dt * 5.5));
-      cam.lookAt(cp.x, 1.0, cp.z + 6);
-
-      this.sound.update(dt, {
-        speed: this.car.speed, maxSpeed: this.car.maxSpeed, throttle: true, boosting: false,
-        skid: false, scrape: 0, falls: 0,
-        handler: { dist: Math.max(1, cp.z - hp.z), dx: hp.x - cp.x, attacking: false },
-        drones: [],
-      });
-
-      if (h.t > 1.55) {
-        this._handoff = null;
-        this._finishHandoffUi();
-        this._restoreSecondaryCameras();
-        this._hud?.setVisible(true);
-        this._hud?.setCar(CARS[this._carIndex].name);
-        this._controls?.setVisible(true);
-
-        // Start the actual chase with a readable gap instead of immediately
-        // ramming the player out of the cinematic.
-        this.handler.mesh.position.set(cp.x, 0, cp.z - 32);
-        this.handler.speed = 0;
-        this.handler.state = 'APPROACH';
-        this.handler.nextAttackAt = this.handler.elapsed + 8;
-        this._normalDriveStarted = true;
-      }
-      return true;
-    }
-
-    return false;
+    const p = this.car.mesh.position;
+    cam.position.set(p.x, p.y + 3.7, p.z - 8.9);
+    cam.lookAt(p.x, p.y + 1.1, p.z + 10);
+    this._announce();
   }
 
   /** The SHIELD reward's bubble round the car. */
@@ -569,7 +296,7 @@ export class Level02 extends Level {
 
   /** Loads the shared jungle kit and plants it along every road chunk. */
   async _buildJungle(assets) {
-    const [kit, mats] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200)]);
+    const [kit, mats, animals] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200), loadAnimalModels(assets)]);
     this._kit = kit;
     const tile = (mat, rx, ry) => {
       const m = mat.clone();
@@ -591,6 +318,7 @@ export class Level02 extends Level {
       { ground: tile(mats.forest, 80, L / 5) },
     );
     this.course.build(kit, mats);
+    this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null), animals);
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -690,41 +418,24 @@ export class Level02 extends Level {
     this._confirmingCar = false;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
 
-    if (this._fromLevel1 && !this._normalDriveStarted) {
-      // Selection is the only pause between running and driving. Once DRIVE is
-      // pressed, return control immediately; the normal chase camera eases out
-      // of the picker orbit instead of cutting through another cinematic.
-      this._normalDriveStarted = true;
-      this.handler.passive = false;
-      this.handler.state = 'APPROACH';
-      this.handler.mesh.position.z = this.car.mesh.position.z - this._transitionPoliceGap;
-      this.handler.mesh.position.x = this.car.mesh.position.x + 0.7;
-      this.handler.speed = Math.max(8, Math.min(14, this.car.maxSpeed * 0.28));
-      this._restoreSecondaryCameras();
-      this._hud?.setVisible(true);
-      this._hud?.setCar(CARS[this._carIndex].name);
-      this._controls?.setVisible(true);
-      this._flash('LEVEL 02 \u2014 THE RIVER ROAD', '#e3bb62');
-      kaiThinks('Down the river road. Lose him, then get this horn to Baba Zwane.');
-      this._fromLevel1 = false;
-      return;
-    }
-
-    this._restoreSecondaryCameras();
     this._hud?.setVisible(true);
     this._hud?.setCar(CARS[this._carIndex].name);
     this._controls?.setVisible(true);
+    this._announce();
+  }
+
+  /** The level's title, and where Kai's head is: he still thinks Baba Zwane is on his side. Once. */
+  _announce() {
+    if (this._announced) return;
+    this._announced = true;
+    this._flash('LEVEL 02 — THE RIVER ROAD', '#e3bb62');
+    kaiThinks('Down the river road. Lose him, then get this horn to Baba Zwane.');
   }
 
   /* ======================== per frame ======================== */
 
   update(dt, state) {
-    // Legacy hand-off support. The continuous Level 01 path no longer creates
-    // this state; it reaches the blue car first and opens the picker directly.
-    if (this._handoff) {
-      this._updateLevel1Handoff(dt);
-      return;
-    }
+    dt = this._steady(dt);
 
     // car picker orbit camera
     if (this._selectingCar) {
@@ -791,6 +502,7 @@ export class Level02 extends Level {
     this._wallCooldown = Math.max(0, (this._wallCooldown || 0) - dt);
 
     this.skids.update(dt, this.car, skidding);
+    this._updateTracks(dt);
     this.smoke.update(dt, this.skids.wheels(this.car), skidding);
     // Mud splash from wheels — always when moving, not just when skidding
     this.mudSplash.update(dt, this.car, this.car.speed);
@@ -798,12 +510,26 @@ export class Level02 extends Level {
     this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
     this.policeLights.update(dt, handlerState);
 
+    this._roadUsers.pool.length = 0;
+    this._roadUsers.pool.push(...this.traffic.pool, ...this.obstacles.pool);
     this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
+    this.obstacles.collideBody(this.handler);     // and has to brake for a fallen tree like you do
     for (const hit of this.traffic.update(dt, this.car)) {
       this._impact(hit.impact, this._mid.copy(this.car.mesh.position).setY(0.6));
       this.sound.trafficCrash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
+      if (hit.impact > 0.3) this.handler.giveSpace(2);   // fair: no piling in while you recover
+    }
+
+    // fallen trees, rockfalls, branches, animals crossing
+    for (const hit of this.obstacles.update(dt, this.car)) {
+      this._impact(hit.impact, hit.at);
+      if (hit.impact > 0.5) this.sound.crash(hit.impact); else this.sound.thump(hit.impact + 0.3);
+      this.car.takeDamage(hit.damage);
+      this.shake = Math.max(this.shake, 0.25 + hit.impact * 0.8);
+      this._flash(`${hit.label}  -${hit.damage}`, '#f2934f');
+      if (hit.impact > 0.3) this.handler.giveSpace(2.5);
     }
 
     this.road.update(this.car.mesh.position);
@@ -903,14 +629,35 @@ export class Level02 extends Level {
     }
   }
 
+  /** Tyre tracks in the mud: yours, the Handler's and the few cars'. */
+  _updateTracks(dt) {
+    const t = this.tracks;
+    t.follow('player', this.car.mesh, this.car.heading, this._carModel?.userData.bounds);
+    t.follow('handler', this.handler.mesh, this.handler.heading, this._handlerBounds);
+    this.traffic.pool.forEach((v, i) => {
+      if (v.parked) { t.reset(`traffic${i}`); return; }
+      t.follow(`traffic${i}`, v.holder, v.yaw, v.model?.userData.bounds);
+    });
+    t.update(dt);
+  }
+
   /** Sky, sun, pollen, shafts, wildlife, water — the world that travels with you. */
   _updateWorld(dt) {
     const p = this.car.mesh.position;
     this._sky.position.copy(this.game.camera.position);
     this._pollen.position.set(p.x, 0, p.z + 30);
     this._shafts.position.set(p.x * 0.3, 0, p.z + 18);
+    // the shower: the camera's own speed slants the streaks at you
+    const cam = this.game.camera.position;
+    if (dt > 0) this._camVel.subVectors(cam, this._camPrev).divideScalar(dt).clampLength(0, 60);
+    this._camPrev.copy(cam);
+    this._rain.update(dt, this.game.camera, p, this._camVel);
+    const wet = this._rain.level;
+    this._pollen.material.opacity = 0.75 * (1 - wet);
+    this._pollen.visible = wet < 0.95;
+    this._sun.intensity = 4.5 * (1 - 0.35 * wet);
     for (const sh of this._shafts.children) {
-      sh.material.uniforms.uOpacity.value = 0.11 + Math.sin(this._time * 0.7 + sh.position.z) * 0.03;
+      sh.material.uniforms.uOpacity.value = (0.11 + Math.sin(this._time * 0.7 + sh.position.z) * 0.03) * (1 - 0.8 * wet);
     }
     // Level 1's wildlife update, in its mirrored frame (it runs toward -z);
     // then pushed out past our wider road and down to our flat ground
@@ -923,18 +670,32 @@ export class Level02 extends Level {
     }
     // the gorge opens up ahead: thinner haze, so you can see the drop
     const roar = this.course.roar(p.z);
-    this.scene.fog.density = 0.014 - 0.0095 * roar;
+    this.scene.fog.density = (0.014 - 0.0095 * roar) * (1 + 0.3 * wet);
+    this.scene.fog.color.copy(this._fogClear).lerp(this._fogRain, 0.7 * wet);
+    this.scene.background.copy(this.scene.fog.color);
     this.course.update(dt);
     this._sun.position.copy(p).add(this._sunOffset);
     this._sun.target.position.copy(p);
 
     // ---- rain overlay — @2B ----
-    // Rain starts at ~60% progress, full by ~80%
-    const progress = THREE.MathUtils.clamp(this.handler.dist / COURSE_END, 0, 1);
-    const rainT = THREE.MathUtils.smoothstep(progress, 0.55, 0.8);
-    this._rainMat.uniforms.uIntensity.value = rainT;
+    // Lens streaks over 2A's shower, on the shower's own level, so the screen,
+    // the world and the sound bed all rain together (half strength: the
+    // world streaks carry it, these are the drops on the camera)
+    const rainT = wet;
+    this._rainMat.uniforms.uIntensity.value = rainT * 0.5;
     this._rainMat.uniforms.uTime.value += dt;
     this._rainLevel = rainT; // the sound bed rains with the overlay
+  }
+
+  /**
+   * Keeps the drive smooth: frame times jitter by a few ms even at a steady
+   * frame rate, and stepping the car and camera by that jitter reads as
+   * stutter, so dt is eased towards the real delta (it adds up the same).
+   */
+  _steady(dt) {
+    if (this._dtS === undefined) this._dtS = dt;
+    this._dtS += (dt - this._dtS) * 0.3;
+    return this._dtS;
   }
 
   /** A pickup was driven through. */
@@ -974,9 +735,10 @@ export class Level02 extends Level {
     this._finale = {
       phase: 'fall', t: 0, pitch: 0,
       vx: Math.sin(car.heading) * v, vz: Math.cos(car.heading) * v, vy: 1.2,
-      // the shot: the camera flies out into the gorge, off to one side, and
-      // watches the car go down past the falls
-      cam: new THREE.Vector3(p.x + side * 34, -14, COURSE_END + 36),
+      // the shot: the chase camera rides over the edge behind the car, so you
+      // go down with it; after the splash it swings out to one side
+      side,
+      cam: new THREE.Vector3(),
       look: p.clone(),
     };
     car.mesh.rotation.order = 'YXZ';
@@ -992,6 +754,8 @@ export class Level02 extends Level {
     const f = this._finale;
     const car = this.car;
     const p = car.mesh.position;
+    // a beat of slow motion as it tips over the lip, easing back to full speed
+    if (f.phase === 'fall') dt *= 0.45 + 0.55 * Math.min(1, f.t / 1.2);
     f.t += dt;
     this._time += dt;
 
@@ -1010,7 +774,7 @@ export class Level02 extends Level {
         // hold the last shot on the splash and the falls behind it
         f.splashAt = p.clone();
         // from the downstream side, looking back: the splash with the falls behind it
-        f.cam.set(p.x + Math.sign(f.cam.x - p.x) * 16, -DROP + 9, p.z + 42);
+        f.cam.set(p.x + f.side * 16, -DROP + 9, p.z + 42);
         f.splashAt.y = -DROP + 6;
         this.sound.splash();
         this.sound.silenceEngine();
@@ -1033,15 +797,32 @@ export class Level02 extends Level {
     h.mesh.position.z = Math.min(h.mesh.position.z + h.speed * dt, COURSE_END - 7);
     this.policeLights.update(dt, 'APPROACH');
 
-    // camera: glide to the lip of the falls and follow the car down
     const cam = this.game.camera;
-    // out over the edge first, then down (so it never dips into the cliff top)
-    const kxz = 1 - Math.exp(-dt * 2.2), ky = 1 - Math.exp(-dt * (cam.position.z > COURSE_END + 4 ? 2.2 : 0.6));
-    cam.position.x += (f.cam.x - cam.position.x) * kxz;
-    cam.position.z += (f.cam.z - cam.position.z) * kxz;
-    cam.position.y += (f.cam.y - cam.position.y) * ky;
-    f.look.lerp(f.splashAt || p, 1 - Math.exp(-dt * (f.splashAt ? 2 : 6)));
-    const look = f.look.clone();
+    let look;
+    if (f.phase === 'fall') {
+      // you go over with it: the chase camera stays behind and above the car
+      // and drops after it, looking past the bonnet down at the pool
+      const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+      const back = 6 + Math.min(1, f.t / 1.5) * 2;             // eases back a little to take in the drop
+      f.cam.set(p.x - fx * back, p.y + 3 + Math.min(1, f.t / 1.5) * 2.5, p.z - fz * back);
+      // follows tightly sideways; lags a touch as the car drops away, so you feel the fall
+      const kxz = 1 - Math.exp(-dt * 10), ky = 1 - Math.exp(-dt * 4);
+      cam.position.x += (f.cam.x - cam.position.x) * kxz;
+      cam.position.z += (f.cam.z - cam.position.z) * kxz;
+      cam.position.y += (f.cam.y - cam.position.y) * ky;
+      // look ahead of the car, tipping down at the water as the nose drops
+      const ahead = new THREE.Vector3(p.x + fx * 8, p.y - 2 - f.pitch * 9, p.z + fz * 8);
+      f.look.lerp(ahead, 1 - Math.exp(-dt * 5));
+      look = f.look.clone();
+    } else {
+      // after the splash: swing out downstream and look back at it with the falls behind
+      const kxz = 1 - Math.exp(-dt * 1.6), ky = 1 - Math.exp(-dt * 1.6);
+      cam.position.x += (f.cam.x - cam.position.x) * kxz;
+      cam.position.z += (f.cam.z - cam.position.z) * kxz;
+      cam.position.y += (f.cam.y - cam.position.y) * ky;
+      f.look.lerp(f.splashAt, 1 - Math.exp(-dt * 2));
+      look = f.look.clone();
+    }
     if (this.shake > 0.005) {
       look.x += Math.sin(f.t * 41) * 0.5 * this.shake;
       look.y += Math.sin(f.t * 37.7) * 0.4 * this.shake;
@@ -1204,18 +985,6 @@ export class Level02 extends Level {
   _updateCarPicker(dt) {
     this._updateSecondaryCams();
     this._updateWorld(dt);
-    if (this._fromLevel1 && !this._normalDriveStarted) {
-      // The menu is a pause in gameplay, not a pause in the world: police
-      // lights keep flashing behind the selected car and the ranger idles at
-      // the smashed checkpoint so the chase still feels present.
-      this.policeLights.update(dt, 'APPROACH');
-      this.sound.update(dt, {
-        speed: 0, maxSpeed: this.car.maxSpeed, throttle: false, boosting: false,
-        skid: false, scrape: 0, falls: 0,
-        handler: { dist: this._transitionPoliceGap, dx: this.handler.mesh.position.x - this.car.mesh.position.x, attacking: false },
-        drones: [],
-      });
-    }
     if (this.input.pressed('left')) this._selectCar(this._carIndex - 1);
     if (this.input.pressed('right')) this._selectCar(this._carIndex + 1);
     if (this.input.pressed('ability')) this._setPaint(this._paintIndex - 1);    // Q
@@ -1329,8 +1098,6 @@ export class Level02 extends Level {
     this.game?.camera?.clearViewOffset();
     this._arrow?.remove();
     this._controls?.destroy();
-    this._handoffUi?.remove();
-    this._handoffUi = null;
     this.course?.dispose();
     clearTimeout(this._hitStop);
     if (this.state) this.state.timeScale = 1;
@@ -1339,6 +1106,7 @@ export class Level02 extends Level {
       this.game.camera.updateProjectionMatrix();
     }
     this.sound?.dispose();
+    this._rain?.dispose();
     this._flashEl = null;
     if (this.road) this.road.dispose();
     if (this.mudSplash) this.mudSplash.dispose();

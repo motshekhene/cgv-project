@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="../favicon.svg" />
+    <title>Level 2 intro · BLACKOUT PROTOCOL</title>
+  </head>
+  <body>
+    <div id="hud"></div>
+    <script type="module">
+      import { runCutscene } from '../src/intros/run.js';
+      import { DriveOutIntro } from '../src/intros/level2/DriveOutIntro.js';
+      runCutscene(DriveOutIntro, { next: '../?level=level02', nextLabel: 'PLAY LEVEL 2', handoffNote: 'LEVEL 2 TAKES OVER HERE' });
+    </script>
+  </body>
+</html>
