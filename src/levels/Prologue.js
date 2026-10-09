@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Level } from '../core/Level.js';
-import { loadCast, makeKai, makeHandler, hornGeometry } from '../intros/cast.js';
+import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import {
   loadJungleKit,
@@ -741,6 +741,9 @@ export class Prologue extends Level {
 
     // the take: where the horn leaves, and where it lands in his hand
     this._takeFromPos = new THREE.Vector3();
+    this._reachQ = new THREE.Quaternion();
+    this._reachX = new THREE.Vector3(1, 0, 0);
+    this._palmAt = new THREE.Vector3();
     this._takeFromQuat = new THREE.Quaternion();
     this._takeLightPos = new THREE.Vector3();
     this._carryQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.5, 0.3, 0.2));
@@ -1131,13 +1134,13 @@ export class Prologue extends Level {
     //      way a tool is laid down: resting on its belly, both ends arcing
     //      up. The old one was a torus and a cone, and it looked like
     //      exactly that. Ivory with a soft sheen, so the light finds it.
-    this.matHorn = new THREE.MeshStandardMaterial({
-      color: 0xb3a488, roughness: 0.32, metalness: 0.05, emissive: 0x000000,
-      side: THREE.DoubleSide,
-    });
-    const horn = new THREE.Mesh(this._hornGeometry(), this.matHorn);
-    horn.position.set(0.1, 0.95, -0.04);
-    horn.rotation.set(-1.5, 0.2, 0);
+    this.matHorn = hornMaterial(0); // asleep: its own colours, no light in it yet
+    const hornGeo = this._hornGeometry();
+    const horn = new THREE.Mesh(hornGeo, this.matHorn);
+    horn.castShadow = true;
+    // lying along the cap on its curl, the open base toward the path
+    horn.position.set(-0.22, 0.86 - hornGeo.boundingBox.min.y, -0.02);
+    horn.rotation.set(0, 0.25, 0);
     g.add(horn);
     this.horn = horn;
 
@@ -1565,7 +1568,11 @@ export class Prologue extends Level {
     this.root.add(this.kai);
     const kai = this.kaiF = makeKai(this.kai, cast.kai);
     kai.root.rotation.y = Math.PI;
-    if (kai.horn) kai.horn.visible = false; // the horn is still on the stone: the scene hands it to him itself
+    if (kai.horn) {
+      kai.horn.visible = false; // the horn is still on the stone: he has to go and take it
+      if (kai.horn.userData.strap) kai.horn.userData.strap.visible = false; // the strap goes on when he slings it
+    }
+    kai.pose('reach', 'cross', 1.133); // his arm straight out at full stretch: the reach, with a bend at the waist
     // the monk build has only a fighter's guard for an idle — a man talking
     // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk
     this._lend(kai, ing, 'walk');
@@ -1976,17 +1983,33 @@ export class Prologue extends Level {
     this.t = 0;
     this.standing = false;                    // the take has the controls
     this._moving = false;
-    this.kaiF.play('idle', { fade: 0.25 });
     this._prompt('');
     this._hush();
+    // where to stand: an arm's length short of the horn, square to it from where he is
     this.horn.getWorldPosition(this._takeFromPos);
-    this.horn.getWorldQuaternion(this._takeFromQuat);
-    this.hornLight.getWorldPosition(this._takeLightPos);
-    this.root.attach(this.horn);              // off the stone; world pose kept
-    this.root.attach(this.hornLight);
+    const dx = this.px - this._takeFromPos.x, dz = this.pz - this._takeFromPos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const reach = 0.85;
+    this._take = {
+      fromX: this.px, fromZ: this.pz,
+      toX: this._takeFromPos.x + (dx / d) * reach, toZ: this._takeFromPos.z + (dz / d) * reach,
+      walk: Math.max(0.3, Math.max(0, d - reach) / WALK),
+      gripped: false,
+    };
+    this.root.attach(this.hornLight);          // it will follow the horn from here
     this.matHorn.emissive.setHex(HORN_CYAN);
     this.matHorn.emissiveIntensity = 0;
     this.hornLight.intensity = 0;
+  }
+
+  /** The reach: bent at the waist (on top of the held punch, his arm at full stretch); k 0..1. */
+  _reachBend(k) {
+    for (const name of ['Spine', 'Spine1', 'Spine2']) {
+      const b = this.kaiF.bones['mixamorig' + name];
+      if (!b) continue;
+      this.kaiF._stash(b);
+      b.quaternion.multiply(this._reachQ.setFromAxisAngle(this._reachX, 0.27 * k));
+    }
   }
 
   _exit(state) {
@@ -2308,55 +2331,62 @@ export class Prologue extends Level {
         break;
       }
 
-      // THE TAKE, ON CAMERA. The horn leaves the cap and comes up into his
-      // hand, over his shoulder — and at the moment his grip closes, every
-      // sound in the forest stops.
+      // THE TAKE, ON CAMERA. He walks up to the stone, bends and reaches,
+      // closes his hand round the base of the horn, and lifts it — and at the
+      // moment his grip closes, every sound in the forest stops.
       case 'take': {
-        const k = Math.min(1, this.t / 1.3);
-        const ease = k * k * (3 - 2 * k);
-        // where it is going: his right hand, wherever the stance has it
+        const T = this._take;
+        const reachAt = T.walk, gripAt = T.walk + 0.8, liftEnd = gripAt + 1.0;
         const palm = this.kaiF.bone('PalmR');
-        if (palm) {
-          this.kai.updateMatrixWorld(true);
-          palm.getWorldPosition(this._takeTo);
+        if (this.t < reachAt) {
+          // up to the stone
+          const k = this.t / T.walk;
+          this.px = T.fromX + (T.toX - T.fromX) * k;
+          this.pz = T.fromZ + (T.toZ - T.fromZ) * k;
+          this.heading += wrapAngle(this._yawTo(this._takeFromPos.x, this._takeFromPos.z) - this.heading) * (1 - Math.exp(-10 * dt));
+          this.kaiF.play('walk', { fade: 0.2, speed: WALK / 1.6 });
+        } else if (this.t < gripAt) {
+          // the reach: arm out, bending to it; his feet shuffle the last inch so the hand arrives at the horn
+          const k = THREE.MathUtils.smoothstep(this.t, reachAt, gripAt);
+          this.kaiF.play('reach', { fade: 0.45 });
+          this._reachBend(k);
+          if (palm) {
+            this.kai.updateMatrixWorld(true);
+            palm.getWorldPosition(this._palmAt);
+            const ex = this._takeFromPos.x - this._palmAt.x, ez = this._takeFromPos.z - this._palmAt.z;
+            const step = Math.min(1, 6 * dt) * k;
+            this.px += THREE.MathUtils.clamp(ex, -0.4, 0.4) * step;
+            this.pz += THREE.MathUtils.clamp(ez, -0.4, 0.4) * step;
+          }
         } else {
-          this._takeTo.set(this.px - Math.sin(this.yaw) * 0.42, 1.08, this.pz - Math.cos(this.yaw) * 0.42);
-        }
-        const to = this._takeTo;
-        this.horn.position.set(
-          this._takeFromPos.x + (to.x - this._takeFromPos.x) * ease,
-          this._takeFromPos.y + (to.y - this._takeFromPos.y) * ease +
-            Math.sin(ease * Math.PI) * 0.16,       // lifted, not slid
-          this._takeFromPos.z + (to.z - this._takeFromPos.z) * ease,
-        );
-        this._takeToQuat.setFromAxisAngle(this._up, this.heading).multiply(this._carryQuat);
-        this.horn.quaternion.slerpQuaternions(this._takeFromQuat, this._takeToQuat, ease);
-        this.hornLight.position.set(
-          this._takeLightPos.x + (to.x - this._takeLightPos.x) * ease,
-          this._takeLightPos.y + (to.y + 0.12 - this._takeLightPos.y) * ease,
-          this._takeLightPos.z + (to.z - this._takeLightPos.z) * ease,
-        );
-        // the glow wakes as it leaves the stone
-        this.matHorn.emissiveIntensity = 0.85 * Math.min(1, k / 0.6);
-        this.hornLight.intensity = 4.5 * Math.min(1, k / 0.6);
-        if (k >= 1) {
-          this.carried.add(this.horn, this.hornLight);
-          this.horn.position.set(0, 0, 0);
-          this.horn.quaternion.copy(this._carryQuat);
-          this.hornLight.position.set(0, 0.12, 0);
-          this.carried.position.copy(to);
-          // THE SILENCE. Wind, birds, fire — all of it, at once.
-          this.sfx.silence();
-          state.hasKey = true;                    // what he carries through the game
-          this.phase = 'taken';
-          this.t = 0;
+          if (!T.gripped) {
+            // HIS HAND CLOSES ON IT. It comes off the cap in his grip, from exactly where it lay.
+            T.gripped = true;
+            if (palm) palm.attach(this.horn);
+            else this.root.attach(this.horn);
+            // THE SILENCE. Wind, birds, fire — all of it, at once.
+            this.sfx.silence();
+            state.hasKey = true;                    // what he carries through the game
+            this.kaiF.play('idle', { fade: 0.9 });
+          }
+          // up straight again with it, the horn settling into his fist, the glow waking in it
+          const k = THREE.MathUtils.smoothstep(this.t, gripAt, liftEnd);
+          this._reachBend(1 - k);
+          if (palm) poseHorn(this.horn, palm, HORN_HAND, 1 - Math.exp(-5 * dt));
+          this.matHorn.emissiveIntensity = 0.5 * k;
+          this.hornLight.intensity = 4.5 * k;
+          if (this.t >= liftEnd) {
+            this.phase = 'taken';
+            this.t = 0;
+          }
         }
         break;
       }
 
       // It is in his hand. The valley holds its breath.
       case 'taken': {
-        this.matHorn.emissiveIntensity = 0.85 + Math.sin(this.t * 7) * 0.3;
+        this._holdHorn(dt);
+        this.matHorn.emissiveIntensity = 0.5 + Math.sin(this.t * 7) * 0.2;
         this.hornLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
         if (this.t > 1.5 && !this._quietSaid) {
           this._quietSaid = true;
@@ -2378,6 +2408,7 @@ export class Prologue extends Level {
       // way out in the same frame, one held breath. Nobody is shown coming;
       // whatever the silence woke is level 01's opening image.
       case 'wide': {
+        this._slingHorn(dt);
         if (this.t < 1.1) this.cine = this.t / 1.1;
         else if (this.t < 4.4) this.cine = 1;
         else if (this.t < 5.5) this.cine = 1 - (this.t - 4.4) / 1.1;
@@ -2465,24 +2496,38 @@ export class Prologue extends Level {
     }
   }
 
-  /**
-   * Where the horn rides once it is his: in his right hand, or (with no
-   * hand bone, the capsule stand-in) just in front of him, chest height.
-   */
+  /** Once it is off the stone, its light follows it: in his hand, then at his hip. */
   _carry() {
-    if (!this.carried || !this.carried.children.length) return;
-    const palm = this.kai.visible ? this.kaiF.bone('PalmR') : null;
-    if (palm) {
-      this.kai.updateMatrixWorld(true);
-      palm.getWorldPosition(this.carried.position);
-      this.carried.rotation.y = this.heading;
-    } else {
-      this.carried.position.set(
-        this.px - Math.sin(this.yaw) * 0.42, 1.08, this.pz - Math.cos(this.yaw) * 0.42,
-      );
-      this.carried.rotation.y = 0;
-    }
+    // the horn's light goes where the horn goes: in his hand, then at his hip
+    if (!this.horn || this.horn.parent === this.stone) return;
+    this.horn.getWorldPosition(this._palmAt);
+    this.root.worldToLocal(this._palmAt);
+    this.hornLight.position.copy(this._palmAt);
+    this.hornLight.position.y += 0.12;
   }
+
+  /** Still in his fist while he takes it in: keep it settled there. */
+  _holdHorn(dt) {
+    const palm = this.kaiF.bone('PalmR');
+    if (palm && this.horn.parent === palm) poseHorn(this.horn, palm, HORN_HAND, 1 - Math.exp(-8 * dt));
+  }
+
+  /**
+   * He hangs it at his hip on its strap, the way he carries it for the rest
+   * of the game (cast.js: HORN_SLING, the same pose every level uses), so
+   * both hands are free for the run.
+   */
+  _slingHorn(dt) {
+    const hips = this.kaiF.bone(HORN_SLING.bone);
+    if (!hips) return;
+    if (this.horn.parent !== hips) {
+      hips.attach(this.horn);
+      const strap = this.kaiF.horn?.userData.strap;
+      if (strap) strap.visible = true;
+    }
+    poseHorn(this.horn, hips, HORN_SLING, 1 - Math.exp(-5 * dt));
+  }
+
 
   /**
    * The walk. Things in the trees go off where he is, talking or not: the

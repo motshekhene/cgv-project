@@ -365,7 +365,7 @@ export function dressAsHandler(fighter) {
     // big enough to swallow the monk's ears and crown; open only where the mask is
     const R = 0.168;
     const shell = new THREE.Mesh(
-      new THREE.SphereGeometry(R / s, 28, 18, Math.PI / 2 + 0.4 * Math.PI, 1.2 * Math.PI, 0, 0.66 * Math.PI),
+      new THREE.SphereGeometry(R / s, 28, 18, Math.PI / 2 + 0.33 * Math.PI, 1.34 * Math.PI, 0, 0.76 * Math.PI), // down over the jaw, framing the mask
       plate,
     );
     shell.scale.set(1.12, 1.18, 1.12);
@@ -374,13 +374,31 @@ export function dressAsHandler(fighter) {
     helmet.add(shell);
     // and its brow: the crown over the face opening, down to the top of the mask
     const brow = new THREE.Mesh(
-      new THREE.SphereGeometry(R / s, 16, 6, Math.PI / 2 - 0.4 * Math.PI, 0.8 * Math.PI, 0, 0.3 * Math.PI),
+      new THREE.SphereGeometry(R / s, 16, 6, Math.PI / 2 - 0.33 * Math.PI, 0.66 * Math.PI, 0, 0.3 * Math.PI),
       plate,
     );
     brow.scale.copy(shell.scale);
     brow.position.copy(shell.position);
     brow.castShadow = true;
     helmet.add(brow);
+    // the bevor: a gunmetal guard from under the mask down over the jaw and throat, so not a hair of
+    // his beard shows. It comes off with the mask, which is when Kai sees the beard and knows him
+    {
+      const h = 0.24;
+      const geo = new THREE.CylinderGeometry(0.118 / s, 0.15 / s, h / s, 24, 1, true); // closed all round: no gap for a wisp to show through
+      const bevor = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: 0x3a3e43, roughness: 0.4, metalness: 0.75, side: THREE.DoubleSide,
+      }));
+      bevor.position.set(0, -(0.1 + h / 2) / s, 0.012 / s);
+      bevor.scale.set(1.05, 1, 1.12);
+      bevor.castShadow = true;
+      helmet.add(bevor);
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(0.118 / s, 0.009 / s, 6, 28), trim);
+      lip.rotation.x = Math.PI / 2; // the brass edge along its top, under the mask's chin
+      lip.position.set(0, -0.1 / s, 0.012 / s);
+      lip.scale.set(1.05, 1.12, 1);
+      helmet.add(lip);
+    }
     // a brass ridge from brow to nape, hugging the shell
     const crest = new THREE.Mesh(new THREE.TorusGeometry((R * 1.15) / s, 0.012 / s, 6, 24, Math.PI), trim);
     crest.rotation.y = Math.PI / 2;

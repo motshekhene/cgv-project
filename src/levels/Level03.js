@@ -228,7 +228,7 @@ export class Level03 extends Level {
     // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
     this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * losses);
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
-    this.keyItem = attachHorn(this.combat.fighter); // the horn he took off the stone, still lit
+    this.keyItem = attachHorn(this.combat.fighter); // the horn he took off the stone, slung at his hip, still lit
     this._wireBoss(state);
     // Kai comes out of the pool soaked; either of them gets soaked again wading back in
     this.water = new WaterFX(this.root, this.arena);
@@ -576,7 +576,7 @@ export class Level03 extends Level {
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
     } else this.arena.setFocus(kp.x, kp.z);
     if (this.keyItem) {
-      this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 2.2 + Math.sin(this.time * 18) * 0.8 : 0.4;
+      this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 0.9 + Math.sin(this.time * 18) * 0.35 : 0.05;
       this.keyItem.userData.glow.material.opacity = this.combat.abilityActive ? 0.95 : 0.4;
     }
 
