@@ -5,6 +5,13 @@ import { Cutscene, smooth, lerp } from '../Cutscene.js';
 import { loadCast, makeKai, makeHandler, attachTorch, syncClip } from '../cast.js';
 import { safePbr, box } from '../world.js';
 import { buildTrail, trailSign } from './trail.js';
+import {
+  AUDIO_LEVELS,
+  JungleBed,
+  createJungleCueBuffers,
+  createJungleMusicBuffer,
+  loadJungleTheme,
+} from '../../audio/jungleAudio.js';
 
 /**
  * Level 1 intro, "Out of the dark" (~9.6 s). docs/LEVEL1_2_INTROS_AND_WINS.md
@@ -53,6 +60,10 @@ export class TrailIntro extends Cutscene {
     for (let i = 1; i < this._kz.length; i++) this._kz[i] = this._kz[i - 1] + kaiSpeed((i - 0.5) * step) * step;
     this._kzStep = step;
     this._handlerSpeed = (DOOR_Z + 3 - (this.kaiZ(HANDOFF) + GAP)) / (HANDOFF - HANDLER_OUT);
+    // audio state — the rig itself is built in _startAudio(), torn down in teardown()
+    this._actx = null;
+    this._stride = 0;
+    this._hStride = 0;
   }
 
   kaiZ(t) {
@@ -98,6 +109,133 @@ export class TrailIntro extends Cutscene {
     this.at(6.75, () => this.shake(0.3), { fx: true });
     this.at(6.9, () => this.story.showCard('15 METRES', "That's your whole lead."));
     this.at(8.8, () => this.story.hideCard());
+
+    // ---- audio: the same sound world both levels live in ----
+    this._startAudio();
+    this.at(0.42, () => this._play('doorSlide', { volume: 0.66 }), { fx: true });
+    this.at(6.5, () => {
+      // he shoulders out of the doorway — the chase is on
+      this._play('impact', { volume: 0.4, rate: 0.8 });
+      this._startHandlerBreath();
+      this._duckMusic(0.35, 0.8);
+    }, { fx: true });
+    this.at(8.8, () => {
+      // the handoff sting under the ease into the chase camera, ahead of "RUN"
+      this._play('handoff', { volume: 0.72 });
+      this._duckMusic(0.4, 1.2);
+    }, { fx: true });
+  }
+
+  /* ------------------------------------------------------------ audio */
+
+  /**
+   * The intro's own audio rig: one AudioContext, the shared cue palette, the
+   * living jungle bed and the sparse intro loop — the same voices, style and
+   * levels as both levels, so the run starts in one continuous sound world.
+   * Torn down with the cutscene.
+   */
+  _startAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = (this._actx = new AC());
+
+    this._amaster = ctx.createGain();
+    this._amaster.gain.value = AUDIO_LEVELS.master;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
+    this._amaster.connect(comp).connect(ctx.destination);
+
+    this._acues = createJungleCueBuffers(ctx);
+
+    // inside the data centre: rack hum, dead air and a faint LED whine
+    const room = (this._roomGain = ctx.createGain());
+    room.gain.value = 0.5;
+    room.connect(this._amaster);
+    const hum = ctx.createOscillator(); hum.type = 'sine'; hum.frequency.value = 55;
+    const humG = ctx.createGain(); humG.gain.value = 0.06;
+    hum.connect(humG).connect(room); hum.start();
+    const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const nd = nb.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const air = ctx.createBufferSource(); air.buffer = nb; air.loop = true;
+    const airF = ctx.createBiquadFilter(); airF.type = 'lowpass'; airF.frequency.value = 240;
+    const airG = ctx.createGain(); airG.gain.value = 0.05;
+    air.connect(airF).connect(airG).connect(room); air.start();
+    const whine = ctx.createOscillator(); whine.type = 'sine'; whine.frequency.value = 5230;
+    const whineG = ctx.createGain(); whineG.gain.value = 0.004;
+    whine.connect(whineG).connect(room); whine.start();
+    this._roomSources = [hum, air, whine];
+
+    // the bed and music levels in the volume contract are post-master; undo
+    // this bus's master so they land where they do in the levels
+    const norm = 1 / AUDIO_LEVELS.master;
+    this._bed = new JungleBed(ctx, this._amaster, { level: AUDIO_LEVELS.bed * norm });
+    this._musicLevel = AUDIO_LEVELS.music * norm;
+
+    // the game's theme: the sparse intro arrangement covers the moment
+    // before the recorded loop decodes, then hands straight over
+    this._amusic = ctx.createGain();
+    this._amusic.gain.value = 0;
+    this._amusic.gain.setTargetAtTime(this._musicLevel, ctx.currentTime + 0.8, 1.2);
+    this._amusic.connect(this._amaster);
+    const music = ctx.createBufferSource();
+    music.buffer = createJungleMusicBuffer(ctx, 'intro');
+    music.loop = true;
+    music.connect(this._amusic);
+    music.start();
+    loadJungleTheme(ctx).then((buf) => {
+      if (!buf || !this._actx) return; // already torn down
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.connect(this._amusic);
+      src.start();
+      try { music.stop(); } catch { /* already stopped */ }
+    });
+
+    // browsers keep the context suspended until the first gesture
+    const resume = () => { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); };
+    this._resumeAudio = resume;
+    window.addEventListener('pointerdown', resume);
+    window.addEventListener('keydown', resume);
+  }
+
+  /** One of the shared cues, at the shared headroom. */
+  _play(name, { volume = 0.7, rate = 1 } = {}) {
+    if (!this._actx) return;
+    const buffer = this._acues && this._acues[name];
+    if (!buffer) return;
+    const src = this._actx.createBufferSource();
+    src.buffer = buffer;
+    if (rate !== 1) src.playbackRate.value = rate;
+    const g = this._actx.createGain();
+    g.gain.value = volume;
+    src.connect(g).connect(this._amaster);
+    src.start();
+  }
+
+  /** The Handler's breathing, from the moment he comes through the door. */
+  _startHandlerBreath() {
+    if (!this._actx || !this._acues.handlerBreath || this._breathSrc) return;
+    const src = this._actx.createBufferSource();
+    src.buffer = this._acues.handlerBreath;
+    src.loop = true;
+    const g = this._actx.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(0.8, this._actx.currentTime, 0.4);
+    src.connect(g).connect(this._amaster);
+    src.start();
+    this._breathSrc = src;
+  }
+
+  /** Dips the intro loop under a cue, then eases it back. */
+  _duckMusic(depth = 0.4, hold = 0.6) {
+    if (!this._amusic) return;
+    const t = this._actx.currentTime;
+    const g = this._amusic.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(Math.max(0.02, this._musicLevel * (1 - depth)), t, 0.06);
+    g.setTargetAtTime(this._musicLevel, t + hold, 0.5);
   }
 
   /** The building at the jungle's edge Kai has just robbed: concrete shell, a corridor of racks, a sliding door. */
@@ -252,5 +390,49 @@ export class TrailIntro extends Cutscene {
     for (const sh of this.shafts) sh.material.uniforms.uTime.value = t;
     this.pollen.update(t, kp);
     this.light.follow(kp, this.game.camera, t);
+
+    // ---- sound: the data centre hands over to the living jungle ----
+    if (this._actx) {
+      this._roomGain?.gain.setTargetAtTime(0.5 * (1 - smooth(2.5, 4.5, t)), this._actx.currentTime, 0.15);
+      // the distant wildlife swells in with the rest of the jungle
+      this._bed?.update(dt, { birds: 0.4 * smooth(1.0, 2.6, t) });
+
+      // Kai's footsteps, on stride distance — walking out, then running
+      if (v > 0.05) {
+        this._stride += v * ds;
+        const strideLen = v < 2.5 ? 0.95 : 1.55;
+        if (this._stride >= strideLen) {
+          this._stride = 0;
+          this._play('footstep', { volume: v < 2.5 ? 0.4 : 0.56, rate: 0.96 + Math.random() * 0.08 });
+        }
+      }
+
+      // the Handler's, heavier, once he is out
+      if (out && this._prevHandlerZ !== undefined) {
+        this._hStride += Math.abs(this.handlerZ(t) - this._prevHandlerZ);
+        if (this._hStride >= 1.7) {
+          this._hStride = 0;
+          this._play('footstep', { volume: 0.4, rate: 0.78 + Math.random() * 0.05 });
+        }
+      }
+      this._prevHandlerZ = out ? this.handlerZ(t) : undefined;
+    }
+  }
+
+  teardown() {
+    if (this._resumeAudio) {
+      window.removeEventListener('pointerdown', this._resumeAudio);
+      window.removeEventListener('keydown', this._resumeAudio);
+      this._resumeAudio = null;
+    }
+    if (this._bed) { this._bed.dispose(); this._bed = null; }
+    for (const s of this._roomSources || []) {
+      try { s.stop(); } catch { /* already stopped */ }
+    }
+    this._roomSources = null;
+    try { this._breathSrc?.stop(); } catch { /* already stopped */ }
+    this._breathSrc = null;
+    if (this._actx) { this._actx.close().catch(() => {}); this._actx = null; }
+    super.teardown();
   }
 }

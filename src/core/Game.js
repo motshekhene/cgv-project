@@ -74,6 +74,11 @@ export class Game {
     // key: name string, value: { camera, viewport: { x, y, w, h } }
     // x/y/w/h are normalised 0‥1 fractions of the canvas size.
     this.secondaryCameras = new Map();
+
+    // full-screen overlay passes rendered after the main view and PiP cameras.
+    // key: name string, value: { scene, camera } — each rendered on top of everything.
+    // used for screen-space effects like rain, HUD overlays, etc.
+    this.overlays = new Map();
   }
 
   registerLevel(name, factory) {
@@ -94,6 +99,7 @@ export class Game {
       this.level = null;
     }
     this.secondaryCameras.clear();
+    this.overlays.clear();
     this.state.resetForLevel(name);
 
     const level = factory();
@@ -175,6 +181,15 @@ export class Game {
       this.renderer.setScissorTest(false);
       this.renderer.setViewport(0, 0, pw, ph);
     }
+
+    // full-screen overlays (rain, etc.) — rendered on top of everything
+    if (this.overlays.size > 0) {
+      this.renderer.autoClear = false;
+      for (const { scene: s, camera: c } of this.overlays.values()) {
+        this.renderer.render(s, c);
+      }
+      this.renderer.autoClear = true;
+    }
   }
 
   /**
@@ -189,6 +204,21 @@ export class Game {
 
   removeSecondaryCamera(name) {
     this.secondaryCameras.delete(name);
+    return this;
+  }
+
+  /**
+   * Register a full-screen overlay pass (e.g. rain, screen-space effects).
+   * The overlay has its own scene and orthographic camera, rendered on top
+   * of the main view after all secondary cameras.
+   */
+  addOverlay(name, scene, camera) {
+    this.overlays.set(name, { scene, camera });
+    return this;
+  }
+
+  removeOverlay(name) {
+    this.overlays.delete(name);
     return this;
   }
 

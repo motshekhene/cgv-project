@@ -173,14 +173,45 @@ export class AudioSystem {
   }
 
   /**
-   * One-shot sting for Handler beats (gate slam, train horn, etc).
+   * One-shot sting for Handler beats (gate slam, train horn, etc). `rate`
+   * shifts the pitch of the whole buffer — cheap variety for cues that fire
+   * often (stumbles, coins) without minting extra buffers.
    */
-  playOneShot(name, { volume = 0.7 } = {}) {
+  playOneShot(name, { volume = 0.7, rate = 1 } = {}) {
     const buffer = this._getBuffer(name);
     if (!buffer) return;
     const sound = new THREE.Audio(this.listener);
     sound.setBuffer(buffer);
     sound.setVolume(volume);
+    if (rate !== 1) sound.setPlaybackRate(rate);
+    sound.play();
+    return sound;
+  }
+
+  /**
+   * A one-shot cue fired in 3D space — the Handler's footsteps, shouts and
+   * radio all live on his silhouette, so they get louder and closer as he
+   * closes in without the level touching a volume. Restarts a cached source
+   * per (object, cue) rather than stacking children every stride.
+   */
+  playPositional(object3D, name, { volume = 0.7, rate = 1, refDistance = 6, maxDistance = 60 } = {}) {
+    const buffer = this._getBuffer(name);
+    if (!buffer || !object3D) return null;
+
+    const key = `${object3D.uuid}:${name}`;
+    let sound = this.positionalSources.get(key);
+    if (!sound) {
+      sound = new THREE.PositionalAudio(this.listener);
+      sound.setBuffer(buffer);
+      sound.setRefDistance(refDistance);
+      sound.setMaxDistance(maxDistance);
+      sound.setDistanceModel('linear');
+      object3D.add(sound);
+      this.positionalSources.set(key, sound);
+    }
+    if (sound.isPlaying) sound.stop();
+    sound.setVolume(volume);
+    if (rate !== 1) sound.setPlaybackRate(rate);
     sound.play();
     return sound;
   }

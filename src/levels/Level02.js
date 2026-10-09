@@ -22,6 +22,8 @@ import { DriveControls } from './level2/controls.js';
 import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
+import { MudSplash } from './level2/MudSplash.js';
+import { createRainMaterial } from '../shaders/rain.js';
 
 /**
  * Level 02 — Redline.
@@ -154,6 +156,7 @@ export class Level02 extends Level {
     this.policeLights = new PoliceLights(this.handler.mesh);
     this.skids = new Skids(this.root);
     this.smoke = new Smoke(this.root);
+    this.mudSplash = new MudSplash(this.root);
     this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END });
     this.handler.traffic = this.traffic;          // so he steers round it
 
@@ -188,6 +191,18 @@ export class Level02 extends Level {
     this.game.addSecondaryCamera('minimap', this._minimap, {
       x: 0.73, y: 0.02, w: 0.25, h: 0.25,
     });
+
+    // ---- rain overlay — @2B ----
+    // Uses a dedicated scene + orthographic camera rendered as a post-process overlay
+    this._rainScene = new THREE.Scene();
+    this._rainCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._rainMat = createRainMaterial({
+      intensity: 0,
+      resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+    });
+    const rainQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._rainMat);
+    this._rainScene.add(rainQuad);
+    this.game.addOverlay('rain', this._rainScene, this._rainCamera);
 
     // ---- load models ----
     await Promise.allSettled(
@@ -300,6 +315,7 @@ export class Level02 extends Level {
       const bounds = model.userData.bounds;
       this.carLights.fit(bounds, model);
       this.skids.setDims(bounds);
+      this.mudSplash.setDims(bounds);
       this.car.bounds = {
         halfW: (bounds.max.x - bounds.min.x) * 0.45,
         halfL: (bounds.max.z - bounds.min.z) * 0.46,
@@ -428,6 +444,8 @@ export class Level02 extends Level {
 
     this.skids.update(dt, this.car, skidding);
     this.smoke.update(dt, this.skids.wheels(this.car), skidding);
+    // Mud splash from wheels — always when moving, not just when skidding
+    this.mudSplash.update(dt, this.car, this.car.speed);
 
     this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
     this.policeLights.update(dt, handlerState);
@@ -435,7 +453,7 @@ export class Level02 extends Level {
     this.traffic.collideBody(this.handler);       // he can barge traffic, never drive inside it
     for (const hit of this.traffic.update(dt, this.car)) {
       this._impact(hit.impact, this._mid.copy(this.car.mesh.position).setY(0.6));
-      this.sound.crash(hit.impact);
+      this.sound.trafficCrash(hit.impact);
       this.car.takeDamage(hit.damage);
       this.shake = Math.max(this.shake, 0.35 + hit.impact * 0.9);
     }
@@ -475,17 +493,26 @@ export class Level02 extends Level {
     });
 
     // ---- sound ----
-    if (handlerState === 'TELEGRAPH' && this._prevHState !== 'TELEGRAPH') this.sound.warn();
+    // his telegraph is his horn — the ranger bearing down, in his voice
+    if (handlerState === 'TELEGRAPH' && this._prevHState !== 'TELEGRAPH') this.sound.horn();
     this._prevHState = handlerState;
     const p = this.car.mesh.position;
+    // the living bed's world: the jungle thins out along the route, the storm
+    // darkens toward night insects, and the rain ramp matches 2B's overlay
+    const alongJungle = 1 - 0.65 * THREE.MathUtils.smoothstep(route.t, 0.1, 0.5);
+    const alongNight = THREE.MathUtils.smoothstep(route.t, 0.35, 0.75);
     this.sound.update(dt, {
       speed: this.car.speed,
       maxSpeed: this.car.maxSpeed,
       throttle: i.forward || i.boost,
       boosting: this.car.boosting,
+      health: this.car.maxHealth ? this.car.health / this.car.maxHealth : 1,
       skid: skidding,
       scrape: this.car.wallHit,
       falls: this.course.roar(p.z) * 0.35,
+      jungle: alongJungle,
+      night: alongNight,
+      rain: this._rainLevel || 0,
       handler: {
         dist,
         dx: this.handler.mesh.position.x - p.x,
@@ -503,6 +530,18 @@ export class Level02 extends Level {
     state.boostHeat = this.car.heat;
     state.distance = dist;
     state.handlerState = handlerState;
+
+    // health-loss cue: fires on real drops only — heals and restarts jump up,
+    // and the drop to zero is the defeat sting's job
+    if (
+      this._lastHealth !== undefined &&
+      this.car.health > 0 &&
+      this.car.health < this._lastHealth - 0.5 &&
+      !this._finale
+    ) {
+      this.sound.hurt(Math.min(1, (this._lastHealth - this.car.health) / 22));
+    }
+    this._lastHealth = this.car.health;
 
     // drove off the end of the road: over the falls
     if (this.car.mesh.position.z > COURSE_END + 0.3 && !this._finale) this._startFall();
@@ -540,6 +579,14 @@ export class Level02 extends Level {
     this.course.update(dt);
     this._sun.position.copy(p).add(this._sunOffset);
     this._sun.target.position.copy(p);
+
+    // ---- rain overlay — @2B ----
+    // Rain starts at ~60% progress, full by ~80%
+    const progress = THREE.MathUtils.clamp(this.handler.dist / COURSE_END, 0, 1);
+    const rainT = THREE.MathUtils.smoothstep(progress, 0.55, 0.8);
+    this._rainMat.uniforms.uIntensity.value = rainT;
+    this._rainMat.uniforms.uTime.value += dt;
+    this._rainLevel = rainT; // the sound bed rains with the overlay
   }
 
   /** A pickup was driven through. */
@@ -661,7 +708,9 @@ export class Level02 extends Level {
     this._updateWorld(dt);
     this.sound.update(dt, {
       speed: f.phase === 'fall' ? car.speed : 0, maxSpeed: car.maxSpeed, throttle: false, boosting: false,
+      health: car.maxHealth ? car.health / car.maxHealth : 1,
       skid: false, scrape: 0, falls: 0.4, falling: f.phase === 'fall',
+      jungle: 0.15, night: 0.8, rain: this._rainLevel || 0,
       handler: { dist: 60, dx: 0, attacking: false }, drones: [],
     });
   }
@@ -828,6 +877,7 @@ export class Level02 extends Level {
 
   /** After the splash: the team's win card; CONTINUE goes on to level 03. */
   _showSurvivedCard() {
+    this.sound.win(); // the same fanfare Level 1 plays on its win
     const integrity = Math.round((100 * this.car.health) / this.car.maxHealth);
     this._survivedCard = showEndCard({
       kind: 'win',
@@ -862,6 +912,7 @@ export class Level02 extends Level {
   /* ======================== game over ======================== */
 
   _showGameOver() {
+    this.sound.defeat(); // the shared losing sting
     const dist = this.state.distance;
     const time = this._time;
     const topSpeedKmh = this._topSpeed * 3.6;
@@ -906,6 +957,8 @@ export class Level02 extends Level {
   teardown() {
     this.game.removeSecondaryCamera('rearview');
     this.game.removeSecondaryCamera('minimap');
+    this.game.removeOverlay('rain');
+    if (this._rainMat) this._rainMat.dispose();
     this._hud?.destroy();
     this._picker?.destroy();
     this._survivedCard?.destroy();
@@ -925,6 +978,7 @@ export class Level02 extends Level {
     this.sound?.dispose();
     this._flashEl = null;
     if (this.road) this.road.dispose();
+    if (this.mudSplash) this.mudSplash.dispose();
     super.teardown();
   }
 }
