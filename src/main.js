@@ -12,11 +12,16 @@ import { CHAPTERS } from "./ui/LoadingScreen.js";
 import { ensureDialogueFont } from "./ui/dialogue.js";
 import { LoadingScreen } from "./ui/LoadingScreen.js";
 import { TitleScreen } from "./ui/TitleScreen.js";
+import { TitleScene } from "./levels/TitleScene.js";
 
 /**
  * The full run, in order:
  *
- *   prologue → level01 → level02-intro → level02 → level03
+ *   title → prologue → level01 → level02-intro → level02 → level03
+ *
+ * The title is a level too (levels/TitleScene.js: the glade at dawn with the
+ * horn on its stone), with the menu drawn over it (ui/TitleScreen.js); the
+ * pause menu's MAIN MENU comes back to it.
  *
  * The prologue is the intro of record: the fire, Baba Zwane, the horn on the
  * stone. It ends with Kai running onto the trail at dawn, Level 1's first
@@ -49,6 +54,7 @@ function goTo(name) {
   });
 }
 
+game.registerLevel("title", () => new TitleScene());
 game.registerLevel("prologue", () => new Prologue());
 game.registerLevel("level01", () => new Level01());
 game.registerLevel("level02-intro", () => new DriveOutIntro({ onDone: () => { level02FromIntro = true; goTo("level02"); } }));
@@ -77,21 +83,42 @@ game.onLevelLoading = (name) => loading.show(name);
 game.onLoadProgress = (p) => {
   if (game.loading) loading.progress(p);
 };
+// the title's words and menu, over the title level while it is up
+let titleScreen = null;
+let titleVisits = 0;
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
   controlsOverlay.setLevel(name);
   loading.hide();
+  if (titleScreen && name !== "title") {
+    titleScreen.dispose();
+    titleScreen = null;
+  }
+  if (name === "title" && !titleScreen) {
+    titleScreen = new TitleScreen({
+      onStart: (next) => {
+        titleScreen = null;
+        begin(next);
+      },
+      onControls: () => controlsOverlay.show(),
+      skipPress: titleVisits++ > 0, // back from a level: straight to the menu
+    });
+  }
 };
 // One pause menu for every level (Esc, or a level's own pause button): the
 // chapter, that level's controls, RESUME / RESTART / MAIN MENU
 const pauseMenu = new PauseMenu({
   onResume: () => game.setPaused(false),
   onRestart: () => game.restart(),
-  onMenu: () => location.assign(location.pathname), // the title screen, from a clean start
+  onMenu: () => goTo("title"),
 });
 game.onPaused = (v, reason) => {
   console.log("[game]", v ? "paused" : "resumed", reason === "switch" ? "(level switch)" : "");
   const name = game.levelName;
+  if (v && reason === "user" && name === "title") {
+    game.setPaused(false, "switch"); // nothing to pause on the title screen: Esc is its "back"
+    return;
+  }
   if (!v || reason !== "user" || !game.level || game.loading) {
     pauseMenu.show(false);
     return;
@@ -122,15 +149,7 @@ async function begin(name) {
 // otherwise the game opens on its title screen
 const wanted = new URLSearchParams(location.search).get("level");
 game.start();
-if (game.levels.has(wanted)) {
-  await begin(wanted);
-} else {
-  controlsOverlay.setLevel("title");
-  new TitleScreen({
-    onStart: (name) => begin(name),
-    onControls: () => controlsOverlay.show(),
-  });
-}
+await begin(game.levels.has(wanted) ? wanted : "title");
 
 // handy while developing — open the console and poke at it
 window.game = game;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
+import { GAME_TITLE } from '../ui/brand.js';
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -1680,7 +1681,7 @@ export class Prologue extends Level {
       'transition:opacity 2.4s',
       `<div style="${SERIF};color:${CREAM};font-size:46px;font-weight:600;` +
       'letter-spacing:.3em;text-shadow:0 0 28px rgba(255,176,58,.4), 0 2px 18px rgba(0,0,0,.9)">' +
-      'BLACKOUT PROTOCOL</div>' +
+      GAME_TITLE + '</div>' +
       `<div style="color:#cfd6c4;font-size:14px;letter-spacing:.34em;margin-top:24px;${SERIF};` +
       'text-shadow:0 2px 12px rgba(0,0,0,.95);animation:prologuePulse 2.2s ease-in-out infinite">' +
       'CLICK TO BEGIN</div>',

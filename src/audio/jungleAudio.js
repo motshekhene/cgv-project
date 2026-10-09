@@ -1,5 +1,5 @@
 /**
- * JUNGLE AUDIO — the one sound world for BLACKOUT PROTOCOL: Jungle Shrine.
+ * JUNGLE AUDIO — the one sound world for THE SILENT HORN, the whole jungle run.
  * Owner: the sound engineer. Everything a level, the intro or a cutscene
  * needs comes from here and nowhere else, so a coin collected in Level 1
  * and a repair grabbed in Level 2 come from the same buffers, with the same
