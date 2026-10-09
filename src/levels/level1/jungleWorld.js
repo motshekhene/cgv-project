@@ -842,7 +842,7 @@ export function updateJungleWildlife(wildlife, dt, kaiZ, kaiX = 0) {
   }
 }
 
-export function createSign(text = "SITE 7 →", { width = 2.4, height = 0.85 } = {}) {
+export function createSign(text = "THE CAMP →", { width = 2.4, height = 0.85 } = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = 640;
   canvas.height = 220;

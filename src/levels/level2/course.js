@@ -83,7 +83,7 @@ export class Course {
 
     // ---------- Level 1 signage along the trail ----------
     const signs = [
-      [60, 'SITE 7 →'], [E - 3000, 'FALLS 3 KM'], [E - 2000, 'FALLS 2 KM'],
+      [60, 'FALLS 4 KM →'], [E - 3000, 'FALLS 3 KM'], [E - 2000, 'FALLS 2 KM'],
       [E - 1000, 'FALLS 1 KM'], [E - 500, 'FALLS 500 M'], [E - 230, 'FALLS AHEAD'],
     ];
     signs.forEach(([z, text], i) => {

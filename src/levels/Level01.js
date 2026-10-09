@@ -764,9 +764,9 @@ export class Level01 extends Level {
     // close enough to the trail to compete with obstacle silhouettes, which
     // was especially distracting on a climb with the Handler close behind.
     const signs = [
-      [-5.4, -72, "SITE 7 →"],
-      [5.4, -1120, "SITE 7 →"],
-      [-5.4, -2240, "SITE 7 →"],
+      [-5.4, -72, "THE CAMP →"],
+      [5.4, -1120, "THE CAMP →"],
+      [-5.4, -2240, "THE CAMP →"],
     ];
     for (const [x, z, text] of signs) {
       const sign = createSign(text);
@@ -2714,7 +2714,7 @@ export class Level01 extends Level {
     this._escapedCard = showEndCard({
       kind: "win",
       title: "ESCAPED",
-      sub: "You made it out of the jungle. He's still coming.",
+      sub: "You got the horn off the mountain. The Marshal is still coming.",
       lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M` }],
       action: {
         label: "CONTINUE",
