@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 
 /**
  * Obstacles — Member 2A (Level 2 improvements)
@@ -23,7 +24,8 @@ import * as THREE from 'three';
  * halfL, speed }), so the Handler steers round fallen trees and animals too.
  *
  *   const obstacles = new Obstacles(root, { start: 220, end: COURSE_END - 420, avoid: pickups.items });
- *   obstacles.build(kit, barkTexture);           // once the jungle kit has loaded
+ *   const animals = await loadAnimalModels(assets);   // real warthog / kudu models, if they're there
+ *   obstacles.build(kit, barkTexture, animals);  // once the jungle kit has loaded
  *   for (const hit of obstacles.update(dt, car)) ...   // [{ kind, label, damage, impact, at }]
  *   obstacles.collideBody(handler);
  */
@@ -159,6 +161,85 @@ function makeKudu() {
   return g;
 }
 
+/* ---------------- real animal models ---------------- */
+
+/**
+ * The real animals, from public/assets/level2/animals/ (see CREDITS.md).
+ * Any file that doesn't load just leaves that animal as the primitive one
+ * above, so the level never breaks over a missing model.
+ *
+ *   length  world length (m) the animal ends up, nose to tail
+ *   yaw     turn so the model faces +x (glTF models usually face +z: PI / 2)
+ */
+export const ANIMAL_MODELS = {
+  BOAR: [{ path: 'level2/animals/boar.glb', length: 1.5, yaw: Math.PI / 2 }],
+  KUDU: [
+    { path: 'level2/animals/stag.glb', length: 2.2, yaw: Math.PI / 2 },
+    { path: 'level2/animals/deer.glb', length: 1.9, yaw: Math.PI / 2 },
+  ],
+};
+
+/** { BOAR: [{ gltf, ...spec }], KUDU: [...] } with only the files that loaded. */
+export async function loadAnimalModels(assets) {
+  const out = {};
+  await Promise.all(Object.entries(ANIMAL_MODELS).map(async ([kind, specs]) => {
+    const loaded = await Promise.all(specs.map((spec) => assets.model(spec.path)
+      .then((gltf) => ({ ...spec, gltf }))
+      .catch(() => { console.warn(`[obstacles] no ${spec.path}, using the built-in ${kind.toLowerCase()}`); return null; })));
+    out[kind] = loaded.filter(Boolean);
+  }));
+  return out;
+}
+
+// clip names, with or without an "Armature|" prefix (Quaternius: Gallop, Walk, Idle, Eating, ...)
+const RUN = /^(.*\|)?(gallop|run)$/i;
+const WALK = /^(.*\|)?(walk|trot)$/i;
+const IDLE = /^(.*\|)?(idle|eating)$/i;
+
+/**
+ * One animal from a loaded model, in the same shape as makeBoar()/makeKudu():
+ * facing +x, feet on y = 0, centred. If the model is rigged its own run cycle
+ * plays (userData.mixer); a static one just gets the bob and a rocking trot.
+ */
+function makeAnimalFromModel({ gltf, length, yaw }, stride) {
+  const model = cloneSkinned(gltf.scene);
+  const inner = new THREE.Group();
+  inner.add(model);
+  inner.rotation.y = yaw;
+  inner.updateMatrixWorld(true);
+  let box = new THREE.Box3().setFromObject(inner);
+  const size = box.getSize(new THREE.Vector3());
+  inner.scale.setScalar(length / (Math.max(size.x, size.z) || 1));
+  inner.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(inner);
+  const c = box.getCenter(new THREE.Vector3());
+  inner.position.set(-c.x, -box.min.y, -c.z);
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    o.frustumCulled = false;      // skinned bounds don't follow the run cycle
+  });
+
+  const g = new THREE.Group();
+  g.add(inner);
+  const ud = { stride, swing: 0.75, rock: inner };
+  const clips = gltf.animations || [];
+  if (clips.length) {
+    const mixer = new THREE.AnimationMixer(model);
+    const pick = (re) => clips.find((a) => re.test(a.name));
+    const run = pick(RUN) || pick(WALK) || clips[0];
+    const idle = pick(IDLE);
+    ud.mixer = mixer;
+    ud.run = mixer.clipAction(run);
+    ud.idle = idle ? mixer.clipAction(idle) : null;
+    (ud.idle || ud.run).play();
+    if (!ud.idle) ud.run.timeScale = 0;     // frozen mid-stride until it moves
+  }
+  g.userData = ud;
+  return g;
+}
+
 /* ======================== the obstacles ======================== */
 
 export class Obstacles {
@@ -200,8 +281,9 @@ export class Obstacles {
   }
 
   /** Builds every obstacle once the jungle kit is in. */
-  build(kit, bark) {
+  build(kit, bark, animals = {}) {
     this.kit = kit;
+    this._animals = animals;
     this._bark = new THREE.MeshStandardMaterial({ color: 0xa08a70, roughness: 0.95, map: bark || null });
     if (this._bark.map) {
       this._bark.map = bark.clone();
@@ -358,12 +440,23 @@ export class Obstacles {
     };
   }
 
+  /** A real model for this kind if one loaded (taking turns between them), else null. */
+  _realAnimal(kind, stride) {
+    const list = this._animals?.[kind];
+    if (!list || !list.length) return null;
+    this._turns = this._turns || {};
+    const n = this._turns[kind] = (this._turns[kind] || 0) + 1;
+    return makeAnimalFromModel(list[n % list.length], stride);
+  }
+
   _makeBoar(slot) {
-    return this._animal(makeBoar(), slot, { speed: 4.5, damage: 10, slow: 0.6, halfW: 0.95, halfL: 0.55, trigger: 70, scale: 1.3 });
+    const real = this._realAnimal('BOAR', 9);
+    return this._animal(real || makeBoar(), slot, { speed: 4.5, damage: 10, slow: 0.6, halfW: 0.95, halfL: 0.55, trigger: 70, scale: real ? 1 : 1.3 });
   }
 
   _makeKudu(slot) {
-    return this._animal(makeKudu(), slot, { speed: 9, damage: 12, slow: 0.55, halfW: 1.05, halfL: 0.45, trigger: 85, scale: 1.15 });
+    const real = this._realAnimal('KUDU', 7);
+    return this._animal(real || makeKudu(), slot, { speed: 9, damage: 12, slow: 0.55, halfW: 1.05, halfL: 0.45, trigger: 85, scale: real ? 1 : 1.15 });
   }
 
   /* ---------------- debris ---------------- */
@@ -467,12 +560,29 @@ export class Obstacles {
     }
     if (a.state === 'gone') { a.holder.visible = false; a.x = 1e6; return; }
     a.holder.position.x = a.x;
-    // the gait: legs swing in diagonal pairs, a bob, the tail flicks
     const moving = a.state === 'cross' || a.state === 'flee';
-    const sw = moving ? Math.sin(a.gait) * ud.swing : 0;
-    ud.legs[0].rotation.z = sw; ud.legs[3].rotation.z = sw;
-    ud.legs[1].rotation.z = -sw; ud.legs[2].rotation.z = -sw;
-    ud.tail.rotation.x = Math.sin(this.time * 9 + a.z) * 0.4;
+    if (ud.mixer) {
+      // a rigged model: its own run cycle, quicker when it's fleeing
+      if (moving && !ud.running) {
+        ud.running = true;
+        ud.run.play();
+        if (ud.idle) ud.run.crossFadeFrom(ud.idle, 0.2, false);
+      }
+      if (moving) ud.run.timeScale = a.state === 'flee' ? 1.4 : 1;
+      ud.mixer.update(dt);
+      if (a.state !== 'knocked') a.holder.position.y = 0;
+      return;
+    }
+    if (ud.rock) {
+      // a static model: it rocks nose-to-tail and bobs as it trots
+      ud.rock.rotation.z = moving ? Math.sin(a.gait) * 0.08 : 0;
+    } else {
+      // the gait: legs swing in diagonal pairs, the tail flicks
+      const sw = moving ? Math.sin(a.gait) * ud.swing : 0;
+      ud.legs[0].rotation.z = sw; ud.legs[3].rotation.z = sw;
+      ud.legs[1].rotation.z = -sw; ud.legs[2].rotation.z = -sw;
+      ud.tail.rotation.x = Math.sin(this.time * 9 + a.z) * 0.4;
+    }
     if (a.state !== 'knocked') a.holder.position.y = moving ? Math.abs(Math.sin(a.gait)) * 0.08 * ud.swing * 2 : 0;
   }
 

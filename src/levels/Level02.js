@@ -22,7 +22,7 @@ import { DriveControls } from './level2/controls.js';
 import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
 import { Level2Sound } from './level2/sound.js';
-import { Obstacles } from './level2/obstacles.js';
+import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 
 /**
  * Level 02 — Redline.
@@ -267,7 +267,7 @@ export class Level02 extends Level {
 
   /** Loads the shared jungle kit and plants it along every road chunk. */
   async _buildJungle(assets) {
-    const [kit, mats] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200)]);
+    const [kit, mats, animals] = await Promise.all([loadJungleKit(assets), createJungleMaterials(assets, 200), loadAnimalModels(assets)]);
     this._kit = kit;
     const tile = (mat, rx, ry) => {
       const m = mat.clone();
@@ -289,7 +289,7 @@ export class Level02 extends Level {
       { ground: tile(mats.forest, 80, L / 5) },
     );
     this.course.build(kit, mats);
-    this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null));
+    this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null), animals);
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
