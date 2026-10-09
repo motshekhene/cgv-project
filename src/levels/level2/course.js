@@ -3,6 +3,7 @@ import { createSign, createLightShaft } from '../level1/jungleWorld.js';
 import { populateJungleChunk, partsOf } from './JungleRoadside.js';
 import { createWaterMaterial } from '../../shaders/water.js';
 import { River, shore } from './river.js';
+import { Gorge, GORGE_LEN } from './gorge.js';
 import { createWaterfallMaterial } from '../../shaders/waterfall.js';
 
 /**
@@ -184,6 +185,34 @@ export class Course {
       else if (pick < 0.65 && small.length) place(small[i % small.length], x, y, z, 6 + r() * 3, r() * 6.3);
       else if (bushes.length) place(bushes[i % bushes.length], x, y, z, 0.012 + r() * 0.008, r() * 6.3);
     }
+    // ---------- the drop ----------
+    // the cliff face the river pours over, and the gorge below it: rocky
+    // cliffs round a plunge pool that narrows into a river bending away
+    // downstream (gorge.js), jungle along both rims
+    const POOL = GORGE_LEN;
+    box(340, DROP + 4, 6, 0, -0.75 - (DROP + 4) / 2, E - 3, darkStone);
+    const gorge = new Gorge(g, { endZ: E, drop: DROP, stone: mats.stone, forest: mats.forest });
+    for (const { x, z, side } of gorge.rim) {
+      // a tree line just back from the edge, thicker further out
+      for (let k = 0; k < 3; k++) {
+        const out = 4 + k * 9 + r() * 7;
+        const zz = z + (r() - 0.5) * 6;
+        const pick = r();
+        if (pick < 0.55 && trees.length) place(trees[(k + Math.floor(zz)) % trees.length], x + side * out, 0.1, zz, 0.022 + r() * 0.012, r() * 6.3);
+        else if (pick < 0.75 && small.length) place(small[k % small.length], x + side * out, 0.1, zz, 6 + r() * 3, r() * 6.3);
+        else if (bushes.length) place(bushes[k % bushes.length], x + side * (out - 2), 0.1, zz, 0.012 + r() * 0.008, r() * 6.3);
+      }
+      // the odd bush clinging to the edge
+      if (r() < 0.35 && bushes.length) place(bushes[Math.floor(z) % bushes.length], x + side * 1.2, 0.15, z, 0.01 + r() * 0.008, r() * 6.3);
+    }
+    // rocks in the pool and along the channel
+    for (let i = 0; i < 40 && rocks.length; i++) {
+      const zg = 30 + r() * (POOL - 60);
+      const sd = r() < 0.5 ? -1 : 1;
+      const x = gorge.centre(zg) + sd * gorge.halfWidth(zg) * (0.55 + r() * 0.35);
+      place(rocks[i % rocks.length], x, -DROP - 0.4, E + zg, 0.014 + r() * 0.02, r() * 6.3);
+    }
+
     for (const [proto, mats] of placed) {
       for (const part of partsOf(proto)) {
         const inst = new THREE.InstancedMesh(part.geometry, part.material, mats.length);
@@ -195,31 +224,6 @@ export class Course {
       }
     }
 
-    // ---------- the drop ----------
-    // the cliff face the river pours over, the gorge walls either side of the
-    // pool, and the far wall closing it off, jungle on every rim
-    const POOL = 230;
-    box(340, DROP + 4, 6, 0, -0.75 - (DROP + 4) / 2, E - 3, darkStone);
-    for (const sd of [-1, 1]) box(70, DROP + 2, POOL, sd * 165, -(DROP + 2) / 2, E + POOL / 2, wallStone);
-    box(400, DROP + 8, 30, 0, -DROP - 2 + (DROP + 8) / 2, E + POOL + 15, wallStone);
-    for (const sd of [-1, 1]) {
-      const top = new THREE.Mesh(new THREE.PlaneGeometry(300, POOL), mats.forest);
-      top.rotation.x = -Math.PI / 2;
-      top.position.set(sd * (130 + 150), 0.02, E + POOL / 2);
-      g.add(top);
-    }
-    const farTop = new THREE.Mesh(new THREE.PlaneGeometry(700, 260), mats.forest);
-    farTop.rotation.x = -Math.PI / 2;
-    farTop.position.set(0, 6.02, E + POOL + 130);
-    g.add(farTop);
-    const rim = new THREE.Group();
-    rim.position.z = E + POOL / 2;
-    populateJungleChunk(rim, kit, { length: POOL, roadWidth: 262, seed: 777 });
-    g.add(rim);
-    const far = new THREE.Group();
-    far.position.set(0, 6, E + POOL + 70);
-    populateJungleChunk(far, kit, { length: 110, roadWidth: 0, seed: 991 });
-    g.add(far);
 
     // the curtain: several overlapping sheets (the shader fades each one's
     // edges), so the streaks stay waterfall-sized across 260 m
@@ -235,14 +239,15 @@ export class Course {
 
     // the pool at the bottom (Level 3 opens in it)
     const poolMat = createWaterMaterial({
-      deep: 0x174a48, shallow: 0x4f9e92, sky: 0x8fb3a6, sunDir: new THREE.Vector3(-0.35, 0.55, 0.75), foamAt: new THREE.Vector3(0, E + 6, 34),
+      deep: 0x174a48, shallow: 0x4f9e92, sky: 0x8fb3a6, sunDir: new THREE.Vector3(-0.35, 0.55, 0.75), foamAt: new THREE.Vector3(0, E + 6, 34), flow: new THREE.Vector2(0, -0.5),
     });
     this.waters.push(poolMat);
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(300, POOL), poolMat);
+    // one sheet down the whole gorge; the cliffs hide what's past them
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(500, POOL), poolMat);
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(0, -DROP, E + POOL / 2);
     g.add(pool);
-    const poolBed = new THREE.Mesh(new THREE.PlaneGeometry(300, POOL), bedMat);
+    const poolBed = new THREE.Mesh(new THREE.PlaneGeometry(500, POOL), bedMat);
     poolBed.rotation.x = -Math.PI / 2;
     poolBed.position.set(0, -DROP - 4, E + POOL / 2);
     g.add(poolBed);
