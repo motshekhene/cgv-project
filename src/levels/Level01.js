@@ -16,6 +16,7 @@ import { showEndCard } from "../ui/EndCard.js";
 import { THEME_CSS } from "../ui/theme.js";
 import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
+import { dotTexture } from "../intros/fx.js";
 import { PAINTS, applyPaint, detectPaint } from "./level2/paint.js";
 import {
   loadJungleKit,
@@ -462,6 +463,14 @@ const LEVEL1_HUD_CSS = `
 }
 @keyframes l1hLow { 50% { filter:brightness(1.6); } }
 `;
+
+const _flyQ = new THREE.Quaternion();
+const _flyQ2 = new THREE.Quaternion();
+// the flight pose's legs, radians about each bone's own hinge (from the rest pose)
+const FLY_HIP = -0.3;
+const FLY_KNEE = -1.1;
+const FLY_ANKLE = -0.55;
+const _flyE = new THREE.Euler();
 
 export class Level01 extends Level {
   constructor() {
@@ -2087,6 +2096,7 @@ export class Level01 extends Level {
     group.visible = false;
     this.player.add(group);
     this._jetpackFx = group;
+    if (this.kai) this._buildKaiJetpack(); // Kai loaded first: give him the real pack now
   }
 
   _updateJetpackPickups(dt, x, prevZ) {
@@ -2107,7 +2117,7 @@ export class Level01 extends Level {
       this.sliding = false;
       this.y = 0;
       this.vy = 0;
-      this._showTransientBanner("JETPACK BOOST — AIR RUN!", 1.8);
+      this._showTransientBanner("JETPACK \u2014 FLY!", 1.6);
       if (this._audio) this._audio.playOneShot("jetpackIgnite", { volume: 0.48 });
     }
   }
@@ -2132,11 +2142,12 @@ export class Level01 extends Level {
 
     if (this._jetpackFx) {
       this._jetpackFx.visible = this._jetpackActive || this._flightLift > 0.18;
-      if (this._jetpackGlow) this._jetpackGlow.intensity = this._jetpackActive ? 4.2 : 1.0;
+      if (this._jetpackGlow) this._jetpackGlow.intensity = this._jetpackActive ? 3.4 + Math.random() * 0.8 : 0.8;
       for (let i = 0; i < (this._jetpackFlames || []).length; i++) {
         const flame = this._jetpackFlames[i];
-        flame.scale.y = 0.72 + Math.sin(this._rewardTime * 18 + i) * 0.18;
-        flame.material.opacity = this._jetpackActive ? 0.88 : 0.35;
+        const roar = this._jetpackActive ? 1 : 0.35;
+        flame.scale.set(1, (0.8 + Math.sin(this._rewardTime * 23 + i * 1.7) * 0.18 + Math.random() * 0.08) * roar, 1);
+        flame.material.opacity = this._jetpackActive ? 0.85 : 0.3;
       }
     }
 
@@ -4259,6 +4270,175 @@ export class Level01 extends Level {
     });
     this.body.visible = false;
     this._kaiWasAirborne = false;
+    // flying: a still, legs-together frame of his idle, bent into shape in _flightPose()
+    this.kai.pose("fly", "idle", 0.4);
+    if (this._jetpackFx) this._buildKaiJetpack(); // otherwise _buildJetpackFx() calls it once the stand-in exists
+  }
+
+  /**
+   * The jetpack on Kai's back, Subway Surfers style: two fat tanks on a
+   * backplate, brass bands, nozzles at the bottom and long orange flames
+   * roaring out of them, with an exhaust trail left hanging in the air
+   * behind him. It rides his upper spine, so it tips with him as he leans
+   * into the flight. Replaces the capsule's stand-in pack (_buildJetpackFx)
+   * and keeps its names, so _updateJetpack() drives both the same way.
+   */
+  _buildKaiJetpack() {
+    const spine = this.kai?.bone("Torso");
+    if (!spine || this._kaiPack) return;
+    this.kai.root.updateMatrixWorld(true);
+    const s = spine.getWorldScale(new THREE.Vector3()).x || 1;
+    const pack = new THREE.Group();
+    pack.name = "kai-jetpack";
+    pack.scale.setScalar(1 / s); // built in metres; the bone's units are the rig's
+    pack.position.set(0, -0.06 / s, -0.05 / s);
+
+    const metal = new THREE.MeshStandardMaterial({ color: 0x8a9196, roughness: 0.32, metalness: 0.85 });
+    const paint = new THREE.MeshStandardMaterial({ color: 0xc8541f, roughness: 0.45, metalness: 0.35 });
+    const brass = new THREE.MeshStandardMaterial({ color: 0xd2a24a, roughness: 0.35, metalness: 0.8 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1c1f22, roughness: 0.6, metalness: 0.5 });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.05), dark);
+    plate.position.set(0, 0, -0.12);
+    pack.add(plate);
+    this._jetpackFlames = [];
+    this._jetpackNozzles = [];
+    for (const side of [-1, 1]) {
+      const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.24, 6, 14), paint);
+      tank.position.set(side * 0.092, 0.01, -0.2);
+      tank.castShadow = true;
+      pack.add(tank);
+      for (const y of [-0.08, 0.1]) {
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.077, 0.011, 6, 18), brass);
+        band.rotation.x = Math.PI / 2;
+        band.position.set(side * 0.092, y, -0.2);
+        pack.add(band);
+      }
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.062, 0.08, 14, 1, true), metal);
+      nozzle.position.set(side * 0.092, -0.2, -0.2);
+      pack.add(nozzle);
+      // the flame: an orange sheath and a hot yellow core, tips pointing down and back
+      const flame = new THREE.Group();
+      flame.position.set(side * 0.092, -0.24, -0.2);
+      flame.rotation.x = Math.PI + 0.25;
+      const outer = new THREE.Mesh(
+        new THREE.ConeGeometry(0.065, 0.62, 14, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xff7a1f, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      outer.position.y = 0.31;
+      const core = new THREE.Mesh(
+        new THREE.ConeGeometry(0.035, 0.36, 10, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      core.position.y = 0.18;
+      flame.add(outer, core);
+      flame.material = outer.material; // _updateJetpack() fades the sheath
+      pack.add(flame);
+      this._jetpackFlames.push(flame);
+      this._jetpackNozzles.push(nozzle);
+    }
+    const glow = new THREE.PointLight(0xff9a3c, 0, 6, 2);
+    glow.position.set(0, -0.45, -0.25);
+    pack.add(glow);
+    this._jetpackGlow = glow;
+    pack.visible = false;
+    spine.add(pack);
+    if (this._jetpackFx) this._jetpackFx.removeFromParent(); // the capsule's stand-in pack
+    this._jetpackFx = this._kaiPack = pack;
+
+    // his legs fly from the rig's rest pose (straight, together), not his fighting stance
+    this._legRest = new Map();
+    let skeleton = null;
+    this.kai.root.traverse((o) => { if (!skeleton && o.isSkinnedMesh) skeleton = o.skeleton; });
+    if (skeleton) {
+      const world = new Map();
+      skeleton.bones.forEach((bone, i) => world.set(bone, new THREE.Matrix4().copy(skeleton.boneInverses[i]).invert()));
+      for (const side of ["Left", "Right"]) {
+        for (const part of ["UpLeg", "Leg", "Foot"]) {
+          const bone = this.kai.bones["mixamorig" + side + part];
+          const pw = bone && world.get(bone.parent);
+          if (!bone || !pw) continue;
+          const local = pw.clone().invert().multiply(world.get(bone));
+          this._legRest.set(bone, new THREE.Quaternion().setFromRotationMatrix(local));
+        }
+      }
+    }
+
+    // exhaust: soft puffs left in the air where the nozzles were, growing and fading
+    const tex = dotTexture();
+    this._exhaust = [];
+    this._exhaustT = 0;
+    for (let i = 0; i < 36; i++) {
+      const puff = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: tex, color: 0xffb066, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+      puff.visible = false;
+      this.root.add(puff);
+      this._exhaust.push({ sprite: puff, life: 0, max: 1 });
+    }
+    this._exhaustNext = 0;
+    this._tmpNozzle = new THREE.Vector3();
+  }
+
+  /** Exhaust puffs: two a tick from the nozzles while the pack burns, drifting back and fading. */
+  _updateExhaust(dt) {
+    if (!this._exhaust) return;
+    if (this._jetpackActive && this._jetpackNozzles) {
+      this._exhaustT -= dt;
+      if (this._exhaustT <= 0) {
+        this._exhaustT = 0.035;
+        for (const n of this._jetpackNozzles) {
+          const e = this._exhaust[this._exhaustNext];
+          this._exhaustNext = (this._exhaustNext + 1) % this._exhaust.length;
+          n.getWorldPosition(this._tmpNozzle);
+          this.root.worldToLocal(this._tmpNozzle);
+          e.sprite.position.copy(this._tmpNozzle);
+          e.sprite.position.y -= 0.25;
+          e.life = e.max = 0.55 + Math.random() * 0.25;
+          e.sprite.visible = true;
+        }
+      }
+    }
+    for (const e of this._exhaust) {
+      if (e.life <= 0) continue;
+      e.life -= dt;
+      const k = 1 - Math.max(0, e.life) / e.max; // 0 -> 1 over its life
+      e.sprite.scale.setScalar(0.25 + k * 1.1);
+      e.sprite.material.opacity = 0.55 * (1 - k);
+      e.sprite.material.color.setHex(k < 0.25 ? 0xffb066 : 0x9a8f86); // fire, then smoke
+      e.sprite.position.y -= dt * 0.6;
+      if (e.life <= 0) e.sprite.visible = false;
+    }
+  }
+
+  /**
+   * The flight pose on top of the held frame: thighs swept back, knees
+   * folded so the feet trail, arms back along his sides, his head up to see
+   * where he is going. `k` 0..1 blends it in as he lifts off and out as he lands.
+   */
+  _flightPose(kai, k) {
+    const b = (n) => kai.bones["mixamorig" + n];
+    const bend = (bone, x, y = 0, z = 0) => {
+      if (!bone) return;
+      kai._stash(bone);
+      _flyQ.setFromEuler(_flyE.set(x * k, y * k, z * k));
+      bone.quaternion.multiply(_flyQ);
+    };
+    // legs: from the rest pose, blended in by k, then folded back at the knee
+    const fold = (bone, x) => {
+      const rest = bone && this._legRest?.get(bone);
+      if (!rest) return;
+      kai._stash(bone);
+      _flyQ2.copy(rest).multiply(_flyQ.setFromEuler(_flyE.set(x, 0, 0)));
+      bone.quaternion.slerp(_flyQ2, k);
+    };
+    for (const [side, sgn] of [["Left", 1], ["Right", -1]]) {
+      fold(b(side + "UpLeg"), FLY_HIP);
+      fold(b(side + "Leg"), FLY_KNEE);
+      fold(b(side + "Foot"), FLY_ANKLE);
+      bend(b(side + "Arm"), -0.45, 0, sgn * 0.2);
+      bend(b(side + "ForeArm"), 0, 0, sgn * 0.35);
+    }
+    bend(b("Neck"), -0.25);
   }
 
   /**
@@ -4310,8 +4490,11 @@ export class Level01 extends Level {
     const kai = this.kai;
     if (!kai) return;
 
+    const flying = this._jetpackActive || this._flightLift > 0.6;
     if (this.caught) {
       if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
+    } else if (flying && kai.actions.fly) {
+      kai.play("fly", { fade: 0.3 });
     } else if (this.airborne) {
       // the rig's running jump (1.25 s), sped up to fit the 0.77 s hop
       if (!this._kaiWasAirborne) kai.playOnce(kai.actions.runningjump ? "runningjump" : "jump", { fade: 0.08, speed: 1.6 });
@@ -4331,7 +4514,20 @@ export class Level01 extends Level {
     // turned 180 degrees, so both flip sign in his frame
     kai.visual.rotation.set(-this.body.rotation.x - 1.1 * slide, 0, -this.body.rotation.z);
 
+    // in the air: lean into it, bob on the thrust, bank into the lane changes
+    const fk = THREE.MathUtils.clamp(this._flightLift / 2.2, 0, 1);
+    const lateral = dt > 0 ? (this._worldX - (this._prevFlyX ?? this._worldX)) / dt : 0;
+    this._prevFlyX = this._worldX;
+    this._flyBank = (this._flyBank || 0) + (THREE.MathUtils.clamp(lateral * 0.09, -0.5, 0.5) - (this._flyBank || 0)) * (1 - Math.exp(-6 * dt));
+    if (fk > 0) {
+      kai.visual.rotation.x += 0.28 * fk; // on top of the capsule's own flight pitch: about 35 degrees all told
+      kai.visual.rotation.z += this._flyBank * fk;
+      kai.visual.position.y += Math.sin(this._rewardTime * 2.6) * 0.08 * fk;
+    }
+
     kai.update(dt);
+    if (fk > 0.01 && kai.currentName === "fly") this._flightPose(kai, fk);
+    this._updateExhaust(dt);
   }
 
   teardown() {
