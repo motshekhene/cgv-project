@@ -61,6 +61,14 @@ function keysFor(game, row) {
  * Unknown levels fall through to the shared rows only.
  */
 const LEVEL_CONTROLS = {
+  title: {
+    title: 'MAIN MENU',
+    rows: [
+      { label: 'CHOOSE', keys: '↑ / ↓ · W / S' },
+      { label: 'SELECT', keys: 'ENTER · CLICK' },
+      { label: 'BACK', keys: 'ESC' },
+    ],
+  },
   prologue: {
     title: 'PROLOGUE',
     rows: [
