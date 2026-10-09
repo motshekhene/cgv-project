@@ -172,7 +172,7 @@ export function mountControlsOverlay(game) {
 
   function render() {
     const spec = LEVEL_CONTROLS[state.levelName] || { title: 'CONTROLS', rows: [] };
-    const rows = [...spec.rows, ...SHARED_ROWS];
+    const rows = state.levelName === 'title' ? spec.rows : [...spec.rows, ...SHARED_ROWS]; // nothing to pause or mute on the menu
 
     let html =
       `<div style="color:${ACCENT};font-size:10px;letter-spacing:.28em;margin-bottom:10px">` +

@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -464,6 +466,34 @@ const LEVEL1_HUD_CSS = `
 @keyframes l1hLow { 50% { filter:brightness(1.6); } }
 `;
 
+/**
+ * The horn stamped on the coins: its curl as a flat shape, extruded a few
+ * millimetres proud of the field on both faces (the coin's faces sit at z
+ * +-0.026), so it catches the light as the coin turns.
+ */
+function coinEmblemGeometry() {
+  const k = 0.0011; // the shape is drawn on a 260-wide grid
+  const sh = new THREE.Shape();
+  sh.moveTo(38, 168);
+  sh.bezierCurveTo(30, 104, 76, 42, 146, 40);
+  sh.bezierCurveTo(196, 39, 226, 72, 224, 112);
+  sh.bezierCurveTo(223, 138, 204, 154, 186, 150);
+  sh.bezierCurveTo(204, 138, 206, 112, 192, 94);
+  sh.bezierCurveTo(174, 72, 142, 66, 114, 78);
+  sh.bezierCurveTo(84, 92, 70, 124, 76, 168);
+  sh.closePath();
+  const front = new THREE.ExtrudeGeometry(sh, { depth: 8, bevelEnabled: true, bevelThickness: 2, bevelSize: 2, bevelSegments: 1, curveSegments: 10 });
+  front.translate(-131, -104, 0);
+  front.scale(k, -k, k);
+  front.translate(0, 0, 0.024);
+  const back = front.clone();
+  back.rotateY(Math.PI);
+  const merged = mergeGeometries([front, back]);
+  front.dispose();
+  back.dispose();
+  return merged;
+}
+
 const _flyQ = new THREE.Quaternion();
 const _flyQ2 = new THREE.Quaternion();
 // the flight pose's legs, radians about each bone's own hinge (from the rest pose)
@@ -544,7 +574,7 @@ export class Level01 extends Level {
     // Kai model/controller code is imported or replaced.
     this._rewardItems = [];
     this._rewardMesh = null;
-    this._rewardDiscMesh = null;
+    this._rewardDiscMesh = null; // the horn emblem on the coins
     this._rewardDummy = new THREE.Object3D();
     this._rewardTime = 0;
     this.rewardCount = 0;
@@ -1747,91 +1777,39 @@ export class Level01 extends Level {
       }
     }
 
-    // Realistic-looking gold coin: a thin cylinder with a shiny metallic face
-    // and a subtle rim. The geometry is a flattened cylinder with a torus edge
-    // to give it a ridged coin feel.
-    const coinGroup = new THREE.Group();
-    coinGroup.name = "reward-coin-template";
-
-    const coinRadius = 0.26;
-    const coinThickness = 0.06;
-
-    // Main disc
-    const discGeo = new THREE.CylinderGeometry(coinRadius, coinRadius, coinThickness, 20);
-    const goldMat = new THREE.MeshStandardMaterial({
-      color: 0xffd700,
-      emissive: new THREE.Color(0x6b4400),
-      emissiveIntensity: 0.9,
-      roughness: 0.18,
-      metalness: 0.92,
+    // The coins: struck gold, the horn on both faces. A lathe-turned body (a
+    // raised rim, a recessed field, a domed centre) and the horn in relief on
+    // each face, as two instanced meshes driven by the same matrices; a
+    // reflection map so the gold reads as metal and not as yellow plastic.
+    // Each instance's colour tints it: gold, or the rare high coins' teal.
+    const body = new THREE.LatheGeometry([
+      [0, 0.034], [0.085, 0.034], [0.095, 0.026], [0.19, 0.026], [0.205, 0.038], [0.25, 0.038],
+      [0.27, 0.026], [0.27, -0.026], [0.25, -0.038], [0.205, -0.038], [0.19, -0.026], [0.095, -0.026],
+      [0.085, -0.034], [0, -0.034],
+    ].map(([r, y]) => new THREE.Vector2(r, y)), 44);
+    body.rotateX(Math.PI / 2); // stood on edge, facing down the trail
+    const emblem = coinEmblemGeometry();
+    const metal = new THREE.MeshStandardMaterial({
+      color: 0xffffff, roughness: 0.26, metalness: 0.9,
+      emissive: new THREE.Color(0x4a3000), emissiveIntensity: 0.45,
+      envMap: this._coinEnvMap(), envMapIntensity: 1.25,
     });
-    const disc = new THREE.Mesh(discGeo, goldMat);
-    disc.rotation.x = Math.PI / 2;
-    coinGroup.add(disc);
-
-    // Rim / edge ring for a ridged look
-    const rimGeo = new THREE.TorusGeometry(coinRadius, coinThickness * 0.45, 6, 20);
-    const rimMat = new THREE.MeshStandardMaterial({
-      color: 0xe8b800,
-      emissive: new THREE.Color(0x4a3000),
-      emissiveIntensity: 0.5,
-      roughness: 0.25,
-      metalness: 0.88,
-    });
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    coinGroup.add(rim);
-
-    // Inner embossed circle (the "face" detail)
-    const innerGeo = new THREE.CylinderGeometry(coinRadius * 0.55, coinRadius * 0.55, coinThickness + 0.01, 16);
-    const innerMat = new THREE.MeshStandardMaterial({
-      color: 0xffe066,
-      emissive: new THREE.Color(0x7a5500),
-      emissiveIntensity: 1.1,
-      roughness: 0.15,
-      metalness: 0.95,
-    });
-    const inner = new THREE.Mesh(innerGeo, innerMat);
-    inner.rotation.x = Math.PI / 2;
-    coinGroup.add(inner);
-
-    // Use the coin group as a template for InstancedMesh. Because InstancedMesh
-    // needs a single geometry, we merge the coin parts into one BufferGeometry.
-    // For simplicity and performance we keep the torus as the instanced mesh
-    // (it reads best at distance) and add the disc as a second instanced mesh.
-    const geo = new THREE.TorusGeometry(0.28, 0.075, 8, 16);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: new THREE.Color(0x513600),
-      emissiveIntensity: 1.35,
-      roughness: 0.28,
-      metalness: 0.42,
-    });
-    const mesh = new THREE.InstancedMesh(geo, mat, rewards.length);
+    const mesh = new THREE.InstancedMesh(body, metal, rewards.length);
     mesh.name = "temple-run-rewards";
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.frustumCulled = false;
-
-    // Second instanced mesh for the gold disc face — gives the coin a solid
-    // centre instead of being just a ring.
-    const discGeo2 = new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16);
-    const discMat2 = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: new THREE.Color(0x6b4400),
-      emissiveIntensity: 1.5,
-      roughness: 0.15,
-      metalness: 0.92,
-    });
-    const discMesh = new THREE.InstancedMesh(discGeo2, discMat2, rewards.length);
-    discMesh.name = "temple-run-rewards-disc";
-    discMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    discMesh.frustumCulled = false;
-
-    for (let i = 0; i < rewards.length; i++) {
-      mesh.setColorAt(i, new THREE.Color(rewards[i].color));
-      discMesh.setColorAt(i, new THREE.Color(rewards[i].color));
+    const discMesh = new THREE.InstancedMesh(emblem, metal, rewards.length);
+    discMesh.name = "temple-run-rewards-emblem";
+    for (const m of [mesh, discMesh]) {
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.frustumCulled = false;
+      m.castShadow = true;
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    if (discMesh.instanceColor) discMesh.instanceColor.needsUpdate = true;
+    for (let i = 0; i < rewards.length; i++) {
+      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0xffc23a : rewards[i].color);
+      mesh.setColorAt(i, c);
+      discMesh.setColorAt(i, c);
+    }
+    mesh.instanceColor.needsUpdate = true;
+    discMesh.instanceColor.needsUpdate = true;
 
     this._rewardItems = rewards;
     this._rewardMesh = mesh;
@@ -1839,6 +1817,17 @@ export class Level01 extends Level {
     this.root.add(mesh);
     this.root.add(discMesh);
     this._updateRewardInstances(0);
+  }
+
+  /** A soft studio reflection for the coins' gold, made once from three's RoomEnvironment. */
+  _coinEnvMap() {
+    if (this._coinEnv) return this._coinEnv;
+    const renderer = this.game?.renderer;
+    if (!renderer) return null;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    this._coinEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    return this._coinEnv;
   }
 
   _updateRewardInstances(dt) {
@@ -1858,26 +1847,18 @@ export class Level01 extends Level {
         dummy.scale.setScalar(0.001);
         dummy.rotation.set(0, 0, 0);
       } else {
+        // upright, bobbing, spinning on the spot like every runner's coins
         const bob = Math.sin(this._rewardTime * 3.6 + r.phase) * 0.11;
         dummy.position.set(r.x, jungleCourseHeight(r.z) + r.yOffset + bob, r.z);
-        dummy.rotation.set(0.12, this._rewardTime * 2.8 + r.phase, 0);
-        dummy.scale.setScalar(1);
+        dummy.rotation.set(0, this._rewardTime * 3.2 + r.phase, 0);
+        dummy.scale.setScalar(1.05);
       }
       dummy.updateMatrix();
       this._rewardMesh.setMatrixAt(i, dummy.matrix);
-
-      // The disc face follows the same transform but is rotated 90deg so it
-      // sits flat inside the torus rim.
-      if (this._rewardDiscMesh) {
-        const discRot = dummy.rotation.clone();
-        discRot.x = Math.PI / 2;
-        dummy.rotation.copy(discRot);
-        dummy.updateMatrix();
-        this._rewardDiscMesh.setMatrixAt(i, dummy.matrix);
-      }
+      this._rewardDiscMesh.setMatrixAt(i, dummy.matrix);
     }
     this._rewardMesh.instanceMatrix.needsUpdate = true;
-    if (this._rewardDiscMesh) this._rewardDiscMesh.instanceMatrix.needsUpdate = true;
+    this._rewardDiscMesh.instanceMatrix.needsUpdate = true;
   }
 
   _updateTempleRewards(dt, x, prevZ, state) {
@@ -4394,6 +4375,10 @@ export class Level01 extends Level {
 
   teardown() {
     clearThoughts();
+    if (this._coinEnv) {
+      this._coinEnv.dispose();
+      this._coinEnv = null;
+    }
     for (const f of [this.kai, this.handlerMonk]) {
       f?.root.traverse((o) => {
         if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();
