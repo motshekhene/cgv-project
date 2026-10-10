@@ -11,17 +11,21 @@ import { PAINTS } from './paint.js';
 // Models: Quaternius "Cars Bundle" (CC0) + "CAR Model" by Ignition Labs (CC BY 3.0).
 // `length` is the car's real-world length in metres; everything (lights,
 // skid marks, collisions) is fitted to it. See public/assets/level2/CREDITS.md
+// `door` is where its driver's door is cut out of the body so it can open, in
+// the car's own frame, measured off the model side-on (see level1/carDoor.js).
 export const CARS = [
   {
     // "Convertible" by Poly by Google, CC BY 3.0
     id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9,
     blurb: 'All-rounder — quick, comfortable, nothing to prove', stats: { speed: 43, accel: 22, handling: 1.0, strength: 1.0 },
+    door: { z: [-0.52, 0.63], y: [0.24, 1.04], depth: 0.37, interior: true, seat: { x: 0.62, y: 0.4 } },
   },
   {
     // "Toyota AE86" by IvOfficial, CC BY 3.0
     // white body painted into its texture: no separate paint colour to target, factory only
     id: 'drifter', name: 'Drifter', path: 'level2/cars/drifter.glb', length: 4.2, paintable: false,
     blurb: 'Light, nimble, born to slide — Space to drift', stats: { speed: 40, accel: 26, handling: 1.3, strength: 0.8 },
+    door: { z: [-0.48, 0.55], y: [0.33, 1.22], depth: 0.32 },
   },
   {
     // "Car" by theking1322, CC BY 3.0 (modelled side-on: turned to face +Z)
@@ -30,19 +34,23 @@ export const CARS = [
     id: 'muscle', name: 'Muscle', path: 'level2/cars/muscle.glb', length: 4.8, yaw: Math.PI / 2,
     ground: /^Cylinder00[1-4]$/, wheels: /^Cylinder00[1-4]$/,
     blurb: 'Big engine, heavy body — wins the shoving matches', stats: { speed: 45, accel: 23, handling: 0.85, strength: 1.2 },
+    door: { z: [-0.63, 0.5], y: [0.37, 1.25], depth: 0.32 },
   },
   {
     id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4,
     blurb: 'Very fast, very fragile', stats: { speed: 48, accel: 25, handling: 1.0, strength: 0.75 },
+    door: { z: [-0.74, 0.72], y: [0.3, 1.23], depth: 0.32 },
   },
   {
     id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb', length: 4.8,
     blurb: 'Fastest car here — one bad PIT and it is in pieces', stats: { speed: 50, accel: 24, handling: 0.9, strength: 0.65 },
+    door: { z: [-0.62, 0.85], y: [0.26, 1.08], depth: 0.35, swing: 'up' },
   },
   {
     // "Pickup Truck" by Quaternius, CC0
     id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3,
     blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
+    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
   },
 ];
 

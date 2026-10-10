@@ -146,6 +146,26 @@ const CUES = {
     ) * Math.exp(-t * 2.7),
   },
 
+  // A car door's handle pulled: two small metal clicks, the handle and the latch letting go.
+  doorLatch: {
+    seconds: 0.2,
+    fn: (t) => {
+      const click = (at) => (t > at ? Math.sin((t - at) * TAU * 2300) * Math.exp(-(t - at) * 150) : 0);
+      return click(0) * 0.45 + click(0.06) * 0.55 + (Math.random() * 2 - 1) * 0.1 * Math.exp(-t * 80);
+    },
+  },
+
+  // A car door shut hard: a deep thunk through the body, the latch catching inside it.
+  doorSlam: {
+    seconds: 0.5,
+    fn: (t) => (
+      Math.sin(t * TAU * 64) * Math.exp(-t * 16) * 0.8 +
+      Math.sin(t * TAU * 121) * Math.exp(-t * 28) * 0.3 +
+      Math.sin(t * TAU * 2050) * Math.exp(-t * 110) * 0.25 +
+      (Math.random() * 2 - 1) * 0.2 * Math.exp(-t * 38)
+    ),
+  },
+
   // Collecting a story letter — the glowing cyan shard.
   shrinePulse: {
     seconds: 0.75,

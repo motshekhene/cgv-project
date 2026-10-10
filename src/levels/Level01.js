@@ -7,6 +7,7 @@ import { AudioSystem } from "../audio/audioSystem.js";
 import { CARS, HANDLER_MODEL, loadSavedCar, loadSavedPaint } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
 import { CarLights } from "./level2/carLights.js";
+import { CarDoor } from "./level1/carDoor.js";
 import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
@@ -225,15 +226,25 @@ const ESCAPE_DECEL = 34; // m/s^2; ~0.65 s and 7 m to a standstill
 // --- the finish scene ---
 // Reaching the bay takes the camera for a short scene instead of stopping Kai
 // dead under a win card: he runs in and pulls up at the driver's door, turns
-// to look back at the Marshal beating on the sealed gate, then gets in and
-// the headlights come on. The ESCAPED card lands over a slow orbit of the car,
-// and CONTINUE carries on into the drive-out scene from the car's engine.
+// to look back at the Marshal beating on the sealed gate, then opens the door,
+// gets in the way anyone gets into a car (backside first, ducking in, legs
+// swung in after him) and pulls it shut, and the headlights come on. The
+// ESCAPED card lands over a slow orbit of the car, and CONTINUE carries on
+// into the drive-out scene from the car's engine.
 const FINALE_ARRIVE = 1.7; // run-in to the driver's door
 const FINALE_LOOK = 3.8; // ...looking back at the gate until here
-const FINALE_IN = 4.45; // in the car, door shut
-const FINALE_LIGHTS = 4.75; // headlights on
-const FINALE_CARD = 5.6; // the ESCAPED card
+const FINALE_REACH = 4.3; // turned to the door, his hand on the handle
+const FINALE_OPEN = 4.5; // the latch goes: the door swings out past him as he steps back
+const FINALE_STEP = 5.1; // he steps round it into the gap
+const FINALE_SIT = 5.6; // ...turns his back to the seat and sits, ducking in
+const FINALE_SWING = 6.1; // legs swung in, facing the wheel
+const FINALE_SHUT = 6.45; // he pulls the door after him
+const FINALE_IN = 6.8; // ...and it slams: in the car, door shut
+const FINALE_LIGHTS = 7.1; // headlights on
+const FINALE_CARD = 7.9; // the ESCAPED card
 const FINALE_BANGS = [2.35, 3.05]; // the Marshal hitting the bars
+const SIT_HIPS = 0.534; // his hips above his feet in the 'sitting' clip (characters/kai-bryce.json)
+const SIT_HEAD = 1.34; // the top of his head, seated
 
 // --- boost / stamina tuning ---
 const BOOST_DRAIN = 28; // stamina per second while boosting
@@ -530,6 +541,8 @@ export class Level01 extends Level {
     this._escapeSpeed = 0; // the speed he arrived at the bay with, ramped to 0
     this._handedOff = false;
     this._finale = null; // the finish scene, once he reaches the bay
+    this._bendQ = new THREE.Quaternion();
+    this._bendX = new THREE.Vector3(1, 0, 0);
     this._handlerSealed = false;
     this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
@@ -3310,17 +3323,45 @@ export class Level01 extends Level {
     vehicle.updateWorldMatrix(true, false);
     const { min, max } = this._bayCar.bounds;
     const midZ = (min.z + max.z) / 2;
-    // the driver's door: the car's right-hand side (it faces +z in its own
-    // frame), a touch forward of the middle
-    const door = vehicle.localToWorld(new THREE.Vector3(min.x - 0.5, 0, midZ + 0.35));
-    const seat = vehicle.localToWorld(new THREE.Vector3(min.x * 0.35, 0, midZ + 0.35));
+    // The driver's door is on the car's right-hand side (it faces +z in its
+    // own frame, so that is min.x): cut out of the body so it can open
+    // (level1/carDoor.js). The blue stand-in van has no model to cut.
+    const def = this._bayCar.model ? CARS[loadSavedCar()] || CARS[0] : null;
+    const carDoor = def ? new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
+    const [z0, z1] = carDoor ? carDoor.spec.z : [midZ - 0.2, midZ + 0.9];
+    // in the car's frame: where he stands to open it (just behind its rear
+    // edge, which swings out past him), where he steps back to as it comes,
+    // where he stands in the gap, and the seat. Seated, his head stays under
+    // the roof (the convertible has none).
+    const local = {
+      stand: new THREE.Vector3(min.x - 0.42, 0, z0 - 0.2),
+      back: new THREE.Vector3(min.x - 0.7, 0, z0 - 0.3),
+      seat: carDoor ? carDoor.seatLocal() : new THREE.Vector3(min.x * 0.35, 0.45, midZ + 0.35),
+    };
+    local.entry = new THREE.Vector3(min.x - 0.02, 0, local.seat.z);
+    local.seat.y = Math.min(local.seat.y + 0.09 - SIT_HIPS, max.y - 0.06 - SIT_HEAD);
+    const door = vehicle.localToWorld(local.stand.clone());
     const centre = vehicle.localToWorld(new THREE.Vector3(0, 0, midZ));
     const start = new THREE.Vector3(x, 0, this.z);
     // round the back of the car on the door side, so he never runs through it
     const wide = new THREE.Vector3(door.x + 1.1, 0, Math.max(door.z + 4.5, Math.min(start.z - 2, max.z + centre.z + 1.5)));
+    // headings: a direction in the car's frame, turned into the world's
+    const carYaw = vehicle.getWorldQuaternion(new THREE.Quaternion());
+    const yaw = new THREE.Euler().setFromQuaternion(carYaw, "YXZ").y;
+    const handle = new THREE.Vector3(min.x + 0.1, 0, z0 + 0.12);
+    if (this.kai && !this.kai.actions.reach) this.kai.pose("reach", "cross", 1.133); // his right arm out at full stretch
+    this._finaleV = new THREE.Vector3();
     this._finale = {
       t: 0,
-      door, seat, centre,
+      door, centre, carDoor,
+      local, yaw,
+      toWorld: (v, out = new THREE.Vector3()) => vehicle.localToWorld(out.copy(v)),
+      // facing the handle, facing the gap, facing out of the car, facing the wheel
+      faceHandle: yaw + Math.atan2(handle.x - local.stand.x, handle.z - local.stand.z),
+      faceEntry: yaw + Math.atan2(local.entry.x - local.back.x, local.entry.z - local.back.z),
+      faceOut: yaw - Math.PI / 2,
+      faceWheel: yaw,
+      sits: !!(this.kai && this.kai.actions.sitting),
       path: new THREE.CatmullRomCurve3([start, wide, door]),
       fogFrom: this.scene.fog ? this.scene.fog.density : 0,
       cam: this.game?.camera ? this.game.camera.position.clone() : new THREE.Vector3(),
@@ -3345,6 +3386,16 @@ export class Level01 extends Level {
       this._templeHud.style.pointerEvents = "none";
     }
     this._showLetterbox(true);
+  }
+
+  /** Bent forward at the waist by `a` radians, spread down his spine, on top of whatever clip is playing. */
+  _bendKai(kai, a) {
+    for (const name of ["Spine", "Spine1", "Spine2"]) {
+      const b = kai.bones["mixamorig" + name];
+      if (!b) continue;
+      kai._stash(b); // undone before the next frame's clip, like the prologue's reach
+      b.quaternion.multiply(this._bendQ.setFromAxisAngle(this._bendX, a / 3));
+    }
   }
 
   /** Cinema bars, so the scene reads as the game taking the camera. */
@@ -3379,26 +3430,34 @@ export class Level01 extends Level {
 
   /**
    * The finish scene, run in place of the level's update once Kai is at the
-   * bay. Three shots and a hold:
+   * bay. Four shots and a hold:
    *
    *   arrive  0.0  low by the car's nose, Kai sprints in and pulls up at the driver's door
    *   look    1.7  over his shoulder, long lens up the trail: the Handler at the
    *               sealed gate, beating on the bars (two flashes and a thud)
-   *   in      3.8  wide on the car: he gets in, the door thuds, the headlights come on
-   *   hold    5.6  ESCAPED card over a slow orbit of the car, engine ticking over
+   *   door    3.8  behind him at the car: he opens the door, steps round it, sits
+   *               in backside first and swings his legs in, and pulls it shut
+   *   in      6.8  wide on the car as the door slams: the headlights come on
+   *   hold    7.9  ESCAPED card over a slow orbit of the car, engine ticking over
    */
   _updateFinale(dt, state) {
     const F = this._finale;
     const f = (F.t += dt);
     const kai = this.kai;
-    const { door, seat, centre } = F;
+    const { door, centre, local: L } = F;
     const smooth = (a, b, v) => THREE.MathUtils.smoothstep(v, a, b);
     const groundY = (z) => jungleCourseHeight(z);
+    const turn = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k; // the short way round
+    const vehicle = this.serviceVehicle;
+    const at = (from, to, k) => F.toWorld(this._finaleV.lerpVectors(from, to, k), pos);
 
     // ---- Kai
     const pos = this.player.position;
     let heading = 0;
     let anim = "idle";
+    let speed = 1;
+    let bend = 0; // forward at the waist: reaching down for the handle, ducking in under the roof line
+    let inCar = false;
     if (f < FINALE_ARRIVE) {
       // decelerating sprint: fast in, easing to a stop at the door
       const k = f / FINALE_ARRIVE;
@@ -3415,36 +3474,88 @@ export class Level01 extends Level {
         F.stride = 0;
         this._audio?.playFootstep({ volume: 0.45, pitchVariance: 0.08, minInterval: 0, dt });
       }
-      if (kai && anim === "run") {
-        if (kai.currentName !== "run") kai.play("run", { fade: 0.15 });
-        kai.current.timeScale = 0.55 + 0.85 * (1 - k);
-      }
+      speed = 0.55 + 0.85 * (1 - k);
     } else if (f < FINALE_LOOK) {
       // turns round at the door to look back the way he came
       const back = 0; // facing +z, up the trail
       heading = THREE.MathUtils.lerp(F.heading, back, smooth(FINALE_ARRIVE, FINALE_ARRIVE + 0.6, f));
       pos.set(door.x, groundY(door.z), door.z);
-    } else if (f < FINALE_IN) {
-      // and gets in: a turn to the door and a step down into the seat
-      const k = smooth(FINALE_LOOK + 0.15, FINALE_IN, f);
-      const into = Math.atan2(seat.x - door.x, seat.z - door.z);
-      heading = THREE.MathUtils.lerp(0, into, smooth(FINALE_LOOK, FINALE_LOOK + 0.3, f));
-      pos.lerpVectors(door, seat, k);
-      pos.y = groundY(pos.z) - 0.45 * k;
-      anim = k > 0.05 ? "run" : "idle";
-      if (kai && anim === "run") {
-        if (kai.currentName !== "run") kai.play("run", { fade: 0.12 });
-        kai.current.timeScale = 0.5;
+    } else if (f < FINALE_OPEN) {
+      // round to the door, and his hand goes to the handle
+      heading = turn(0, F.faceHandle, smooth(FINALE_LOOK, FINALE_LOOK + 0.4, f));
+      pos.set(door.x, groundY(door.z), door.z);
+      if (f > FINALE_REACH - 0.25) {
+        anim = "reach";
+        bend = 0.24 * smooth(FINALE_REACH - 0.25, FINALE_REACH, f);
       }
+    } else if (f < FINALE_STEP) {
+      // the latch goes and he pulls: the door swings out past him as he steps back from it
+      const k = smooth(FINALE_OPEN + 0.05, FINALE_OPEN + 0.45, f);
+      at(L.stand, L.back, k);
+      heading = F.faceHandle;
+      if (f < FINALE_OPEN + 0.2) {
+        anim = "reach";
+        bend = 0.24;
+      } else if (k < 0.97) {
+        anim = "walkback";
+        speed = 0.7;
+      }
+    } else if (f < FINALE_SIT) {
+      // round it into the gap, and his back to the seat as he gets there
+      const k = smooth(FINALE_STEP, FINALE_SIT - 0.08, f);
+      at(L.back, L.entry, k);
+      heading = turn(F.faceHandle, F.faceEntry, smooth(FINALE_STEP, FINALE_STEP + 0.15, f));
+      heading = turn(heading, F.faceOut, smooth(FINALE_SIT - 0.22, FINALE_SIT, f));
+      if (k < 0.92) {
+        anim = "walk";
+        speed = 1.15;
+      }
+    } else if (F.sits) {
+      // backside first onto the seat, his head ducked under the roof line, then
+      // round on it to face the wheel with his legs swung in after him
+      at(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SWING, f));
+      pos.y += vehicle.position.y; // the car ticking over, him in it
+      heading = turn(F.faceOut, F.faceWheel, smooth(FINALE_SWING - 0.15, FINALE_SHUT + 0.1, f));
+      anim = "sitting";
+      bend = 0.32 * Math.sin(Math.PI * smooth(FINALE_SIT, FINALE_SWING + 0.15, f));
+    } else {
+      // a rig with no sitting clip: in through the gap, and gone
+      at(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SIT + 0.3, f));
+      heading = F.faceWheel;
+      inCar = f > FINALE_SIT + 0.25;
     }
-    const inCar = f >= FINALE_IN;
     if (kai) {
       kai.root.visible = !inCar;
       kai.root.rotation.y = heading;
-      if (anim === "idle" && kai.currentName !== "idle") kai.play("idle", { fade: 0.3 });
+      const fade = anim === "sitting" ? 0.45 : anim === "run" ? 0.15 : 0.25;
+      kai.play(anim, { fade, speed });
       kai.update(dt);
+      if (bend > 0.001) this._bendKai(kai, bend);
     } else {
-      this.body.visible = !inCar;
+      this.body.visible = f < FINALE_SIT;
+    }
+
+    // ---- the door: open as he pulls it, after him once he's in, and a slam
+    const D = F.carDoor;
+    if (D) {
+      let open = 0;
+      if (f >= FINALE_SHUT) {
+        const k = Math.min(1, (f - FINALE_SHUT) / (FINALE_IN - FINALE_SHUT));
+        open = 1 - k * k; // pulled to: gathering speed until it slams
+      } else if (f >= FINALE_OPEN) {
+        const k = Math.min(1, (f - FINALE_OPEN) / (FINALE_STEP - FINALE_OPEN));
+        open = 1 - (1 - k) * (1 - k) * (1 - k); // swung out hard, easing as it opens all the way
+      }
+      if (f < FINALE_IN) D.set(open);
+      else {
+        // shut: the car is whole again, in its own materials (the lamps light those)
+        D.dispose();
+        F.carDoor = null;
+      }
+    }
+    if (!F.latched && f >= FINALE_OPEN) {
+      F.latched = true;
+      this._audio?.playOneShot("doorLatch", { volume: 0.5 });
     }
 
     // ---- the gate and the Handler behind it
@@ -3456,15 +3567,14 @@ export class Level01 extends Level {
     this._updateGate(dt);
     this._updateHandler(dt, state);
 
-    // ---- the car: door shuts, engine catches, headlights on
+    // ---- the car: door slams, engine catches, headlights on
     if (F.slammed !== true && f >= FINALE_IN) {
       F.slammed = true;
-      this._audio?.playOneShot("impact", { volume: 0.35 });
-      this._shake = Math.max(this._shake, 0.06);
+      this._audio?.playOneShot(D ? "doorSlam" : "impact", { volume: D ? 0.55 : 0.35 });
+      this._shake = Math.max(this._shake, 0.08);
     }
     const lights = smooth(FINALE_LIGHTS, FINALE_LIGHTS + 0.25, f) * (f < FINALE_LIGHTS + 0.12 ? 0.35 : 1);
     this._setBayLights(lights);
-    const vehicle = this.serviceVehicle;
     vehicle.position.y = f > FINALE_LIGHTS ? Math.sin(f * 55) * 0.008 : 0; // ticking over
     vehicle.rotation.z = f > FINALE_LIGHTS ? Math.sin(f * 31) * 0.002 : 0;
     if (f > FINALE_LIGHTS && !F.revved) {
@@ -3491,9 +3601,18 @@ export class Level01 extends Level {
       look = new THREE.Vector3(h.x * 0.6 + door.x * 0.4, h.y + 1.6, h.z);
       fov = THREE.MathUtils.lerp(34, 24, k);
       rate = Infinity;
+    } else if (f < FINALE_IN) {
+      shot = "door";
+      // behind him and to the side, a little above: the door swinging out
+      // past him, the gap he steps into, and him in the seat, easing in on it
+      const k = smooth(FINALE_LOOK, FINALE_IN, f);
+      want = F.toWorld(this._finaleV.set(L.back.x - 2.3 + k * 0.4, 2.3 - k * 0.2, L.back.z - 0.8 + k * 0.2));
+      look = F.toWorld(this._finaleV.set(L.entry.x + 0.15, 0.75, (L.back.z + L.seat.z) / 2 + 0.2));
+      fov = this._baseFov - 8;
+      rate = Infinity;
     } else if (f < FINALE_CARD) {
       shot = "in";
-      const k = smooth(FINALE_LOOK, FINALE_CARD, f);
+      const k = smooth(FINALE_IN, FINALE_CARD, f);
       want = new THREE.Vector3(centre.x + 4.6 - k * 0.6, cy + 3.0 + k * 0.4, centre.z - 8.4 + k * 0.6);
       look = new THREE.Vector3(centre.x + 0.4, cy + 0.9, centre.z);
       fov = this._baseFov - 10;
@@ -4375,6 +4494,7 @@ export class Level01 extends Level {
 
   teardown() {
     clearThoughts();
+    this._finale?.carDoor?.dispose(); // left mid-scene: the renderer's clipping back as it was
     if (this._coinEnv) {
       this._coinEnv.dispose();
       this._coinEnv = null;
