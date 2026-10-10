@@ -2568,7 +2568,10 @@ export class Prologue extends Level {
     if (this.horn.parent !== hips) {
       hips.attach(this.horn);
       const strap = this.kaiF.horn?.userData.strap;
-      if (strap) strap.visible = true;
+      if (strap) {
+        strap.userData.tieTo?.(this.horn); // tied round the horn he took, not the stand-in on his hip
+        strap.visible = true;
+      }
     }
     poseHorn(this.horn, hips, HORN_SLING, 1 - Math.exp(-5 * dt));
   }

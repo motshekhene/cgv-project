@@ -93,14 +93,9 @@ function bone(fighter, name) {
  * horn all the way through.
  */
 export function hornGeometry() {
-  const RINGS = 72, SIDES = 18, LEN = 0.5, TURNS = 1.15;
+  const RINGS = 72, SIDES = 18;
   const pts = [];
-  for (let i = 0; i <= RINGS; i++) {
-    const t = i / RINGS;
-    const a = TURNS * Math.PI * 2 * t;
-    const A = 0.012 + 0.085 * t * t; // tight at the base, the spiral opening out toward the tip
-    pts.push(new THREE.Vector3(LEN * t, A * Math.sin(a) + 0.06 * t * t, A * (1 - Math.cos(a))));
-  }
+  for (let i = 0; i <= RINGS; i++) pts.push(hornAxis(i / RINGS, new THREE.Vector3()));
   const curve = new THREE.CatmullRomCurve3(pts);
   const frames = curve.computeFrenetFrames(RINGS, false);
   const cBase = new THREE.Color(0x5b3b22), cMid = new THREE.Color(0xa47a4c), cTip = new THREE.Color(0xf3e9d0);
@@ -112,7 +107,7 @@ export function hornGeometry() {
     const N = frames.normals[i], B = frames.binormals[i];
     // thick at the base, a fine point at the tip; rings pressed into the first half
     const groove = Math.pow(0.5 + 0.5 * Math.cos(t * Math.PI * 2 * 13), 5) * Math.pow(1 - t, 1.2);
-    const r = (0.062 * Math.pow(1 - t, 1.25) + 0.003) * (1 - 0.16 * groove);
+    const r = hornRadius(t) * (1 - 0.16 * groove);
     if (t < 0.5) c.copy(cBase).lerp(cMid, t / 0.5);
     else c.copy(cMid).lerp(cTip, (t - 0.5) / 0.5);
     for (let k = 0; k <= SIDES; k++) {
@@ -142,6 +137,19 @@ export function hornGeometry() {
   geo.computeVertexNormals();
   geo.computeBoundingBox();
   return geo;
+}
+
+/** A point on the horn's centre line, t = 0 at the base (the origin) to 1 at the tip. */
+function hornAxis(t, out) {
+  const LEN = 0.5, TURNS = 1.15;
+  const a = TURNS * Math.PI * 2 * t;
+  const A = 0.012 + 0.085 * t * t; // tight at the base, the spiral opening out toward the tip
+  return out.set(LEN * t, A * Math.sin(a) + 0.06 * t * t, A * (1 - Math.cos(a)));
+}
+
+/** The horn's radius at t, before the rings pressed into it. */
+function hornRadius(t) {
+  return 0.062 * Math.pow(1 - t, 1.25) + 0.003;
 }
 
 /** The horn's material: its own colours, with the cyan woken in it (emissiveIntensity 0 while it sleeps on the stone). */
@@ -202,35 +210,148 @@ export function poseHorn(horn, bone, spec, k = 1) {
 const _hv = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Quaternion(), _he = new THREE.Euler();
 
 /**
- * The strap the horn hangs from: a leather band across Kai's chest, over the
- * right shoulder and down to the left hip, with a brass buckle at the front.
+ * The strap the horn hangs from, the way a powder horn is carried: a leather
+ * band tied round the horn near its mouth and again near its tip, running up
+ * across Kai's back, over his right shoulder and down across his chest, so the
+ * horn hangs at his left hip between its two ends.
+ *
+ * The band over his body rides the chest bone (Spine2) and the horn rides his
+ * hips, so the two move apart as he runs and twists: the strap is rebuilt
+ * every frame from where both actually are (just after the skeleton is posed,
+ * in its own updateMatrixWorld), and stays tied to the horn whatever he does.
+ * Hide it with strap.visible = false; the lashings on the horn stay.
+ * strap.userData.tieTo(otherHorn) moves the lashings and the strap's ends onto
+ * another horn built the same way (the prologue slings the stone's own horn).
  */
-export function attachHornStrap(fighter) {
+export function attachHornStrap(fighter, horn) {
   const spine = bone(fighter, 'Torso');
-  if (!spine) return null;
-  fighter.root.updateMatrixWorld(true);
-  const s = spine.getWorldScale(new THREE.Vector3()).x || 1;
-  const strap = new THREE.Group();
+  const hips = bone(fighter, 'Hips');
+  if (!spine || !hips || !horn) return null;
   const leather = new THREE.MeshStandardMaterial({ color: 0x4a2f1a, roughness: 0.8 });
-  // a loop round his body in the plane of the diagonal: stood on edge (Y turn), then tipped 45 degrees
-  // so it runs over the right shoulder, across his chest and back, and down to the left hip
-  const band = new THREE.Mesh(new THREE.TorusGeometry(0.2 / s, 0.013 / s, 6, 44), leather);
-  band.scale.set(0.62, 1.45, 1); // through his chest front to back, long from shoulder to hip
-  band.quaternion
-    .setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 4)
-    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));
-  band.position.set(0, -0.06 / s, 0.01 / s);
-  const buckle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.05 / s, 0.04 / s, 0.012 / s),
-    new THREE.MeshStandardMaterial({ color: 0xc89a46, roughness: 0.35, metalness: 0.8 }),
-  );
-  buckle.position.set(0, -0.06 / s, 0.135 / s);
-  buckle.rotation.z = -Math.PI / 4;
-  strap.add(band, buckle);
-  strap.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  spine.add(strap);
+
+  // the lashings: a few turns of the same leather round the horn, near the mouth and near the tip
+  const TIES = [0.075, 0.7];
+  const lashes = [];
+  let held = horn; // the horn the strap is tied to
+  const ties = TIES.map((t) => {
+    const c = hornAxis(t, new THREE.Vector3());
+    const tan = hornAxis(t + 0.01, new THREE.Vector3()).sub(hornAxis(t - 0.01, new THREE.Vector3())).normalize();
+    const r = hornRadius(t) + 0.003;
+    const lash = new THREE.Group();
+    for (const dx of [-0.008, 0, 0.008]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0055, 5, 18), leather);
+      ring.position.z = dx;
+      lash.add(ring);
+    }
+    lash.position.copy(c);
+    lash.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tan); // rings round the horn, not along it
+    lash.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    horn.add(lash);
+    lashes.push(lash);
+    return { c, tan, r };
+  });
+
+  // over his body: an ellipse in the plane of the diagonal on the chest bone (metres), from low
+  // on his back (-) over the top of the right shoulder (0) to low on his chest (+)
+  const ELLIPSE = { y: -0.06, long: 0.29, deep: 0.124 };
+  const ARC = [-128, -100, -70, -40, -14, 0, 14, 40, 70, 100, 128].map((d) => (d * Math.PI) / 180);
+  const arcLocal = ARC.map((phi) => {
+    const u = ELLIPSE.long * Math.cos(phi);
+    return new THREE.Vector3(-0.7071 * u, ELLIPSE.y + 0.7071 * u, ELLIPSE.deep * Math.sin(phi) + 0.01);
+  });
+
+  // the band: a flat leather strip, SEG segments long, a flattened 6-sided section
+  const SEG = 56, SIDES = 6, WIDTH = 0.042, THICK = 0.008;
+  const verts = (SEG + 1) * SIDES;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+  const idx = [];
+  for (let i = 0; i < SEG; i++) {
+    for (let k = 0; k < SIDES; k++) {
+      const a0 = i * SIDES + k, a1 = i * SIDES + ((k + 1) % SIDES);
+      const b0 = a0 + SIDES, b1 = a1 + SIDES;
+      idx.push(a0, b0, a1, b0, b1, a1);
+    }
+  }
+  geo.setIndex(idx);
+  const strap = new THREE.Mesh(geo, leather);
+  strap.castShadow = true;
+  strap.frustumCulled = false; // its vertices move every frame; its bounds would go stale
+
+  const s = (o) => o.getWorldScale(_sv).x || 1;
+  const pts = Array.from({ length: arcLocal.length + 4 }, () => new THREE.Vector3());
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  const centre = new THREE.Vector3(), hipC = new THREE.Vector3(), p = new THREE.Vector3(), q = new THREE.Vector3();
+  const T = new THREE.Vector3(), N = new THREE.Vector3(), W = new THREE.Vector3(), inv = new THREE.Matrix4();
+  const pos = geo.attributes.position;
+
+  /** Where a lashing's strap end is: on top of the lashing, on the side the strap pulls toward. */
+  const tieEnd = (tie, toward, out) => {
+    held.localToWorld(out.copy(tie.c));
+    const axis = q.copy(tie.tan).transformDirection(held.matrixWorld);
+    const pull = p.copy(toward).sub(out);
+    pull.addScaledVector(axis, -pull.dot(axis)).normalize();
+    return out.addScaledVector(pull, tie.r * s(held));
+  };
+
+  const rebuild = () => {
+    const sp = s(spine);
+    spine.localToWorld(centre.set(0, ELLIPSE.y / sp, 0.01 / sp));
+    hips.getWorldPosition(hipC);
+    // the arc over his body
+    for (let i = 0; i < arcLocal.length; i++) spine.localToWorld(pts[i + 2].copy(arcLocal[i]).divideScalar(sp));
+    // each end: down off the arc, a little proud of his hip, to its lashing
+    const last = arcLocal.length + 1;
+    tieEnd(ties[0], pts[2], pts[0]); // the back strand, to the lashing by the mouth
+    tieEnd(ties[1], pts[last], pts[last + 2]); // the front strand, to the one by the tip
+    for (const [mid, from, to] of [[1, 0, 2], [last + 1, last + 2, last]]) {
+      const m = pts[mid].copy(pts[from]).lerp(pts[to], 0.45);
+      W.copy(m).sub(hipC).setY(0);
+      if (W.lengthSq() > 1e-8) m.addScaledVector(W.normalize(), 0.02);
+    }
+    curve.updateArcLengths();
+
+    inv.copy(fighter.root.matrixWorld).invert();
+    for (let i = 0; i <= SEG; i++) {
+      const u = i / SEG;
+      curve.getPointAt(u, p);
+      curve.getTangentAt(u, T);
+      // flat against him: its face turned away from the middle of his chest
+      N.copy(p).sub(centre);
+      N.addScaledVector(T, -N.dot(T));
+      if (N.lengthSq() < 1e-10) N.set(0, 1, 0);
+      N.normalize();
+      W.crossVectors(T, N).normalize();
+      for (let k = 0; k < SIDES; k++) {
+        const th = (k / SIDES) * Math.PI * 2;
+        q.copy(p)
+          .addScaledVector(W, Math.cos(th) * WIDTH * 0.5)
+          .addScaledVector(N, Math.sin(th) * THICK * 0.5)
+          .applyMatrix4(inv);
+        pos.setXYZ(i * SIDES + k, q.x, q.y, q.z);
+      }
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+  };
+
+  // run once the bones are posed: the strap is the last thing added to his root, so the
+  // scene's matrix update reaches it after the skeleton and the horn, and before the draw
+  const update = strap.updateMatrixWorld;
+  strap.updateMatrixWorld = function (force) {
+    update.call(this, force);
+    if (this.visible) rebuild();
+  };
+  // same frame on any horn from hornGeometry(): the lashings keep their places on it
+  strap.userData.tieTo = (other) => {
+    for (const lash of lashes) other.add(lash);
+    held = other;
+  };
+  fighter.root.add(strap);
+  fighter.root.updateMatrixWorld(true);
   return strap;
 }
+const _sv = new THREE.Vector3();
 
 /**
  * The horn on Kai, the way he carries it from the stone on: slung at his hip
@@ -245,7 +366,7 @@ export function attachHorn(fighter) {
     fighter.root.updateMatrixWorld(true);
     hips.add(horn);
     poseHorn(horn, hips, HORN_SLING);
-    horn.userData.strap = attachHornStrap(fighter);
+    horn.userData.strap = attachHornStrap(fighter, horn);
   } else {
     horn.position.set(0.3, 0.1, 0.2);
     fighter.pivot.add(horn);
