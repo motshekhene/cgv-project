@@ -432,7 +432,20 @@ const COURSE_PROFILE = [
   [2440, 15],
   [2520, 5],
   [2600, 0],
-  [3400, 0],
+
+  // the high ruins: the old path up onto the ruins' terrace, along the top and
+  // down the far side (Level01's HIGH_RUINS_HAZARDS sit on it)
+  [2950, 0],
+  [3030, 4],
+  [3110, 12],
+  [3190, 22],
+  [3260, 30],
+  [3480, 30],
+  [3550, 22],
+  [3630, 12],
+  [3700, 4],
+  [3760, 0],
+  [4800, 0],
 ];
 
 /**
@@ -601,6 +614,11 @@ export function buildJungleBackdrop(root, kit, mats) {
   addCliff(26, -1425, 15, 23, 42, -0.12);
   addCliff(-27, -1650, 17, 20, 48, 0.08);
   addCliff(24, -2260, 14, 15, 38, -0.2);
+  // ...and the high ruins: walls either side of the terrace, taller than the climb
+  addCliff(-26, -3230, 15, 40, 44, 0.12);
+  addCliff(27, -3410, 16, 46, 52, -0.16);
+  addCliff(-28, -3590, 18, 42, 46, 0.06);
+  addCliff(25, -3990, 14, 18, 36, -0.1);
 
   // Waterfall and pool off the right-hand side of the high shrine. The water
   // is environmental only — it never intersects Kai's collision corridor.
@@ -639,6 +657,11 @@ export function buildJungleBackdrop(root, kit, mats) {
   arch.position.set(0, 0, -0.6);
   temple.add(arch);
   group.add(temple);
+  // a second, higher one across from the ruins' terrace, level with the path along the top
+  const ruins = temple.clone();
+  ruins.position.set(21.5, 24, -3370);
+  ruins.rotation.y = Math.PI;
+  group.add(ruins);
 
   // Huge exposed roots curl through the deep background, selling an old jungle
   // that has swallowed the ruins rather than a flat forest floor with props.
@@ -647,6 +670,8 @@ export function buildJungleBackdrop(root, kit, mats) {
     [-16, -520, 0.3, 1.0],
     [18, -1870, -0.4, 1.2],
     [-19, -2780, 0.18, 0.95],
+    [17, -3880, -0.3, 1.1],
+    [-18, -4180, 0.25, 1.0],
   ]) {
     const rootArch = new THREE.Mesh(new THREE.TorusGeometry(6.2 * s, 0.42 * s, 8, 28, Math.PI), rootMat);
     rootArch.position.set(x, 0.5, z);
@@ -660,6 +685,7 @@ export function buildJungleBackdrop(root, kit, mats) {
   const vineDefs = [
     [-10.5, -420, 8.0], [12.5, -760, 10.5], [-13.0, -1110, 9.0],
     [14.0, -1710, 12.0], [-11.5, -2190, 9.5], [13.5, -2660, 11.0],
+    [-12.0, -3080, 10.0], [13.0, -3820, 9.5], [-12.5, -4060, 10.5],
   ];
   for (const [x, z, h] of vineDefs) {
     const curve = new THREE.CatmullRomCurve3([
@@ -676,6 +702,7 @@ export function buildJungleBackdrop(root, kit, mats) {
   for (const [x, z, proto, scale] of [
     [-15.5, -335, kit.rock3, 0.018], [16.5, -980, kit.rock2, 0.020],
     [-18.0, -1810, kit.rock1, 0.022], [17.5, -2520, kit.rock3, 0.020],
+    [16.0, -3040, kit.rock2, 0.021], [-17.0, -3760, kit.rock3, 0.022], [15.5, -4240, kit.rock1, 0.019],
   ]) {
     const rock = cloneProp(proto);
     rock.position.set(x, -0.1, z);

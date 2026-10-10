@@ -79,10 +79,11 @@ function makeRng(seed) {
 // --- the runway ---
 // The pitch sells a "3-4 min first clean run". The old 600 m tunnel ran out in
 // 32 s, which is where that claim was dying. With the ramp below, a clean run
-// is ~126 s accelerating over the first 2 km and ~59 s at the cap: ~3.1 min.
+// is ~126 s accelerating over the first 2 km and then ~1.9 km at the cap,
+// over the high ruins and down to the camp: ~3.8 min.
 // The shell runs ~300 m past the finish line so the fog wall always has tunnel
 // behind it; without that overhang the last stretch fades into nothing.
-const TUNNEL_LENGTH = 3600;
+const TUNNEL_LENGTH = 4800;
 const TUNNEL_START_Z = 40; // shell overhangs the spawn so Kai isn't stood on an edge
 const TUNNEL_END_Z = TUNNEL_START_Z - TUNNEL_LENGTH;
 const SHELL_CENTER_Z = TUNNEL_START_Z - TUNNEL_LENGTH / 2;
@@ -159,7 +160,7 @@ const STRIP_POOL = 13;
 const STRIP_LIGHT_POOL = 4;
 
 // --- security gate (Interlude I) ---
-const GATE_Z = -3150; // near the end, so the slam reads as the way out closing
+const GATE_Z = -4350; // near the end, so the slam reads as the way out closing
 const GATE_OPEN_Y = 6.9; // bars retracted above the ceiling underside (6.75)
 const GATE_WARN_RANGE = 48; // metres out where the amber telegraph starts
 // Fires the instant Kai crosses the gate PLANE, not three metres past it.
@@ -214,7 +215,7 @@ const TRAIN_ZONE_NEAR = 55;
 const TRAIN_ZONE_FAR = 250;
 
 // --- the way out ---
-const BAY_Z = -3260; // service bay, ~110 m past the seal: a beat to breathe
+const BAY_Z = -4460; // service bay, ~110 m past the seal: a beat to breathe
 const SERVICE_CAR_LOCAL_Z = -6;
 // Fires at the mouth of the bay rather than at the vehicle, because he needs
 // ~7 m to pull up from full speed and stopping ten metres past the thing you
@@ -312,6 +313,10 @@ const FALLING_TREE_EVENTS = [
   // It is spectacle/pressure, not an unfair obstacle.
   { z: -1785, side: -1, behind: true },
   { z: -2910, side: 1 },
+  // the high ruins
+  { z: -3140, side: -1 },
+  { z: -3700, side: 1, behind: true },
+  { z: -4190, side: 1 },
 ];
 const FALL_TREE_TRIGGER_AHEAD = 62;
 const FALL_TREE_TIME = 0.95;
@@ -346,13 +351,37 @@ const FALLING_BLOCK_Z = -2285;
 const CLOSING_DOOR_Z = -2365;
 const ROTATING_BEAM_Z = -2480;
 
+// THE HIGH RUINS: the old path climbs onto the ruins' terrace (jungleWorld's
+// course profile, 2950-3760 m) and every trap the shrine steps had comes back,
+// faster now and closer together, across the top and down the far side.
+const HIGH_RUINS_Z = -2950;
+const HIGH_RUINS_HAZARDS = [
+  { type: "swing", z: -3300 },
+  { type: "fallingBlock", z: -3375, lane: 0 },
+  { type: "rotor", z: -3450 },
+  { type: "boulder", z: -3560 },
+  { type: "doors", z: -3820 },
+  { type: "swing", z: -3920 },
+  { type: "fallingBlock", z: -4000, lane: 2 },
+  { type: "rotor", z: -4090 },
+];
+
 function scriptedSetPieceZone(z) {
   return (
     (z <= -660 && z >= -1245) ||
     (z <= -1270 && z >= -1635) ||
-    (z <= -2110 && z >= -2535)
+    (z <= -2110 && z >= -2535) ||
+    (z <= -3240 && z >= -4135)
   );
 }
+
+// The one checkpoint, about halfway. Caught before it, the run starts again
+// from the stone; caught after it, from here (the Marshal back on his
+// starting gap). It used to carry on from wherever Kai fell, so losing cost
+// nothing.
+const WAYPOINTS = [{ z: -2080, name: "THE SHRINE STEPS" }];
+// set by CONTINUE just before it restarts the level; the new run picks it up in init()
+let resumeAt = null;
 
 // --- cursed shrine guardian ---
 // A one-off head-on set piece on the high temple section. It wakes in Kai's
@@ -381,6 +410,7 @@ const REWARD_VISIBLE_BEHIND = 24;
 const JETPACK_PICKUPS = [
   { z: -1668, lane: 1 },
   { z: -2635, lane: 0 },
+  { z: -2965, lane: 2 }, // up the climb onto the high ruins
 ];
 const JETPACK_DURATION = 6.0;
 const JETPACK_HEIGHT = 6.2;
@@ -416,13 +446,13 @@ const MAX_HEALTH = 100;
 const OBSTACLE_DAMAGE = 18;      // HP lost per standard obstacle clip
 const SPECIAL_HAZARD_DAMAGE = 25; // HP lost per moving shrine hazard hit
 const FALLING_TREE_DAMAGE = 22;   // HP lost per falling-tree hit
-const HEALTH_PACK_HEAL = 35;     // HP restored by a life-saver pickup
-const HEALTH_PACK_COUNT = 12;    // number of life-saver packs along the route
-// Constant creep, m/s, on top of matching Kai's cruise. Zero means a clean run
-// holds the gap forever and only mistakes threaten it, which is what the pitch
-// describes. Raise it if playtests say a clean run has no tension — nothing
-// else reads this.
-const HANDLER_CREEP = 0;
+const HEALTH_PACK_HEAL = 25;     // HP restored by a life-saver pickup
+const HEALTH_PACK_COUNT = 7;     // number of life-saver packs along the route: one every ~600 m
+// Constant creep, m/s, on top of matching Kai's cruise. At zero a clean run
+// held the gap forever and playtests said it had no tension, so he gains a
+// little all the time: ~15 m a minute, which boosting wins back. A clean run
+// still makes it, but only by spending the boost, and a stumble costs more.
+const HANDLER_CREEP = 0.35;
 
 // Moving shrine hazards make noise when they hit Kai. That noise now matters:
 // the Handler gets an immediate burst of ground and then sprints for a short
@@ -546,6 +576,7 @@ export class Level01 extends Level {
     this._handlerSealed = false;
     this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
+    this._waypointIdx = -1; // the last of WAYPOINTS he has passed
     this._stumbleDebt = 0; // metres of ground still owed from clipping a barrier
     // speed the shader/lights follow, smoothed so the streaks ease rather than
     // snapping when Kai stumbles or gets caught
@@ -774,6 +805,8 @@ export class Level01 extends Level {
     this._buildJetpackFx();
     this._buildTempleRunHUD();
     this._ensureAudio();
+    if (resumeAt) this._resumeFrom(resumeAt);
+    resumeAt = null;
 
     // The shared readout, so the chase shows its numbers like every other
     // level. Level 1 has no damage model — the comment in GameState holds:
@@ -789,7 +822,7 @@ export class Level01 extends Level {
     });
     this.floor = world.trail;
     this._trailChunks = world.chunks;
-    this._elevatedCourse = buildElevatedTrail(this.root, this._jungleKit, mats);
+    this._elevatedCourse = buildElevatedTrail(this.root, this._jungleKit, mats, { endZ: GATE_Z + 200 });
     this._bridgePanels = this._elevatedCourse.userData.bridgePanels || [];
 
     // Keep signage outside the three running lanes. The earlier positions sat
@@ -1175,78 +1208,84 @@ export class Level01 extends Level {
 
   _buildAdventureHazards(mats) {
     this._specialHazards.length = 0;
+    const add = (h) => this._specialHazards.push({ active: false, t: 0, hit: false, ...h });
 
-    // 1) Boulder sweeps across the trail just after the dark shrine. The long
-    // telegraph makes it a near-miss read, not an off-screen punishment.
-    const boulder = cloneProp(this._jungleKit.rock2);
-    boulder.scale.setScalar(0.026);
-    boulder.position.set(-7.6, jungleCourseHeight(BOULDER_Z) + 0.75, BOULDER_Z);
-    this.root.add(boulder);
-    this._specialHazards.push({
-      type: "boulder", object: boulder, z: BOULDER_Z, triggerZ: BOULDER_Z + 52,
-      active: false, t: 0, hit: false,
-    });
+    // 1) Boulder sweeps across the trail. The long telegraph makes it a
+    // near-miss read, not an off-screen punishment.
+    const boulder = (z) => {
+      const rock = cloneProp(this._jungleKit.rock2);
+      rock.scale.setScalar(0.026);
+      rock.position.set(-7.6, jungleCourseHeight(z) + 0.75, z);
+      this.root.add(rock);
+      add({ type: "boulder", object: rock, z, triggerZ: z + 52 });
+    };
 
     // 2) Ancient pendulum. The beam is intentionally bright stone against the
     // greenery and has a full 55 m warning window.
-    const swing = new THREE.Group();
-    swing.position.set(0, jungleCourseHeight(SWING_LOG_Z) + 3.6, SWING_LOG_Z);
-    const swingBeam = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.55, 0.62), mats.stone);
-    swingBeam.position.y = -2.15;
-    swingBeam.castShadow = true;
-    swing.add(swingBeam);
-    const swingCap = cloneProp(this._jungleKit.columnShort);
-    swingCap.scale.setScalar(0.011);
-    swingCap.position.y = -0.3;
-    swing.add(swingCap);
-    this.root.add(swing);
-    this._specialHazards.push({
-      type: "swing", object: swing, z: SWING_LOG_Z, triggerZ: SWING_LOG_Z + 58,
-      active: false, t: 0, hit: false,
-    });
+    const swing = (z) => {
+      const g = new THREE.Group();
+      g.position.set(0, jungleCourseHeight(z) + 3.6, z);
+      const swingBeam = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.55, 0.62), mats.stone);
+      swingBeam.position.y = -2.15;
+      swingBeam.castShadow = true;
+      g.add(swingBeam);
+      const swingCap = cloneProp(this._jungleKit.columnShort);
+      swingCap.scale.setScalar(0.011);
+      swingCap.position.y = -0.3;
+      g.add(swingCap);
+      this.root.add(g);
+      add({ type: "swing", object: g, z, triggerZ: z + 58, swingT: z * 0.37 }); // each out of step with the last
+    };
 
-    // 3) One telegraphed falling block. Dust/rumble begins before the stone
-    // drops into lane 2, so the answer is simply "move".
-    const block = new THREE.Mesh(new THREE.BoxGeometry(1.75, 1.75, 1.75), mats.stone);
-    block.castShadow = true;
-    block.position.set(LANE_X[2], jungleCourseHeight(FALLING_BLOCK_Z) + 8.2, FALLING_BLOCK_Z);
-    this.root.add(block);
-    this._specialHazards.push({
-      type: "fallingBlock", object: block, z: FALLING_BLOCK_Z,
-      triggerZ: FALLING_BLOCK_Z + 48, active: false, t: 0, hit: false,
-    });
+    // 3) A telegraphed falling block. Dust/rumble begins before the stone
+    // drops into its lane, so the answer is simply "move".
+    const fallingBlock = (z, lane = 2) => {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(1.75, 1.75, 1.75), mats.stone);
+      block.castShadow = true;
+      block.position.set(LANE_X[lane], jungleCourseHeight(z) + 8.2, z);
+      this.root.add(block);
+      add({ type: "fallingBlock", object: block, z, lane, triggerZ: z + 48 });
+    };
 
     // 4) Closing shrine doors squeeze the side lanes and leave the centre open.
-    const doors = new THREE.Group();
-    doors.position.set(0, jungleCourseHeight(CLOSING_DOOR_Z), CLOSING_DOOR_Z);
-    const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(3.0, 4.4, 0.75), mats.stone);
-    const rightDoor = leftDoor.clone();
-    leftDoor.position.set(-5.2, 2.2, 0);
-    rightDoor.position.set(5.2, 2.2, 0);
-    leftDoor.castShadow = rightDoor.castShadow = true;
-    doors.add(leftDoor, rightDoor);
-    this.root.add(doors);
-    this._specialHazards.push({
-      type: "doors", object: doors, leftDoor, rightDoor, z: CLOSING_DOOR_Z,
-      triggerZ: CLOSING_DOOR_Z + 55, active: false, t: 0, hit: false,
-    });
+    const doors = (z) => {
+      const g = new THREE.Group();
+      g.position.set(0, jungleCourseHeight(z), z);
+      const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(3.0, 4.4, 0.75), mats.stone);
+      const rightDoor = leftDoor.clone();
+      leftDoor.position.set(-5.2, 2.2, 0);
+      rightDoor.position.set(5.2, 2.2, 0);
+      leftDoor.castShadow = rightDoor.castShadow = true;
+      g.add(leftDoor, rightDoor);
+      this.root.add(g);
+      add({ type: "doors", object: g, leftDoor, rightDoor, z, triggerZ: z + 55 });
+    };
 
     // 5) Rotating sweep arm: readable from far away because it never hides in
     // foliage. Jumping cleanly over it or timing the gap both work.
-    const rotor = new THREE.Group();
-    rotor.position.set(0, jungleCourseHeight(ROTATING_BEAM_Z) + 1.15, ROTATING_BEAM_Z);
-    const post = cloneProp(this._jungleKit.columnShort);
-    post.scale.setScalar(0.012);
-    post.position.y = -1.1;
-    rotor.add(post);
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.34, 0.34), mats.stone);
-    beam.castShadow = true;
-    rotor.add(beam);
-    this.root.add(rotor);
-    this._specialHazards.push({
-      type: "rotor", object: rotor, z: ROTATING_BEAM_Z,
-      triggerZ: ROTATING_BEAM_Z + 65, active: false, t: 0, hit: false,
-    });
+    const rotor = (z) => {
+      const g = new THREE.Group();
+      g.position.set(0, jungleCourseHeight(z) + 1.15, z);
+      const post = cloneProp(this._jungleKit.columnShort);
+      post.scale.setScalar(0.012);
+      post.position.y = -1.1;
+      g.add(post);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.34, 0.34), mats.stone);
+      beam.castShadow = true;
+      g.add(beam);
+      this.root.add(g);
+      add({ type: "rotor", object: g, z, triggerZ: z + 65 });
+    };
+
+    // the shrine steps: one of each, the boulder after the dark shrine
+    boulder(BOULDER_Z);
+    swing(SWING_LOG_Z);
+    fallingBlock(FALLING_BLOCK_Z, 2);
+    doors(CLOSING_DOOR_Z);
+    rotor(ROTATING_BEAM_Z);
+    // the high ruins: all of them again, closer together
+    const build = { boulder, swing, fallingBlock, doors, rotor };
+    for (const h of HIGH_RUINS_HAZARDS) build[h.type](h.z, h.lane);
   }
 
   _updateAdventureHazards(dt, x, prevZ) {
@@ -1334,8 +1373,8 @@ export class Level01 extends Level {
         const floor = jungleCourseHeight(h.z);
         h.object.position.y = THREE.MathUtils.lerp(floor + 8.2, floor + 0.88, drop);
         h.object.rotation.x += dt * 1.4;
-        if (!h.hit && u > 0.58 && Math.abs(this.z - h.z) < 1.1 && Math.abs(x - LANE_X[2]) < 1.0 && head > 0.05) {
-          registerHit(h, LANE_X[2]);
+        if (!h.hit && u > 0.58 && Math.abs(this.z - h.z) < 1.1 && Math.abs(x - LANE_X[h.lane]) < 1.0 && head > 0.05) {
+          registerHit(h, LANE_X[h.lane]);
         }
       } else if (h.type === "doors") {
         const u = THREE.MathUtils.smoothstep(THREE.MathUtils.clamp(h.t / 1.2, 0, 1), 0, 1);
@@ -1405,6 +1444,7 @@ export class Level01 extends Level {
     const defs = [
       { z: -1885, side: 1 },
       { z: -2705, side: -1 },
+      { z: -3640, side: 1 },
     ];
     for (const def of defs) {
       const pivot = new THREE.Group();
@@ -1725,7 +1765,7 @@ export class Level01 extends Level {
     // High tokens sit around 2.7 m above the trail, so the capsule has to jump
     // to bring its centre through them.
     let site = 0;
-    for (let d = 170; d <= 3050; d += 48 + Math.floor(rng() * 15)) {
+    for (let d = 170; d <= -GATE_Z - 100; d += 48 + Math.floor(rng() * 15)) {
       const z = -d;
       if (z <= ROUTE_SPLIT_START_Z + 25 && z >= ROUTE_SPLIT_END_Z - 20) continue;
       if (scriptedSetPieceZone(z) && site % 3 === 1) {
@@ -2185,7 +2225,7 @@ export class Level01 extends Level {
     progress.innerHTML = `
       <div class="l1h-name"><span>THE OLD TRAIL</span><b data-distance-left>${Math.round(FINISH_DISTANCE)} m LEFT</b></div>
       <div class="l1h-bar"><div class="l1h-route-fill" data-progress-fill></div>
-        ${pip(ROUTE_SPLIT_START_Z, "Fork")}${pip(BRIDGE_START_Z, "Bridge")}${pip(GATE_Z, "Gate")}
+        ${pip(ROUTE_SPLIT_START_Z, "Fork")}${pip(BRIDGE_START_Z, "Bridge")}${pip(HIGH_RUINS_Z, "High ruins")}${pip(GATE_Z, "Gate")}
         <div class="l1h-dot" data-progress-dot></div></div>
       <div class="l1h-row"><span>THE STONE</span><span data-progress-percent>0%</span><span>THE CAMP</span></div>
     `;
@@ -2608,6 +2648,7 @@ export class Level01 extends Level {
 
   _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
+    const wp = WAYPOINTS[this._waypointIdx];
 
     // the team's shared end card (ui/theme.js), same as levels 02 and 03
     this._caughtOverlay = showEndCard({
@@ -2616,24 +2657,18 @@ export class Level01 extends Level {
       sub: title,
       lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
       action: {
-        label: "CONTINUE",
+        // the run again from the last waypoint he passed (or from the stone, before the first)
+        label: wp ? `BACK TO ${wp.name}` : "TRY AGAIN",
         key: "SPACE",
-        onClick: () => {
+        onClick: async () => {
           this._removeCaughtOverlay();
-          this._health = MAX_HEALTH;
-          this._healthFlashT = 0;
-          this.caught = false;
-          this.failCause = null;
-          this.finished = false;
-          if (this.state) {
-            this.state.alive = true;
-            this.state.failCause = null;
+          if (!this.game) return;
+          resumeAt = wp ? { z: wp.z, name: wp.name, rewardCount: this.rewardCount, rewardScore: this.rewardScore } : null;
+          try {
+            await this.game.restart();
+          } catch (err) {
+            console.error("[level01] restart failed", err);
           }
-          this._stumbleT = 0;
-          this._stumbleDebt = 0;
-          this.speed = this.baseSpeed;
-          this.boostSpeed = 0;
-          if (this.game) this.game.setPaused(false);
         },
       },
       extra: [
@@ -2645,6 +2680,7 @@ export class Level01 extends Level {
             this._removeCaughtOverlay();
             if (!this.game) return;
             this.game.setPaused(false);
+            resumeAt = null;
             try {
               await this.game.restart();
             } catch (err) {
@@ -3173,7 +3209,7 @@ export class Level01 extends Level {
    * — there is no separate bookkeeping to disagree with the physics.
    */
   _handlerVaultOffset(z) {
-    for (const center of [-260, -620, -1785, -2910]) {
+    for (const { z: center } of FALLING_TREE_EVENTS) {
       const d = Math.abs(z - center);
       if (d < 5.5) {
         const t = 1 - d / 5.5;
@@ -3754,6 +3790,40 @@ export class Level01 extends Level {
    * Kai's thoughts on the run, in the prologue's style (ui/dialogue.js): the
    * silence he left behind him, and the masked man he has never seen before.
    */
+  /**
+   * Caught past a waypoint: this run starts from just before it, the Marshal
+   * back on his starting gap, with everything the trail did behind that point
+   * already done (the traps sprung, the trees down, the guardian gone) and the
+   * tokens he had picked up still his.
+   */
+  _resumeFrom(r) {
+    this.z = r.z;
+    this._resumedAt = r.name;
+    this._waypointIdx = WAYPOINTS.findIndex((w) => w.name === r.name);
+    this.gap = HANDLER_START_GAP;
+    this.baseSpeed = this.speed = speedForDistance(-this.z);
+    this.rewardCount = r.rewardCount || 0;
+    this.rewardScore = r.rewardScore || 0;
+    for (const h of this._specialHazards) {
+      if (h.z > this.z) Object.assign(h, { active: true, t: 99, hit: true });
+    }
+    for (const ev of this._fallingTrees) {
+      if (ev.z <= this.z - FALL_TREE_TRIGGER_AHEAD - 5) continue;
+      Object.assign(ev, { phase: "landed", t: 1, clipped: true, landedSound: true });
+      ev.pivot.rotation.z = ev.side * (Math.PI / 2);
+    }
+    for (const ev of this._handlerPressureEvents) {
+      if (ev.z > this.z) Object.assign(ev, { active: true, t: 1 });
+    }
+    if (this.z < GUARDIAN_TRIGGER_Z) this._guardianResolved = true;
+    for (const r2 of this._rewardItems) if (r2.z > this.z) r2.collected = true;
+    // the opening thoughts were the first time; this is the next try
+    this._saidStart = this._saidMarshal = true;
+    this._saidRuins = this.z <= HIGH_RUINS_Z + 20;
+    this._saidDownhill = this.z <= -3720;
+    this._showTransientBanner(`FROM ${r.name}`, 2.2);
+  }
+
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
     if (!this._saidStart && this._storyT > 1.4) {
@@ -3764,6 +3834,20 @@ export class Level01 extends Level {
     if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 8) {
       this._saidMarshal = true;
       kaiThinks("A company coat. A mask. Who sent him after me?");
+    }
+    // past a waypoint: a caught run goes back to here, not to the stone
+    const next = WAYPOINTS[this._waypointIdx + 1];
+    if (next && this.z <= next.z) {
+      this._waypointIdx++;
+      if (this._resumedAt !== next.name) this._showTransientBanner(`CHECKPOINT — ${next.name}`, 1.8);
+    }
+    if (!this._saidRuins && this.z <= HIGH_RUINS_Z + 20) {
+      this._saidRuins = true;
+      kaiThinks("The old path over the ruins. The camp’s on the far side of them.");
+    }
+    if (!this._saidDownhill && this.z <= -3720) {
+      this._saidDownhill = true;
+      kaiThinks("Downhill from here. Keep going. Don’t look back.");
     }
   }
 
