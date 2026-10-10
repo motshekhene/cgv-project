@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { Fighter } from './Fighter.js';
 
 /**
- * HandlerBoss — the three-phase boss (Member 3A).
+ * HandlerBoss — the four-phase boss (Member 3A).
  *
- * Phases are health-gated and each fights differently:
+ * Phases are health-gated (a quarter of his health each) and each fights differently:
  *   PURSUIT      lunge only
  *   STAND        lunge + sweep (helmet comes off on entry)
  *   DESPERATION  sweep + 2-hit combo + lunge + spin kick (two kicks all round him), faster
+ *   THE HORN     he has torn the horn off Kai (Level03's snatch): everything he
+ *                had, faster still, plus the horn blast, a ring of force all
+ *                round him (cyan, the horn's colour): dodge it or be out of it
  * Every attack telegraphs with its own colour: orange = lunge (dodge or block),
  * red = sweep (dodge — block only half-works), purple = combo (two hits). On
  * the monk it's only his mask's eye slits, burning up to the colour as he
@@ -31,6 +34,7 @@ const PHASES = [
   { name: 'PURSUIT', speed: 4.4, attacks: ['lunge'], pace: 1.0, rest: [0.3, 0.7] },
   { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.2, 0.5] },
   { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge', 'spin'], pace: 0.64, rest: [0.1, 0.3] },
+  { name: 'THE HORN', speed: 6.6, attacks: ['blast', 'combo', 'lunge', 'spin', 'blast', 'sweep'], pace: 0.56, rest: [0.08, 0.22] },
 ];
 
 const ATTACKS = {
@@ -50,6 +54,11 @@ const ATTACKS = {
       { gap: 0.3, dur: 0.28, move: 5, radius: 2.6, damage: 14 },
     ],
   },
+  // phase IV: the horn raised over his head, then a ring of force all round him
+  blast: {
+    tell: 0x4fd6e0, telegraph: 1.05, recover: 1.0, engage: 4.2, clip: 'angry', clipSpeed: 1.6, pose: 'angry', blockMul: 0.45,
+    hits: [{ dur: 0.32, move: 0, radius: 5.4, damage: 22 }],
+  },
   combo: {
     tell: 0xb04dff, telegraph: 0.62, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
     hits: [
@@ -59,12 +68,12 @@ const ATTACKS = {
   },
 };
 
-const MAX_HEALTH = 420;
+const MAX_HEALTH = 560; // four phases of 140 (it was three of 140)
 const STAGGER_TIME = 1.7;
 const TRANSITION_TIME = 1.5;
 // he won't stand there and soak a flurry: this many hits in quick succession (per phase) while he isn't
 // attacking, and he hits straight back, with a much shorter wind-up (COUNTER_TELL of the usual)
-const COUNTER_AFTER = [4, 3, 3];
+const COUNTER_AFTER = [4, 3, 3, 3];
 const COUNTER_GAP = 1.4; // seconds: hits further apart than this don't count toward it
 const COUNTER_TELL = 0.4;
 
@@ -550,7 +559,7 @@ export class HandlerBoss {
     }
 
     const frac = this.health / this.maxHealth;
-    const wanted = frac > 0.66 ? 0 : frac > 0.33 ? 1 : 2;
+    const wanted = frac > 0.75 ? 0 : frac > 0.5 ? 1 : frac > 0.25 ? 2 : 3;
     if (wanted > this.phaseIndex) {
       this.phaseIndex = wanted;
       this._enter('TRANSITION');
@@ -599,9 +608,10 @@ export class HandlerBoss {
     }
   }
 
-  /** Called by Level03 when a strike was parried. */
-  stagger() {
+  /** Called by Level03 when a strike was parried (or the forest strikes him): dazed and open for `time` s. */
+  stagger(time = STAGGER_TIME) {
     this._enter('STAGGER');
+    this.staggerFor = time;
     this.countering = false;
     this.hitIndex = 0;
     this.fighter.setGlow(0xffd23a, this.meta ? 0.18 : 1.4);
@@ -676,7 +686,7 @@ export class HandlerBoss {
           if (!this.clipStarted && this.t >= startAt) this._startClip(cl, this.t - startAt);
           else if (!this.clipStarted) f.play('idle');
         } else {
-          f.play('idle', { speed: 1.5 });
+          f.play(atk.pose || 'idle', { speed: atk.pose ? 1 : 1.5, fade: 0.2 });
         }
         lean(-0.3);
         // the old Handler has no wind-up clip to read, so he flashes the tell colour all over; the monk's
@@ -733,7 +743,7 @@ export class HandlerBoss {
       case 'STAGGER': {
         f.play(this.meta ? 'stunned' : 'idle', { speed: this.meta ? 1 : 0.5 }); // dazed
         this._glowMask(0xffd23a, 0.4);
-        if (this.t >= STAGGER_TIME) {
+        if (this.t >= (this.staggerFor ?? STAGGER_TIME)) {
           f.setGlow(0, 0);
           this.restFor = 0.3;
           this._enter('APPROACH');

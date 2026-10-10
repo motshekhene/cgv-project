@@ -13,10 +13,13 @@ import { POOL } from './ShrineArena.js';
  *
  * The rain falls in game time, so the Key's slow-mo (and a perfect dodge)
  * hangs it in the air; the lightning keeps real time. clear() blows it over
- * (the level calls it once the Handler is down).
+ * (the level calls it once the Handler is down). strikeAt() brings a bolt
+ * straight down onto one spot in the courtyard: phase IV's forest striking
+ * Baba Zwane for holding the horn.
  *
  *   const storm = new Storm(root, arena, waterFX);
  *   storm.update(gameDt, realDt, camera, kaiPosition);   // after arena.update()
+ *   storm.strikeAt(x, z, camera);
  */
 const BOLT_DIST = 85; // m from the camera: out over the jungle
 const BOLT_TOP = 46; // m up: low enough to be in the fight camera's sky, between the treetops
@@ -107,6 +110,25 @@ export class Storm {
     this.bolt.add(new THREE.Mesh(ribbon(lines, 1.7), this.boltMat));
     this.boltAge = 0;
     this.double = r() < 0.5;
+    if (this.onBolt) this.onBolt();
+  }
+
+  /** A bolt straight down onto (x, z): its main channel ends on the ground there, the forks above, facing the camera. */
+  strikeAt(x, z, camera) {
+    const lines = forks(Math.random);
+    const [ex, ey] = lines[0][lines[0].length - 1];
+    for (const pts of lines) for (const p of pts) { p[0] -= ex; p[1] -= ey; }
+    for (const m of [...this.bolt.children]) {
+      m.geometry.dispose();
+      this.bolt.remove(m);
+    }
+    this.bolt.add(new THREE.Mesh(ribbon(lines, 1.4), this.glowMat)); // close up: thinner than the far ones
+    this.bolt.add(new THREE.Mesh(ribbon(lines, 0.32), this.boltMat));
+    this.bolt.position.set(x, this.arena.surfaceY(x, z), z);
+    this.bolt.lookAt(camera.position.x, this.bolt.position.y, camera.position.z);
+    this.boltAge = 0;
+    this.double = false;
+    this.nextBolt = Math.max(this.nextBolt, 1.5); // the sky's own lightning holds off a moment
     if (this.onBolt) this.onBolt();
   }
 

@@ -17,7 +17,7 @@ import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
-import { attachHorn, poseHorn } from '../intros/cast.js';
+import { attachHorn, poseHorn, HORN_HAND } from '../intros/cast.js';
 import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
 
 /**
@@ -45,7 +45,7 @@ import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
  *             before it starts (Kai still thinks he is taking the horn to
  *             Baba Zwane). Skippable; skipped on restarts. He stays soaked
  *             into the fight and dries over ~40 s (level3/Wetness.js).
- *   FIGHT     a VS splash, then three health-gated phases. Phase II pops the
+ *   FIGHT     a VS splash, then four health-gated phases. Phase II pops the
  *             helmet (REVEAL: a slow-mo reaction shot, then Kai sees who it is
  *             and the two of them have it out, line by line: REVEAL_TALK;
  *             from then on the boss bar says BABA ZWANE);
@@ -54,7 +54,15 @@ import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
  *             dodge bends time (FOCUS_*, drawn by level3/KeyVision.js). The
  *             fight isn't penned in: Kai can break for the jungle ring, where
  *             three shrines each give one gift (Awards.js), with the Handler
- *             after him. Each loss makes the next attempt's Marshal weaker.
+ *             after him. From the second loss on, each makes the next
+ *             attempt's Marshal weaker.
+ *   SNATCH    at a quarter of his health Baba Zwane tears the horn off Kai's
+ *             hip and lifts it himself, the thing he told Kai he never dared
+ *             do (SNATCH_TALK). Phase IV: THE HORN. He fights with it (the
+ *             horn blast) and the forest comes for him for it: every few
+ *             seconds a bolt comes down on him and leaves him reeling, which
+ *             is Kai's opening. When he falls the horn falls with him, and
+ *             Kai goes and takes it back before anything else.
  *   FINAL     the killing blow in slow motion, the camera arcing round them.
  *   EPILOGUE  the storm passes and fireflies come out while the camera circles
  *             the fallen Baba Zwane, then the VICTORY card: the horn goes back
@@ -154,6 +162,18 @@ const REVEAL_AGAIN = [
   { who: 'kai', text: 'Baba Zwane.' },
   { who: 'zwane', text: 'The horn, Kai.' },
 ];
+// Phase IV: down to a quarter, he tears the horn off Kai's hip and lifts it himself
+const SNATCH_TALK = [
+  { who: 'kai', text: 'Baba, don\u2019t! You said it yourself \u2014 lift it, and the forest comes for you.' },
+  { who: 'zwane', text: 'Then let it come. I have been afraid of this forest my whole life.', pose: 'angry' },
+  { who: 'zwane', text: 'Feel that, boy? It answers to whoever holds it.' },
+  { who: 'kai', text: 'It doesn\u2019t answer to anyone. It remembers.' },
+];
+// down, after he had the horn: before the last words, what it did to him
+const EPILOGUE_TAKEN = [
+  { who: 'zwane', text: 'It burned\u2026 It would not let me hold it.' },
+  { who: 'kai', text: 'It was never yours to carry. Or mine.' },
+];
 // He is down. Last words, then Kai blows the horn and the forest answers
 const EPILOGUE_TALK = [
   { who: 'zwane', text: 'The company\u2026 will only send others.' },
@@ -173,7 +193,18 @@ const BARKS = {
     { who: 'zwane', text: 'Wait! Half \u2014 I\u2019ll give you half of it!' },
     { who: 'kai', text: 'Keep your money.' },
   ],
+  forest: [
+    { who: 'zwane', text: 'Aagh! The sky itself\u2026!' },
+    { who: 'kai', text: 'It knows whose hand it\u2019s in.' },
+  ],
+  hornLow: [{ who: 'zwane', text: 'It\u2019s burning\u2026 the horn is burning my hand!' }],
 };
+// phase IV: the forest strikes him every FOREST_EVERY s (a warning glow under him FOREST_WARN s before)
+const FOREST_EVERY = [6.5, 9];
+const FOREST_WARN = 0.9;
+const FOREST_STAGGER = 2.2; // he reels this long: the opening
+const FOREST_SPLASH = 2.2; // m: stand this close and it catches Kai too
+const FOREST_SPLASH_DAMAGE = 8;
 // the zip line he comes down on, from the cliff edge beside the falls to the keystone of the arch
 const ROPE_TOP = new THREE.Vector3(-3.9, 18.3, -33.0); // on the lip of the falls, where Level 2 left him
 const ROPE_HANG = 2.15; // the pulley rides this far above his feet
@@ -188,9 +219,10 @@ const FOCUS_TIME = 1.6;
 const FOCUS_SCALE = 0.25;
 const FOCUS_KAI = 0.9;
 const FOCUS_DAMAGE = 1.5;
-// lost to him before (`losses`)? he starts each new attempt this much weaker, down to EASE_MIN of his health
-const EASE_PER_LOSS = 0.12;
-const EASE_MIN = 0.64;
+// lost to him more than once (`losses`)? from the second loss on he starts each new attempt this much
+// weaker, down to EASE_MIN of his health. The first retry is the same fight: learn it.
+const EASE_PER_LOSS = 0.1;
+const EASE_MIN = 0.7;
 const VS_TIME = 1.75; // the VS splash, then FIGHT
 const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
 const TOTAL_PAGES = 6; // three on Level 1's trail, three here
@@ -204,6 +236,7 @@ const TELLS = {
   sweep: { name: 'SWEEP', advice: 'dodge out \u2014 a block only halves it', color: '#ff5a6a' },
   combo: { name: 'COMBO', advice: 'two hits: block or parry both', color: '#c78bff' },
   spin: { name: 'SPIN KICK', advice: 'two kicks all round him: back off, or dodge both', color: '#3fe0b4' },
+  blast: { name: 'HORN BLAST', advice: 'a ring all round him: dodge through it, or be well clear', color: '#4fd6e0' },
 };
 const CREDITS =
   'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
@@ -257,7 +290,7 @@ export class Level03 extends Level {
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
-    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * losses);
+    this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * Math.max(0, losses - 1));
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
     this.keyItem = attachHorn(this.combat.fighter); // the horn he took off the stone, slung at his hip, still lit
     this._wireBoss(state);
@@ -519,7 +552,8 @@ export class Level03 extends Level {
       this._startReveal();
     };
     this.boss.onPhaseChange = (n) => {
-      if (n > 2) {
+      if (n === 4) this._startSnatch();
+      else if (n === 3) {
         this._barkOnce('desperation');
         hud().popup('DESPERATION', '#ff5a3a');
         this.sound?.play('guardianRoar', { volume: 0.7 });
@@ -528,6 +562,7 @@ export class Level03 extends Level {
       } else if (n === 2) hud().popup('PHASE 2', '#ff8a4a');
     };
     this.boss.onDefeated = () => {
+      if (this._hornHeld) this._dropHorn(); // it falls out of his hand with him
       this._hitStop(0.12);
       this._addShake(0.55);
       // the quiet moment at the final blow: the music drops away, his body
@@ -653,7 +688,7 @@ export class Level03 extends Level {
     if (input.pressed('skip') && (this.mode === 'INTRO' || (this.mode === 'EPILOGUE' && !this._talk))) {
       if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
       else this._skip();
-    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'EPILOGUE') && this._talk) {
+    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'SNATCH' || this.mode === 'EPILOGUE') && this._talk) {
       this._nextLine(true); // and through the mask-off conversation the same way
     }
 
@@ -694,9 +729,12 @@ export class Level03 extends Level {
       const bp = this.boss.root.position;
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
     } else this.arena.setFocus(kp.x, kp.z);
-    if (this.keyItem) {
-      this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 0.9 + Math.sin(this.time * 18) * 0.35 : 0.05;
-      this.keyItem.userData.glow.material.opacity = this.combat.abilityActive ? 0.95 : 0.4;
+    if (this._hornDrop) this._updateHornDrop(dt);
+    if (this.keyItem && !this._hornHeld && !this._blowing) {
+      const lying = this._hornDrop || this._pickup;
+      this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 0.9 + Math.sin(this.time * 18) * 0.35
+        : lying ? 0.45 + Math.sin(this.time * 4) * 0.25 : 0.05;
+      this.keyItem.userData.glow.material.opacity = this.combat.abilityActive || lying ? 0.95 : 0.4;
     }
 
     // shared state for whoever reads it (HUD, other levels' UI)
@@ -807,7 +845,8 @@ export class Level03 extends Level {
     bp.y = this.arena.fighterY(bp.x, bp.z);
     // HandlerBoss glows orange through his phase transition; for the reveal close-up
     // we want his face, so put his materials back to their resting look
-    if (this.mode === 'REVEAL') {
+    if (this._hornHeld) this._updateHornPhase(dt, real, state);
+    if (this.mode === 'REVEAL' || this.mode === 'SNATCH') {
       for (const m of this.boss.fighter.materials) {
         m.emissive.copy(m.userData.baseEmissive);
         m.emissiveIntensity = 1;
@@ -831,19 +870,21 @@ export class Level03 extends Level {
     this._abilityWas = this.combat.abilityActive;
 
     if (this.mode === 'REVEAL') this._updateReveal(real);
+    else if (this.mode === 'SNATCH') this._updateSnatch(dt, real);
     else if (this.mode === 'FINAL') this._updateFinal();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
     state.timeScale = stopped ? 0.12
       : this.mode === 'FINAL' ? 0.15 + 0.85 * smooth(0.5, 2.3, this.beatT)
       : this.mode === 'REVEAL' ? (this.beatT < 1.1 ? 0.45 : 1)
+      : this.mode === 'SNATCH' ? (this.beatT > 0.3 && this.beatT < 0.9 ? 0.3 : 1)
       : focus ? FOCUS_SCALE
       : this.combat.abilityActive ? 0.35 : 1;
 
     // what they shout at each other as it turns
     if (this.mode === 'FIGHT' && !this._ended) {
       if (state.health / state.maxHealth < 0.3) this._barkOnce(this.boss.helmetOff ? 'kaiLow' : 'kaiLowMasked');
-      if (this.boss.helmetOff && this.boss.health / this.boss.maxHealth < 0.15 && this.boss.health > 0) this._barkOnce('bossLow');
+      if (this.boss.helmetOff && this.boss.health / this.boss.maxHealth < 0.15 && this.boss.health > 0) this._barkOnce(this._hornHeld ? 'hornLow' : 'bossLow');
     }
     this._tickBark(real);
     this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
@@ -935,6 +976,7 @@ export class Level03 extends Level {
   _skip() {
     if (this.mode === 'INTRO') this._startFight();
     else if (this.mode === 'REVEAL') this._endReveal();
+    else if (this.mode === 'SNATCH') this._endSnatch();
     else if (this.mode === 'EPILOGUE') this._showEnd();
   }
 
@@ -1379,6 +1421,192 @@ export class Level03 extends Level {
   }
 
   /**
+   * Phase IV. He lunges, tears the horn off Kai's hip and has it in his fist
+   * before Kai knows it's gone; Kai is thrown back, and they have it out
+   * (SNATCH_TALK), the camera low beside the two of them. From here he fights
+   * with it, and the forest comes for him for it (_updateHornPhase).
+   */
+  _startSnatch() {
+    this._enterBeat('SNATCH');
+    this._snatch = { taken: false, talked: false, cut: false };
+    this._talk = this._talkDone = null;
+    this.story.setCinematic(true, true);
+    this.story.setSkipLabel('SPACE: NEXT LINE · CLICK HERE: SKIP');
+    this.hud.setVisible(false);
+    this.hud.setTell('');
+    this.touch.setVisible(false);
+    if (this.boss.fighter.actions.lunge) this.boss.fighter.playOnce('lunge', { speed: 1.3, fade: 0.08 });
+    this.sound?.play('whoosh', { volume: 0.6 });
+  }
+
+  _updateSnatch(dt, real) {
+    const S = this._snatch;
+    const k = this.combat;
+    const kp = k.root.position;
+    const bp = this.boss.root.position;
+    const d = this._tmp.set(kp.x - bp.x, 0, kp.z - bp.z);
+    const dist = d.length() || 1;
+    d.divideScalar(dist);
+    this.boss.restFor = Math.max(this.boss.restFor, 0.6);
+    if (!S.taken) {
+      // he closes on Kai...
+      if (dist > 0.95) bp.addScaledVector(d, Math.min(dist - 0.95, 9 * real));
+      this.boss.heading = Math.atan2(d.x, d.z);
+      this.boss.root.rotation.y = this.boss.heading;
+      if (this.beatT > 0.35) {
+        // ...and it's in his fist
+        S.taken = true;
+        const horn = this.keyItem;
+        const palm = this.boss.fighter.bone('PalmR');
+        if (horn && palm) palm.attach(horn);
+        if (horn?.userData.strap) horn.userData.strap.visible = false; // torn off its strap
+        this._hornHeld = this._hornTaken = true;
+        S.push = d.clone();
+        k.fighter.flinch();
+        this._hitStop(0.1);
+        this._addShake(0.55);
+        this.sound?.play('hurt', { volume: 0.7 });
+        this.sound?.play('guardianRoar', { volume: 0.6, rate: 0.8 });
+        this.sound?.duck(0.6, 1.4);
+        this.storm.strikeAt(bp.x + d.z * 9, bp.z - d.x * 9, this.game.camera); // the sky answers at once
+      }
+    } else if (this.beatT < 0.9) {
+      kp.addScaledVector(S.push, 3.2 * real); // thrown back from him
+    }
+    // Kai faces him
+    k.heading += shortestAngle(k.heading, Math.atan2(bp.x - kp.x, bp.z - kp.z)) * (1 - Math.exp(-6 * real));
+    if (!S.talked && this.beatT > 1.3) {
+      S.talked = true;
+      this._converse(SNATCH_TALK, () => this._endSnatch());
+    }
+    this._tickLine(real);
+    // low and side-on to the two of them, him with the horn nearer the camera
+    const mid = kp.clone().lerp(bp, 0.6);
+    const side = new THREE.Vector3(-d.z, 0, d.x);
+    const pos = mid.clone().addScaledVector(side, 3.6).addScaledVector(d, -1.2).setY(mid.y + 1.25);
+    this._setCine(pos, new THREE.Vector3(mid.x, mid.y + 1.3, mid.z), { fov: 40, rate: 6, cut: !S.cut });
+    S.cut = true;
+  }
+
+  /** The conversation is over (or clicked past): back to the fight, phase IV. */
+  _endSnatch() {
+    if (this.mode !== 'SNATCH') return;
+    if (!this._snatch.taken) {
+      const palm = this.boss.fighter.bone('PalmR');
+      if (this.keyItem && palm) palm.attach(this.keyItem);
+      if (this.keyItem?.userData.strap) this.keyItem.userData.strap.visible = false;
+      this._hornHeld = this._hornTaken = true;
+    }
+    this._talk = this._talkDone = null;
+    this.story.hideLine();
+    this.story.setSkipLabel();
+    this._enterBeat('FIGHT');
+    this.cine = null;
+    this.story.setCinematic(false);
+    this.hud.setVisible(true);
+    this.touch.setVisible(true);
+    this.boss.restFor = Math.max(this.boss.restFor, 0.6);
+    this._forestT = 4.5; // the first bolt comes quickly, so the player learns what it means
+    this._forestWarned = false;
+    this.hud.popup('PHASE 4 — THE HORN', '#4fd6e0');
+    this.hud.toast('THE HORN', 'He has it, and the forest will make him pay: when the lightning hits him, he’s yours.', 5.5);
+  }
+
+  /**
+   * Phase IV, every frame: the horn in his fist, burning brighter as he winds
+   * up a blast and going off in a ring when it lands; Kai's own slow-mo gone
+   * with it (it was the horn's); and the forest's lightning. A glow under
+   * him first, then the bolt: he reels (FOREST_STAGGER s, open to everything
+   * Kai has), and anyone standing too close to him is caught by it too.
+   */
+  _updateHornPhase(dt, real, state) {
+    const b = this.boss;
+    const horn = this.keyItem;
+    const palm = b.fighter.bone('PalmR');
+    const bp = b.root.position;
+    const cp = this.combat.root.position;
+    if (horn && palm && horn.parent === palm) poseHorn(horn, palm, HORN_HAND, 1 - Math.exp(-10 * dt));
+    if (horn) {
+      const winding = b.attackName === 'blast' && b.state === 'TELEGRAPH';
+      const flare = winding ? 0.6 + 1.6 * Math.min(1, b.t / 0.55) : 0.35 + Math.sin(this.time * 6) * 0.15;
+      horn.userData.material.emissiveIntensity = flare;
+      horn.userData.glow.material.opacity = Math.min(1, 0.3 + 0.45 * flare);
+      horn.userData.glow.scale.setScalar(0.3 + 0.35 * flare);
+    }
+    this.combat.abilityCD = Math.max(this.combat.abilityCD, 0.5); // the slow-mo was the horn's: not while he has it
+    // the blast going off: a ring of the horn's light all round him
+    if (b.attackName === 'blast' && b.state === 'STRIKE' && !this._blastOut) {
+      this._blastOut = true;
+      this.waves.spawn(bp.x, bp.y + 0.2, bp.z, { size: 5.4, life: 0.55, color: 0x4fd6e0 });
+      this.arena.burst(bp.x, bp.z, { color: 0x9ff3ff, count: 26, speed: 6, size: 0.14, y: bp.y + 0.4, lift: 1.5, additive: true });
+      this._addShake(0.35);
+      this.sound?.play('guardianRoar', { volume: 0.55, rate: 1.3 });
+    }
+    if (b.state !== 'STRIKE') this._blastOut = false;
+    if (this.mode !== 'FIGHT' || this._ended || b.state === 'DOWN' || b.state === 'TRANSITION') return;
+    this._forestT -= real;
+    if (this._forestT <= FOREST_WARN && !this._forestWarned) {
+      this._forestWarned = true;
+      this.waves.spawn(bp.x, bp.y + 0.05, bp.z, { size: FOREST_SPLASH, life: FOREST_WARN, color: 0xdfe8ff });
+    }
+    if (this._forestT <= 0) {
+      this._forestT = FOREST_EVERY[0] + Math.random() * (FOREST_EVERY[1] - FOREST_EVERY[0]);
+      this._forestWarned = false;
+      this.storm.strikeAt(bp.x, bp.z, this.game.camera);
+      this.arena.burst(bp.x, bp.z, { color: 0xdfe8ff, count: 34, speed: 4.5, size: 0.16, y: bp.y + 0.3, lift: 3, additive: true });
+      this._addShake(0.55);
+      this._hitStop(0.08);
+      this.sound?.play('impact', { volume: 0.9, rate: 0.7 });
+      b.stagger(FOREST_STAGGER);
+      b.fighter.flash(0xdfe8ff, 0.3);
+      this.hud.popup('THE FOREST STRIKES', '#dfe8ff');
+      this._barkOnce('forest');
+      if (Math.hypot(cp.x - bp.x, cp.z - bp.z) < FOREST_SPLASH && !this.combat.dodging) {
+        state.damage(FOREST_SPLASH_DAMAGE);
+        this.combat.onHurt();
+        this.hud.damageFlash();
+        this._checkPlayerDeath(state);
+      }
+    }
+  }
+
+  /** He's down: the horn drops out of his hand, glowing, and lies where it lands. */
+  _dropHorn() {
+    this._hornHeld = false;
+    const horn = this.keyItem;
+    if (!horn) return;
+    this.root.attach(horn);
+    this._hornDrop = {
+      vel: new THREE.Vector3((Math.random() - 0.5) * 2, 3.2, (Math.random() - 0.5) * 2),
+      spin: new THREE.Vector3(5, 3, 4),
+    };
+  }
+
+  _updateHornDrop(dt) {
+    const H = this._hornDrop;
+    const horn = this.keyItem;
+    H.vel.y -= 14 * dt;
+    horn.position.addScaledVector(H.vel, dt);
+    horn.rotation.x += H.spin.x * dt;
+    horn.rotation.y += H.spin.y * dt;
+    horn.rotation.z += H.spin.z * dt;
+    const floor = this.arena.surfaceY(horn.position.x, horn.position.z) + 0.08;
+    if (horn.position.y < floor) {
+      horn.position.y = floor;
+      if (H.vel.y < -1.5) {
+        H.vel.y *= -0.3;
+        H.vel.x *= 0.5;
+        H.vel.z *= 0.5;
+        H.spin.multiplyScalar(0.4);
+      } else {
+        // at rest, on its side
+        horn.rotation.set(0, horn.rotation.y, 0.25);
+        this._hornDrop = null;
+      }
+    }
+  }
+
+  /**
    * The blow that drops him: a white flash, the bars come in and time all but
    * stops, then eases back up while the camera, low and side-on to the two of
    * them, drifts round. The epilogue's slow circle takes over from there.
@@ -1458,14 +1686,77 @@ export class Level03 extends Level {
     const a = this._orbitA0 + s * 0.18;
     this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
     this.cine.rate = 3;
+    // if he had the horn, it's lying where it fell: Kai goes and takes it back first
+    const waiting = this._hornTaken && !this._pickedUp;
+    if (waiting && this.beatT > 1.2) this._updatePickup(dt);
     // a breath over him, then last words; then Kai blows the horn, the forest answers, and the card
-    if (this.mode === 'EPILOGUE' && !this._epiTalked && this.beatT > 2.2) {
+    if (this.mode === 'EPILOGUE' && !this._epiTalked && !waiting && this.beatT > 2.2) {
       this._epiTalked = true;
-      this._converse(EPILOGUE_TALK, () => this._blowHorn());
+      this._converse(this._hornTaken ? [...EPILOGUE_TAKEN, ...EPILOGUE_TALK] : EPILOGUE_TALK, () => this._blowHorn());
     }
     this._tickLine(dt);
     if (this.mode === 'EPILOGUE' && this._endAt && this.beatT > this._endAt) this._showEnd();
     k.fighter.update(dt);
+  }
+
+  /**
+   * Kai takes the horn back. He walks over to where it fell and holds out his
+   * hand, and it lifts off the ground and comes to him, glowing, the way it
+   * came up off the stone into his hand at the start: it was always his to
+   * carry home.
+   */
+  _updatePickup(dt) {
+    const k = this.combat;
+    const kf = k.fighter;
+    const horn = this.keyItem;
+    const palm = kf.bone('PalmR');
+    if (!horn || !palm || this._hornDrop) return; // still falling
+    const P = this._pickup || (this._pickup = { phase: 'walk', t: 0, from: new THREE.Vector3(), to: new THREE.Vector3() });
+    P.t += dt;
+    const kp = k.root.position;
+    const hp = horn.getWorldPosition(P.to);
+    const dx = hp.x - kp.x, dz = hp.z - kp.z;
+    const dist = Math.hypot(dx, dz);
+    if (P.phase !== 'hold') {
+      k.heading += shortestAngle(k.heading, Math.atan2(dx, dz)) * (1 - Math.exp(-8 * dt));
+      k.root.rotation.y = k.heading;
+    }
+    if (P.phase === 'walk') {
+      if (dist > 1.05) {
+        kf.play('walk', { fade: 0.25 });
+        kp.x += (dx / dist) * 1.5 * dt;
+        kp.z += (dz / dist) * 1.5 * dt;
+        kp.y = this.arena.fighterY(kp.x, kp.z);
+      } else {
+        P.phase = 'call';
+        P.t = 0;
+        P.from.copy(hp);
+        P.spin = horn.rotation.clone();
+        if (!kf.actions.reach) kf.pose('reach', 'cross', 1.133); // his right arm out at full stretch, as at the stone
+        kf.play('reach', { fade: 0.4 });
+        this.sound?.play('whoosh', { volume: 0.45, rate: 0.7 });
+      }
+    } else if (P.phase === 'call') {
+      const u = smooth(0.35, 1.6, P.t);
+      palm.getWorldPosition(P.to);
+      horn.position.lerpVectors(P.from, P.to, u);
+      horn.position.y += Math.sin(u * Math.PI) * 0.45;
+      horn.rotation.set(P.spin.x * (1 - u), P.spin.y + u * Math.PI * 2, P.spin.z * (1 - u));
+      this.root.worldToLocal(horn.position);
+      const glow = Math.sin(Math.min(1, P.t / 1.6) * Math.PI);
+      horn.userData.material.emissiveIntensity = 0.5 + 1.4 * glow;
+      horn.userData.glow.material.opacity = 0.6 + 0.4 * glow;
+      if (P.t >= 1.6) {
+        palm.attach(horn);
+        P.phase = 'hold';
+        P.t = 0;
+        kf.play('idle', { fade: 0.6 });
+        this.sound?.play('parry', { volume: 0.4, rate: 0.6 });
+      }
+    } else {
+      poseHorn(horn, palm, HORN_HAND, 1 - Math.exp(-10 * dt));
+      if (P.t > 0.7) this._pickedUp = true;
+    }
   }
 
   /**
