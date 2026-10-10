@@ -31,6 +31,8 @@ export const CHAPTERS = {
     lore: 'A year of the company’s wages, for one morning’s work.' },
   level03: { kicker: 'LEVEL 3', title: 'THE FALLS',
     lore: 'Nobody looks twice at a guide on the paths at dawn.' },
+  epilogue: { kicker: 'EPILOGUE', title: 'THE STONE',
+    lore: 'Some things only belong in one place.' },
 };
 
 const CSS = THEME_CSS + `

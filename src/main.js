@@ -4,6 +4,7 @@ import { Prologue } from "./levels/Prologue.js";
 import { Level01 } from "./levels/Level01.js";
 import { Level02 } from "./levels/Level02.js";
 import { Level03 } from "./levels/Level03.js";
+import { Epilogue } from "./levels/Epilogue.js";
 import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
 import { mountControlsOverlay, controlRows } from "./ui/ControlsOverlay.js";
@@ -17,7 +18,7 @@ import { TitleScene } from "./levels/TitleScene.js";
 /**
  * The full run, in order:
  *
- *   title → prologue → level01 → level02-intro → level02 → level03
+ *   title → prologue → level01 → level02-intro → level02 → level03 → epilogue
  *
  * The title is a level too (levels/TitleScene.js: the glade at dawn with the
  * horn on its stone), with the menu drawn over it (ui/TitleScreen.js); the
@@ -67,6 +68,8 @@ game.registerLevel("level02", () => {
   return level;
 });
 game.registerLevel("level03", () => new Level03());
+// after the falls: Kai takes the horn back up to its stone (Level 3's VICTORY card leads here)
+game.registerLevel("epilogue", () => new Epilogue());
 
 /**
  * The loading screen (ui/LoadingScreen.js): the same one for every switch, so

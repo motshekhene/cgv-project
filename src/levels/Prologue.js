@@ -216,11 +216,15 @@ const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, KAI: KAI_GREEN };
 
    The scene is built on one trick: the forest is loud, and then it is not.
    Birdsong, a dove and the wind in the leaves are the forest at dawn;
-   silence() cuts everything at once and nothing in this file brings it
+   silence() cuts everything at once and nothing in this scene brings it
    back. On the way up something in the trees growls, a branch snaps, and
    far off something howls. The whistle is two notes.
+
+   The epilogue (levels/Epilogue.js) uses it the other way round: it starts
+   the forest silent (startSilent) and, when the horn is back on its stone,
+   wake() brings it all back.
    ========================================================================== */
-class Sfx {
+export class Sfx {
   constructor() {
     this.ctx = null;
     this.master = null;
@@ -526,6 +530,31 @@ class Sfx {
       this.popT = (0.07 + Math.random() * 0.3) / this.firePower;
       this._pop();
     }
+  }
+
+  /** Started already silent: the forest as the horn left it (the epilogue). */
+  startSilent() {
+    this.start();
+    if (!this.ctx) return;
+    this.alive = false;
+    if (this.tone) {
+      this.tone.gain.cancelScheduledValues(this.t);
+      this.tone.gain.setValueAtTime(0, this.t);
+    }
+  }
+
+  /** The horn is home: the wind comes back up in the leaves over a few seconds, and the first birds straight after. */
+  wake() {
+    if (!this.ctx) return;
+    this.alive = true;
+    const t = this.t;
+    if (this.tone) {
+      this.tone.gain.cancelScheduledValues(t);
+      this.tone.gain.setValueAtTime(this.tone.gain.value, t);
+      this.tone.gain.linearRampToValueAtTime(1, t + 3.5);
+    }
+    this.birdT = 0.25;
+    this.doveT = 2.2;
   }
 
   /** THE SILENCE. Everything cuts at once — the wind, the birds, the fire. */

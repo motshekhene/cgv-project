@@ -27,7 +27,7 @@ const MENU = [
   { id: 'chapters', label: 'CHAPTERS' },
   { id: 'controls', label: 'CONTROLS' },
 ];
-const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03'];
+const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
 
 const CSS = THEME_CSS + `
 .ts { position:fixed; inset:0; z-index:9500; overflow:hidden; user-select:none; font-family:${DIALOGUE_FONT}; color:#f2e8d5;

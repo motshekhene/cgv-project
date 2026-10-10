@@ -65,8 +65,8 @@ import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
  *             Kai goes and takes it back before anything else.
  *   FINAL     the killing blow in slow motion, the camera arcing round them.
  *   EPILOGUE  the storm passes and fireflies come out while the camera circles
- *             the fallen Baba Zwane, then the VICTORY card: the horn goes back
- *             to the stone. PLAY AGAIN.
+ *             the fallen Baba Zwane, then the VICTORY card; CONTINUE goes on to
+ *             the game's epilogue (levels/Epilogue.js), the horn back on its stone.
  */
 function shortestAngle(from, to) {
   let d = (to - from) % (Math.PI * 2);
@@ -1817,9 +1817,10 @@ export class Level03 extends Level {
     this.story.setCinematic(false);
     this.story.showEnd({
       title: 'VICTORY',
-      sub: 'Baba Zwane is down. The horn goes back on the stone, and the forest wakes.',
+      sub: 'Baba Zwane is down, and the horn is Kai’s to carry home.',
       credits: CREDITS,
-      action: { label: 'PLAY AGAIN', key: 'R', onClick: () => this.game.restart() },
+      // on to the epilogue: Kai takes it back up the mountain to its stone
+      action: { label: 'CONTINUE', key: 'ENTER', onClick: () => this.game.setLevel('epilogue') },
     });
   }
 
