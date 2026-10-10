@@ -143,7 +143,7 @@ export class PoliceLights {
 
   /** handlerState is HandlerAI's state string. */
   update(dt, handlerState) {
-    const fast = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'SHOOT', 'DRONE'].includes(handlerState);
+    const fast = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'SHOOT', 'DRONE'].includes(handlerState);
     this.t += dt * (fast ? POLICE.fastHz : POLICE.slowHz);
     const p = this.t % 1;
     // double flash each side, like a real lightbar

@@ -264,7 +264,7 @@ export class Level02 extends Level {
    */
   _startDriving() {
     this.car.speed = Math.min(this.car.maxSpeed, 27);
-    this.handler.speed = this.car.speed;
+    this.handler.speed = this.handler.seenSpeed = this.car.speed;
     this._hud?.setVisible(true);
     this._hud?.setCar(CARS[this._carIndex].name);
     this._controls?.setVisible(true);
@@ -590,7 +590,7 @@ export class Level02 extends Level {
       handler: {
         dist,
         dx: this.handler.mesh.position.x - p.x,
-        attacking: ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'SHOOT'].includes(handlerState),
+        attacking: ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'SHOOT'].includes(handlerState),
       },
       drones: this.weapons.drones.filter((d) => d.active).map((d) => ({
         dist: d.holder.position.distanceTo(p),
@@ -938,8 +938,9 @@ export class Level02 extends Level {
     const h = this.handler;
     const show = handlerState === 'TELEGRAPH' && h.nextMove;
     if (!show) { el.style.opacity = '0'; return; }
-    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
+    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', BRAKECHECK: 'BRAKE CHECK', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
     const behind = h.nextMove === 'SHUNT' || h.nextMove === 'DRONE';
+    const inFront = h.nextMove === 'BRAKECHECK';
     // camera looks down +z, so world +x is the LEFT of the screen
     const onLeft = h.mesh.position.x > this.car.mesh.position.x;
     const pulse = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 120));
@@ -948,6 +949,10 @@ export class Level02 extends Level {
       el.style.left = '50%'; el.style.right = ''; el.style.top = '78%';
       el.style.transform = 'translate(-50%,-50%)';
       el.textContent = `▼ ${move} ▼`;
+    } else if (inFront) {
+      el.style.left = '50%'; el.style.right = ''; el.style.top = '24%';
+      el.style.transform = 'translate(-50%,-50%)';
+      el.textContent = `▲ ${move} ▲`;
     } else if (onLeft) {
       el.style.left = '24px'; el.style.right = ''; el.style.top = '50%';
       el.style.transform = 'translateY(-50%)';
@@ -1069,6 +1074,8 @@ export class Level02 extends Level {
         this.handler.mesh.position.z = this.car.mesh.position.z - 35;
         this.handler.mesh.position.x = this.car.mesh.position.x;
         this.handler.speed = 0;
+        this.handler.seenSpeed = 0;
+        this.handler.station = 'tail';
         this.handler.state = 'APPROACH';
         this.handler.nextAttackAt = this.handler.elapsed + 8;
         this._openCarPicker();

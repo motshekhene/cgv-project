@@ -135,7 +135,7 @@ export function createLevel2Hud() {
 
       els.dist.textContent = `${Math.round(dist)} m`;
       els.state.textContent = handlerState;
-      const attacking = /!|SLAM|PIT|SHUNT|PIN|TYRE|DRONE|TAILGATING/.test(handlerState);
+      const attacking = /!|SLAM|PIT|SHUNT|PIN|BRAKE|TYRE|DRONE|TAILGATING|QUARTER|ALONGSIDE|OVERTAKING|BOXING/.test(handlerState);
       handlerBox.classList.toggle('attack', attacking);
       handlerBox.classList.toggle('calm', /DODGED|FALLING BACK/.test(handlerState));
 
