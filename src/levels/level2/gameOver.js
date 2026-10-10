@@ -6,7 +6,7 @@ import { THEME_CSS, END_CSS, showEndScreen } from '../../ui/theme.js';
  * Uses the team's end-screen look from Level 3 (src/ui/theme.js): the
  * carved letters dropping in one by one, the gold ornament, the stone buttons.
  *
- *   createGameOverScreen   ember "WRECKED" card: RETRY (R) · CONTINUE (C) · QUIT (Q)
+ *   createGameOverScreen   ember "WRECKED" card: RETRY (R) · CONTINUE (C, only if onContinue is given) · QUIT (Q)
  *
  * Gameplay is frozen behind them (Level02 gates update()), and they only let
  * go once a button is picked. Purely DOM; destroy() removes everything.
@@ -45,7 +45,7 @@ function addButton(end, label, key, onClick) {
 
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function createGameOverScreen({ topSpeedKmh, distance, time, onRestart, onContinue, onQuit }) {
+export function createGameOverScreen({ topSpeedKmh, distance, time, onRestart, onContinue = null, onQuit }) {
   const { style, host, end } = mount();
   showEndScreen(end, {
     kind: 'lose',
@@ -56,14 +56,14 @@ export function createGameOverScreen({ topSpeedKmh, distance, time, onRestart, o
     ],
     action: { label: 'RETRY', key: 'R', onClick: () => onRestart?.() },
   });
-  addButton(end, 'CONTINUE', 'C', () => onContinue?.());
+  if (onContinue) addButton(end, 'CONTINUE', 'C', () => onContinue());   // only where a level allows carrying on
   addButton(end, 'QUIT', 'Q', () => onQuit?.());
 
   // CONTINUE/QUIT keys only: R already restarts globally (Game._frame), and
   // Escape is the shared pause key.
   const onKey = (e) => {
     const k = e.key.toLowerCase();
-    if (k === 'c') onContinue?.();
+    if (k === 'c' && onContinue) onContinue();
     else if (k === 'q') onQuit?.();
   };
   window.addEventListener('keydown', onKey);

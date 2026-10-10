@@ -73,7 +73,7 @@ const _v = new THREE.Vector2();
  *   DRONE  spikes: change lane before the strip; kamikaze: change speed or
  *          lane when its light goes solid
  *
- * He gets more aggressive over ~90 s (shorter harass, quicker wind-up,
+ * He gets more aggressive over ~60 s (shorter harass, quicker wind-up,
  * harder hits) and rubber-bands back if you boost far ahead.
  *
  * Fair play:
@@ -164,11 +164,11 @@ export class HandlerAI {
   }
 
   /**
-   * 0 at the start of the chase → 1 after ~90 s. Halved while you're badly
+   * 0 at the start of the chase → 1 after ~60 s. Halved while you're badly
    * hurt, so a low health bar is a comeback window, not a death spiral.
    */
   get aggro() {
-    const a = Math.min(1, this.elapsed / 90);
+    const a = Math.min(1, this.elapsed / 60);
     return this._hurt ? a * 0.5 : a;
   }
 

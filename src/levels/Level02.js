@@ -17,7 +17,10 @@ import {
   createJungleWildlife, updateJungleWildlife, jungleCourseHeight,
 } from './level1/jungleWorld.js';
 import { Pickups } from './level2/pickups.js';
-import { Course, COURSE_END, DROP } from './level2/course.js';
+import { Course, COURSE_END, DROP, ROADBLOCKS } from './level2/course.js';
+
+// set by RETRY on the wrecked card just before it restarts the level: the new run skips the car picker
+let retryDriving = false;
 import { DriveControls } from './level2/controls.js';
 import { spinWheels } from './level2/wheels.js';
 import { populateJungleChunk } from './level2/JungleRoadside.js';
@@ -114,10 +117,10 @@ export class Level02 extends Level {
     // ---- the road — @2B — now Level 1's mud trail, and it ends at the falls ----
     this.road = new RoadSystem(this.root, { endZ: COURSE_END });
     this.course = new Course(this.root, { endZ: COURSE_END, roadWidth: this.road.roadWidth });
-    this.pickups = new Pickups(this.root, { start: 150, end: COURSE_END - 300 });
+    this.pickups = new Pickups(this.root, { start: 150, end: COURSE_END - 300, avoid: ROADBLOCKS });
     this._rewards = 0;
     // most of the traffic is gone: the jungle gets in the way instead
-    this.obstacles = new Obstacles(this.root, { start: 220, end: COURSE_END - 420, avoid: this.pickups.items });
+    this.obstacles = new Obstacles(this.root, { start: 220, end: COURSE_END - 420, avoid: this.pickups.items, roadblocks: ROADBLOCKS });
     this._jungleReady = this._buildJungle(assets);
 
     // ---- 2A's vehicle + handler ----
@@ -254,8 +257,10 @@ export class Level02 extends Level {
       onMute: () => this.sound.setMuted(!this.sound.muted),
     });
     this._buildShield();
-    if (this.fromIntro) this._startDriving();
+    // a RETRY after a wreck goes straight back on the road in the same car
+    if (this.fromIntro || retryDriving) this._startDriving();
     else this._openCarPicker();
+    retryDriving = false;
   }
 
   /**
@@ -565,6 +570,17 @@ export class Level02 extends Level {
         { label: 'NITRO', t: this.car.freeBoost, color: '#ff8a2a' },
       ].filter((b) => b.t > 0),
     });
+
+    // ---- story: the company's road ----
+    const kz = this.car.mesh.position.z;
+    if (!this._saidBlocks && kz > ROADBLOCKS[0].z - 560) {
+      this._saidBlocks = true;
+      kaiThinks('Company trucks across the road. How did they know I’d come this way?');
+    }
+    if (!this._saidKnew && kz > ROADBLOCKS[ROADBLOCKS.length - 1].z + 60) {
+      this._saidKnew = true;
+      kaiThinks('Only one man knew I’d take the river road.');
+    }
 
     // ---- sound ----
     // his telegraph is his horn — the ranger bearing down, in his voice
@@ -1055,30 +1071,13 @@ export class Level02 extends Level {
       topSpeedKmh,
       distance: dist,
       time,
+      // No CONTINUE: it put you back on the road where you wrecked, at full
+      // health, so a wreck cost nothing. RETRY is the River Road from the top.
       onRestart: () => {
         this._gameOverScreen?.destroy();
         this._gameOverScreen = null;
+        retryDriving = true;
         this.game.restart();
-      },
-      onContinue: () => {
-        this._gameOverScreen?.destroy();
-        this._gameOverScreen = null;
-        // fixed: this used to leave _gameOver set and health at 0 — a softlock
-        this._gameOver = false;
-        this.car.health = this.car.maxHealth;
-        this.car.heat = 0;
-        this.car.overheated = false;
-        this.state.alive = true;
-        this.state.failCause = null;
-        // give you a head start: he drops back and waits before attacking
-        this.handler.mesh.position.z = this.car.mesh.position.z - 35;
-        this.handler.mesh.position.x = this.car.mesh.position.x;
-        this.handler.speed = 0;
-        this.handler.seenSpeed = 0;
-        this.handler.station = 'tail';
-        this.handler.state = 'APPROACH';
-        this.handler.nextAttackAt = this.handler.elapsed + 8;
-        this._openCarPicker();
       },
       onQuit: () => {
         this._gameOverScreen?.destroy();

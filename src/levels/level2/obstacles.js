@@ -12,6 +12,10 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
  *   BRANCHES  a pile of broken branches over one lane                     drive through: it slows you and scratches the paint
  *   BOAR      a warthog that trots across the road as you come up          knocked aside, a medium hit
  *   KUDU      an antelope that bolts across in a few bounds                knocked aside, a medium hit
+ *   ROADBLOCK the company's barricade, every lane closed but one            solid, a big hit
+ *
+ * They come closer together the further down the road you get, and the
+ * roadblocks (course.js ROADBLOCKS) stand where the company has the road.
  *
  * Laid out once along the finite course, like the pickups (it's a journey,
  * not a loop): a seeded rhythm, never closer than ~70 m, never blocking the
@@ -35,6 +39,7 @@ const RAIL = 12;                       // the road is 24 wide
 const SHOW = 320;                      // further than the fog lets you see
 
 export const OBSTACLE_LABELS = {
+  ROADBLOCK: 'ROADBLOCK',
   TREE: 'FALLEN TREE',
   ROCKS: 'ROCKFALL',
   BRANCHES: 'BRANCHES',
@@ -243,7 +248,7 @@ function makeAnimalFromModel({ gltf, length, yaw }, stride) {
 /* ======================== the obstacles ======================== */
 
 export class Obstacles {
-  constructor(parent, { start = 220, end = 3700, spacing = [70, 135], seed = 23, avoid = [] } = {}) {
+  constructor(parent, { start = 220, end = 3700, spacing = [70, 135], seed = 23, avoid = [], roadblocks = [] } = {}) {
     this.parent = parent;
     this.group = new THREE.Group();
     this.group.name = 'level2-obstacles';
@@ -265,11 +270,18 @@ export class Obstacles {
       return prev === 'TREE' ? 'BOAR' : 'TREE';
     };
     const clearOfPickups = (z) => !avoid.some((p) => Math.abs(p.z - z) < 18);
+    // a roadblock is the whole road's problem: nothing else within 80 m of one
+    const nearBlock = (z) => roadblocks.find((b) => Math.abs(b.z - z) < 80);
+    this._roadblocks = roadblocks;
 
     this._slots = [];
     let prev = null;
-    for (let z = start; z < end; z += spacing[0] + this._r() * (spacing[1] - spacing[0])) {
+    // closer together the further you get: the spacing comes down to 60% by the end
+    const step = (z) => (spacing[0] + this._r() * (spacing[1] - spacing[0])) * (1 - 0.4 * THREE.MathUtils.clamp((z - start) / (end - start), 0, 1));
+    for (let z = start; z < end; z += step(z)) {
       if (!clearOfPickups(z)) z += 25;
+      const block = nearBlock(z);
+      if (block) z = block.z + 80;
       if (z >= end) break;
       const kind = pickKind(prev);
       prev = kind;
@@ -302,6 +314,106 @@ export class Obstacles {
       this.items.push(it);
       if (it.solid) this.pool.push(it);
     }
+    for (const block of this._roadblocks) {
+      for (const it of this._makeRoadblock(block)) {
+        it.kind = 'ROADBLOCK';
+        it.label = OBSTACLE_LABELS.ROADBLOCK;
+        it.holder.visible = false;
+        this.group.add(it.holder);
+        this.items.push(it);
+        this.pool.push(it);
+      }
+    }
+  }
+
+  /**
+   * One of the company's roadblocks: every lane but the gap closed with a
+   * stack of cut logs behind a striped barrier, an amber lamp flashing on
+   * each. Each run of closed lanes is its own solid piece, so the gap between
+   * them is a real opening, for the car and for the Handler.
+   */
+  _makeRoadblock({ z, gap }) {
+    const stripes = this._stripes || (this._stripes = (() => {
+      const c = document.createElement('canvas');
+      c.width = 128; c.height = 32;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#f2ece0'; ctx.fillRect(0, 0, 128, 32);
+      ctx.fillStyle = '#b8261d';
+      for (let x = -32; x < 160; x += 32) {
+        ctx.beginPath(); ctx.moveTo(x, 32); ctx.lineTo(x + 16, 32); ctx.lineTo(x + 32, 0); ctx.lineTo(x + 16, 0); ctx.fill();
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = THREE.RepeatWrapping;
+      return t;
+    })());
+    const post = this._post || (this._post = new THREE.MeshStandardMaterial({ color: 0x3a3a36, roughness: 0.8 }));
+    const runs = [];
+    for (let i = 0; i < LANES.length; i++) {
+      if (i === gap) continue;
+      const last = runs[runs.length - 1];
+      if (last && last[1] === i - 1) last[1] = i; else runs.push([i, i]);
+    }
+    return runs.map(([a, b]) => {
+      const x0 = Math.max(-RAIL + 0.3, LANES[a] - 3), x1 = Math.min(RAIL - 0.3, LANES[b] + 3);
+      const w = x1 - x0, cx = (x0 + x1) / 2;
+      const holder = new THREE.Group();
+      holder.position.set(cx, 0, z);
+      // the logs: a stack three high, so it reads from a long way off in the rain
+      for (const [y, dz] of [[0.42, -0.86], [0.42, 0], [0.42, 0.86], [1.16, -0.43], [1.16, 0.43], [1.9, 0]]) {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, w - 0.3, 10), this._bark);
+        log.rotation.z = Math.PI / 2;
+        log.position.set(0, y, dz);
+        log.castShadow = true;
+        log.receiveShadow = true;
+        holder.add(log);
+      }
+      // the barrier on the side you come from, and its posts
+      const tex = stripes.clone();
+      tex.repeat.set(w / 2.4, 1);
+      tex.needsUpdate = true;
+      const board = new THREE.Mesh(new THREE.BoxGeometry(w - 0.2, 0.42, 0.12),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
+      board.position.set(0, 1.0, -1.25);
+      board.castShadow = true;
+      holder.add(board);
+      // Tall posts at its ends with a lamp on each, so the gap is between two
+      // flashing lights. The River Road's fog swallows anything past ~70 m,
+      // so the lamps and their halos ignore it: you see the lights long
+      // before the logs, and steer for the dark between them.
+      const lampMat = new THREE.MeshStandardMaterial({ color: 0xffb03a, emissive: 0xff9a1f, emissiveIntensity: 2, toneMapped: false, fog: false });
+      const haloMat = this._halo || (this._halo = new THREE.SpriteMaterial({
+        map: this._haloTex || (this._haloTex = (() => {
+          const c = document.createElement('canvas');
+          c.width = c.height = 64;
+          const ctx = c.getContext('2d');
+          const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+          g.addColorStop(0, 'rgba(255,190,90,1)'); g.addColorStop(0.3, 'rgba(255,150,40,.45)'); g.addColorStop(1, 'rgba(255,120,0,0)');
+          ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+          return new THREE.CanvasTexture(c);
+        })()),
+        color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+      }));
+      const halos = [];
+      for (const px of [-(w / 2 - 0.25), w / 2 - 0.25]) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.2, 0.2), post);
+        p.position.set(px, 1.6, -1.25);
+        p.castShadow = true;
+        holder.add(p);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), lampMat);
+        lamp.position.set(px, 3.35, -1.25);
+        holder.add(lamp);
+        const halo = new THREE.Sprite(haloMat.clone());
+        halo.scale.setScalar(3.2);
+        halo.position.copy(lamp.position);
+        holder.add(halo);
+        halos.push(halo);
+      }
+      return {
+        holder, lamp: { material: lampMat }, halos, solid: true, damage: 18, slow: 0.2,
+        x: cx, z: z - 0.2, halfW: w / 2, halfL: 1.4, speed: 0,
+      };
+    });
   }
 
   /** A clone of a kit prototype, or nothing if that model didn't load. */
@@ -523,6 +635,11 @@ export class Obstacles {
       it.holder.visible = dz > -60 && dz < SHOW;
       if (!it.holder.visible) continue;
       if (it.walk) this._updateAnimal(it, dt, dz);
+      if (it.lamp) {
+        const on = Math.sin(this.time * 9 + it.x) > 0;
+        it.lamp.material.emissiveIntensity = on ? 3.2 : 0.25;
+        for (const h of it.halos) h.material.opacity = on ? 0.95 : 0.15;
+      }
       const hit = this._collide(it, car);
       if (hit) hits.push(hit);
     }

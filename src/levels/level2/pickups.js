@@ -60,21 +60,25 @@ function iconFor(kind, mat) {
 }
 
 export class Pickups {
-  constructor(parent, { start = 150, end = 3900, spacing = [210, 300], seed = 7 } = {}) {
+  constructor(parent, { start = 150, end = 3900, spacing = [250, 360], seed = 7, avoid = [] } = {}) {
     this.parent = parent;
     this.items = [];
     this.time = 0;
     const r = rng(seed);
 
-    // a fixed, readable rhythm: mostly repairs, nitro and shields alternate,
-    // a shrine heart roughly every kilometre
-    const order = ['REPAIR', 'NITRO', 'REPAIR', 'SHIELD', 'REPAIR', 'HEART'];
+    // a fixed, readable rhythm: a repair every third one (it was every other
+    // one, and you could drive through anything), nitro and shields between,
+    // a shrine heart every couple of kilometres
+    const order = ['REPAIR', 'NITRO', 'SHIELD', 'REPAIR', 'NITRO', 'HEART'];
     const ringGeo = new THREE.TorusGeometry(1.25, 0.08, 8, 32);
     const beamGeo = new THREE.CylinderGeometry(0.35, 0.9, 14, 12, 1, true);
     beamGeo.translate(0, 7, 0);
 
     let z = start, k = 0;
     while (z < end) {
+      // never on top of a roadblock (obstacles.js): it's the whole road's problem
+      const block = avoid.find((b) => Math.abs(b.z - z) < 60);
+      if (block) z = block.z + 60;
       const kind = order[k % order.length];
       const color = PICKUP_KINDS[kind].color;
       const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.2 });

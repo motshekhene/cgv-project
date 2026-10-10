@@ -24,7 +24,21 @@ import { createWaterfallMaterial } from '../../shaders/waterfall.js';
  *   course.update(dt, camera);        // every frame
  *   course.splash(position);          // the car hits the pool
  */
-export const COURSE_END = 4100;   // a road-chunk boundary (chunks are 200 m, centred on multiples of 200)
+export const COURSE_END = 8100;   // a road-chunk boundary (chunks are 200 m, centred on multiples of 200)
+
+/**
+ * The second half of the road is the company's. Where the River Road runs
+ * past their cutline they have closed it with parked trucks and log stacks,
+ * barricade after barricade, each with one lane left open (`gap`, 0-3 from
+ * -x): find it at speed, with the Handler finding it too. They come in pairs
+ * with the gap moved, so the first one is a swerve and the second a slalom.
+ * level2/obstacles.js builds them; a sign warns 250 m ahead of each pair.
+ */
+export const ROADBLOCKS = [
+  { z: 4700, gap: 1 }, { z: 4960, gap: 3 },
+  { z: 5900, gap: 0 }, { z: 6160, gap: 2 },
+  { z: 6950, gap: 2 }, { z: 7200, gap: 0 },
+];
 export const DROP = 48;           // the pool is this far below the road
 
 /** Level 3's waterfall shader, plus scene fog so it fades in with everything else. */
@@ -82,10 +96,13 @@ export class Course {
     const g = this.group;
 
     // ---------- Level 1 signage along the trail ----------
-    const signs = [
-      [60, 'FALLS 4 KM →'], [E - 3000, 'FALLS 3 KM'], [E - 2000, 'FALLS 2 KM'],
-      [E - 1000, 'FALLS 1 KM'], [E - 500, 'FALLS 500 M'], [E - 230, 'FALLS AHEAD'],
-    ];
+    const signs = [[60, `FALLS ${Math.round(E / 1000)} KM →`]];
+    for (let km = Math.floor((E - 400) / 1000); km >= 1; km--) signs.push([E - km * 1000, `FALLS ${km} KM`]);
+    signs.push([E - 500, 'FALLS 500 M'], [E - 230, 'FALLS AHEAD']);
+    // the company's road: a warning ahead of each pair of roadblocks
+    signs.push([ROADBLOCKS[0].z - 520, 'COMPANY ROAD — NO ENTRY']);
+    for (let i = 0; i < ROADBLOCKS.length; i += 2) signs.push([ROADBLOCKS[i].z - 250, 'ROAD CLOSED AHEAD']);
+    signs.sort((a, b) => a[0] - b[0]);
     signs.forEach(([z, text], i) => {
       const s = createSign(text, { width: 3.2, height: 1.0 });
       const sd = i % 2 === 0 ? 1 : -1;
