@@ -1834,10 +1834,18 @@ export class Prologue extends Level {
   }
 
   /* ==================================================== movement */
-  _blocked(x, z) {
+  /**
+   * Would a step from (fromX, fromZ) to (x, z) take him into something solid?
+   * The take walks him in to the stone without asking, and leaves him inside
+   * its box (an arm's length from the horn is closer than the box allows):
+   * from in there he may step out or along it, never further in.
+   */
+  _blocked(x, z, fromX, fromZ) {
     const r = 0.4;
+    const depth = (b, px, pz) => Math.min(px + r - b.x0, b.x1 - (px - r), pz + r - b.z0, b.z1 - (pz - r));
     for (const b of this.blockers) {
-      if (x + r > b.x0 && x - r < b.x1 && z + r > b.z0 && z - r < b.z1) return true;
+      const d = depth(b, x, z);
+      if (d > 0 && d > depth(b, fromX, fromZ)) return true;
     }
     return false;
   }
@@ -1861,8 +1869,8 @@ export class Prologue extends Level {
     const sp = this.phase === 'flee' ? RUN : WALK;
     const dx = (-sin * f + cos * s) * sp * dt;
     const dz = (-cos * f - sin * s) * sp * dt;
-    if (!this._blocked(this.px + dx, this.pz)) this.px += dx;
-    if (!this._blocked(this.px, this.pz + dz)) this.pz += dz;
+    if (!this._blocked(this.px + dx, this.pz, this.px, this.pz)) this.px += dx;
+    if (!this._blocked(this.px, this.pz + dz, this.px, this.pz)) this.pz += dz;
     this._moving = len > 0;
     if (this._moving) this._moveYaw = Math.atan2(-dx, -dz);
     this._clampWalk();
