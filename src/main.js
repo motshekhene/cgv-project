@@ -1,4 +1,5 @@
 import "./style.css";
+import "./audio/masterMute.js"; // first: every AudioContext the game makes goes through its master volume
 import { Game } from "./core/Game.js";
 import { Prologue } from "./levels/Prologue.js";
 import { Level01 } from "./levels/Level01.js";

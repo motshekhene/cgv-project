@@ -30,6 +30,7 @@ import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 import { Rain } from './level2/rain.js';
+import { isMuted, toggleMuted } from '../audio/masterMute.js';
 
 /**
  * Level 02 — The River Road. Kai drives off the trail with the horn, the
@@ -254,7 +255,7 @@ export class Level02 extends Level {
     this._controls = new DriveControls({
       onCar: () => { if (!this._finale && !this._gameOver) this._openCarPicker(); },
       onMusic: () => this.sound.setMusic(!this.sound.musicOn),
-      onMute: () => this.sound.setMuted(!this.sound.muted),
+      onMute: () => toggleMuted(), // the game's one mute (M does the same)
     });
     this._buildShield();
     // a RETRY after a wreck goes straight back on the road in the same car
@@ -467,7 +468,7 @@ export class Level02 extends Level {
     this.input.bindings.handbrake ??= [' '];
     i.handbrake = this.input.isDown('handbrake') || !!c.handbrake;
     this._controls?.reflect(i);
-    this._controls?.setFlags({ music: this.sound.musicOn, muted: this.sound.muted });
+    this._controls?.setFlags({ music: this.sound.musicOn, muted: isMuted() });
 
     // open car picker
     if (this.input.pressed('changeCar')) {

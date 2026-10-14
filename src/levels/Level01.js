@@ -40,6 +40,7 @@ import {
   makeJungleObstacle,
 } from "./level1/jungleWorld.js";
 import { LightPool } from "./level1/lightPool.js";
+import { isMuted, toggleMuted, onMuteChange } from "../audio/masterMute.js";
 
 /**
  * Level 01 — The Trail (Jungle Shrine theme).
@@ -2436,7 +2437,7 @@ export class Level01 extends Level {
     this._soundButton.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this._setSoundEnabled(!this._soundEnabled);
+      toggleMuted();
     });
 
     const togglePause = (e) => {
@@ -2459,7 +2460,9 @@ export class Level01 extends Level {
       this.game.onPaused = this._pauseHook;
       this._syncPauseUI(!!this.game.paused);
     }
-    this._setSoundEnabled(this._soundEnabled);
+    // the button is the game's one mute (M does the same): it only shows it
+    this._offMute = onMuteChange(() => this._setSoundEnabled(true));
+    this._setSoundEnabled(true);
   }
 
   _consumeVirtual(action) {
@@ -2474,13 +2477,14 @@ export class Level01 extends Level {
 
   _setSoundEnabled(enabled) {
     this._soundEnabled = !!enabled;
+    const on = this._soundEnabled && !isMuted();
     if (this._soundButton) {
-      this._soundButton.textContent = this._soundEnabled ? "🔊" : "🔇";
-      this._soundButton.title = this._soundEnabled ? "Sound on — click to mute" : "Sound off — click to unmute";
-      this._soundButton.setAttribute("aria-label", this._soundEnabled ? "mute sound" : "unmute sound");
-      this._soundButton.style.color = this._soundEnabled ? "#f5ffe6" : "#879184";
-      this._soundButton.style.opacity = this._soundEnabled ? "1" : ".48";
-      this._soundButton.style.borderColor = this._soundEnabled ? "rgba(217,239,201,.35)" : "rgba(150,160,150,.22)";
+      this._soundButton.textContent = on ? "🔊" : "🔇";
+      this._soundButton.title = on ? "Sound on — click to mute (M)" : "Sound off — click to unmute (M)";
+      this._soundButton.setAttribute("aria-label", on ? "mute sound" : "unmute sound");
+      this._soundButton.style.color = on ? "#f5ffe6" : "#879184";
+      this._soundButton.style.opacity = on ? "1" : ".48";
+      this._soundButton.style.borderColor = on ? "rgba(217,239,201,.35)" : "rgba(150,160,150,.22)";
     }
     this._applyAudioMuteState();
   }
@@ -4625,6 +4629,7 @@ export class Level01 extends Level {
 
   teardown() {
     clearThoughts();
+    this._offMute?.();
     this._finale?.carDoor?.dispose(); // left mid-scene: the renderer's clipping back as it was
     this._bayDoor?.dispose(); // ...or before the finale ever began
     this._bayDoor = null;

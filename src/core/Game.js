@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Input } from "./Input.js";
 import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
+import { toggleMuted } from "../audio/masterMute.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -161,6 +162,7 @@ export class Game {
     }
 
     if (this.input.pressed("pause")) this.setPaused(!this.paused);
+    if (this.input.pressed("mute")) toggleMuted(); // one mute for every level (audio/masterMute.js)
     if (this.input.pressed("controls") && this.onControlsToggle) this.onControlsToggle();
     if (this.input.pressed("restart")) {
       this.restart();

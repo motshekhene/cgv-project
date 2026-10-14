@@ -54,7 +54,6 @@ export class Level2Sound {
     this.ctx = null;
     this._onGesture = () => this._start();
     this._onKey = (e) => {
-      if (e.key === 'm' || e.key === 'M') this.setMuted(!this.muted);
       if (e.key === 'n' || e.key === 'N') this.setMusic(!this.musicOn);
       this._start();
     };

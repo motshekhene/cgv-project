@@ -2172,7 +2172,6 @@ export class Prologue extends Level {
     this.t += dt;
     if (this._inFireShot()) this._shotT += dt;
 
-    if (this.input.pressed('mute')) this.sfx.setMuted(!this.sfx.muted);
     if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
 
     if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
