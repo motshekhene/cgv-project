@@ -904,7 +904,16 @@ export function createSign(text = "THE CAMP →", { width = 2.4, height = 0.85 }
   return group;
 }
 
-export function createJungleSky() {
+/**
+ * The sky: a dome painted on the inside, blue overhead to a warm horizon with
+ * a glow where the sun is. Keep it centred on the camera.
+ *
+ * fog: the scene's fog colour (the Color itself, so it follows any change).
+ * Given it, the sky turns to it toward the horizon, so whatever the fog has
+ * swallowed melts into the sky instead of standing out as a flat pale shape,
+ * and uniforms.uDark (0..1) takes the whole sky to it, for dark stretches.
+ */
+export function createJungleSky({ fog = null } = {}) {
   const top = new THREE.Color(0x6aa6d8);
   const horizon = new THREE.Color(0xf0e2b0);
   const bottom = new THREE.Color(0x6f7d4a);
@@ -921,6 +930,9 @@ export function createJungleSky() {
       uBottom: { value: bottom },
       uSun: { value: sunColor },
       uSunDir: { value: sunDir },
+      uFog: { value: fog || horizon },
+      uFogBand: { value: fog ? 0.22 : 0 },
+      uDark: { value: 0 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -931,7 +943,8 @@ export function createJungleSky() {
       }
     `,
     fragmentShader: `
-      uniform vec3 uTop, uHorizon, uBottom, uSun, uSunDir;
+      uniform vec3 uTop, uHorizon, uBottom, uSun, uSunDir, uFog;
+      uniform float uFogBand, uDark;
       varying vec3 vDir;
       void main(){
         vec3 d = normalize(vDir);
@@ -941,6 +954,15 @@ export function createJungleSky() {
           : mix(uHorizon, uBottom, pow(clamp(-h*3.0,0.0,1.0), 0.65));
         float s = max(dot(d, uSunDir), 0.0);
         c += uSun * (pow(s, 1000.0) * 7.0 + pow(s, 18.0) * 0.25);
+        // the fog colour as fogged things come out on screen: the sky itself
+        // is drawn as is, but they go through tone mapping and sRGB
+        vec3 fogC = uFog;
+        #ifdef TONE_MAPPING
+          fogC = toneMapping(fogC);
+        #endif
+        fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
+        float haze = uFogBand > 0.0 ? 1.0 - smoothstep(0.0, uFogBand, h) : 0.0;
+        c = mix(c, fogC, max(haze, uDark));
         gl_FragColor = vec4(c, 1.0);
       }
     `,

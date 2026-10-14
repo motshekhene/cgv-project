@@ -746,7 +746,11 @@ export class Level01 extends Level {
 
     scene.background = new THREE.Color(0xcfd6a8);
     scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014);
-    this.root.add(createJungleSky());
+    // a dome around the camera (update() keeps it centred there): left at the
+    // start line, it only surrounded the first 350 m, and from further on it
+    // hung over the trail behind him as a big blue oval
+    this._sky = createJungleSky({ fog: scene.fog.color });
+    this.root.add(this._sky);
 
     const hemi = new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6);
     this.hemi = hemi;
@@ -1086,6 +1090,7 @@ export class Level01 extends Level {
       const dark = new THREE.Color(0x111a18);
       this.scene.fog.color.copy(base).lerp(dark, this._darkFactor);
     }
+    if (this._sky) this._sky.material.uniforms.uDark.value = this._darkFactor;
     for (let i = 0; i < (this._darkRuneLights?.length || 0); i++) {
       this._darkRuneLights[i].intensity = (1.4 + Math.sin(performance.now() * 0.004 + i) * 0.35) * (0.35 + this._darkFactor);
     }
@@ -3844,6 +3849,7 @@ export class Level01 extends Level {
     const cam = this.game?.camera;
     if (!cam) return;
     cam.getWorldPosition(this._tmp);
+    if (this._sky) this._sky.position.copy(this._tmp);
     // the glows' real lights go to the ones nearest what the camera is looking at
     if (this._lightPool) {
       cam.getWorldDirection(this._poolFocus).multiplyScalar(20);
