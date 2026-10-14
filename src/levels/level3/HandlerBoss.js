@@ -468,6 +468,7 @@ export class HandlerBoss {
     this.flying = null; // the helmet, once it comes off
     this.arenaLimit = 13.4; // he follows Kai anywhere inside this radius
     this.nav = null; // level3/Nav.js, set by Level03: his way round the trees
+    this.watching = false; // Level03: he stands off and watches (his men go in first)
     this._moveDir = new THREE.Vector3();
     this._checkFrom = new THREE.Vector3();
     this._checkT = 0;
@@ -689,7 +690,16 @@ export class HandlerBoss {
       if (d < -Math.PI) d += Math.PI * 2;
       this.heading += d * (1 - Math.exp(-rate * dt));
     };
-
+    // watching his men: arms at his sides, turned to wherever Kai is, the mask's eyes smouldering
+    if (this.watching) {
+      face(4);
+      f.setGlow(0, 0);
+      if (this.hurtT <= 0) f.play('idle', { fade: 0.3 });
+      this._glowMask(0xff5a1a, 0.45 + Math.sin(this.t * 2) * 0.15);
+      this.root.rotation.y = this.heading;
+      f.update(dt);
+      return { dist, state: 'WATCH', phase: this.phase.name };
+    }
     switch (this.state) {
       case 'APPROACH': {
         // the way to Kai: straight at him, or round whatever is between them

@@ -5,6 +5,8 @@ import { HandlerBoss } from './level3/HandlerBoss.js';
 import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { Nav } from './level3/Nav.js';
 import { Telegraphs } from './level3/Telegraphs.js';
+import { EnforcerSquad } from './level3/Enforcers.js';
+import { ShadowStag } from './level3/ShadowStag.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
@@ -67,7 +69,14 @@ import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
  *             seconds a bolt comes down on him and leaves him reeling, which
  *             is Kai's opening. When he falls the horn falls with him, and
  *             Kai goes and takes it back before anything else.
+ *             The fight comes in three acts. I: the Marshal didn't come
+ *             alone; his men go in first while he watches from the arch
+ *             (level3/Enforcers.js). II: him. III: below.
  *   FINAL     the killing blow in slow motion, the camera arcing round them.
+ *   RISE      the horn, tainted by his hand, isn't finished: the stone stag at
+ *             the gate cracks open and comes down off its plinth, and Kai has
+ *             to beat it (act III, level3/ShadowStag.js) before the horn is
+ *             clean again and the epilogue can begin.
  *   EPILOGUE  the storm passes and fireflies come out while the camera circles
  *             the fallen Baba Zwane, then the VICTORY card; CONTINUE goes on to
  *             the game's epilogue (levels/Epilogue.js), the horn back on its stone.
@@ -202,6 +211,9 @@ const BARKS = {
     { who: 'kai', text: 'It knows whose hand it\u2019s in.' },
   ],
   hornLow: [{ who: 'zwane', text: 'It\u2019s burning\u2026 the horn is burning my hand!' }],
+  menIn: [{ who: 'handler', text: 'You think I came down that cliff alone? Take it off him.' }],
+  menOut: [{ who: 'handler', text: 'Company money, wasted. Fine. I\u2019ll do it myself.' }],
+  stagRage: [{ who: 'kai', text: 'It\u2019s getting angrier. Stay out of the thorns.' }],
 };
 // phase IV: the forest strikes him every FOREST_EVERY s (a warning glow under him FOREST_WARN s before)
 const FOREST_EVERY = [6.5, 9];
@@ -234,6 +246,21 @@ const FOCUS_DAMAGE = 1.5;
 const EASE_PER_LOSS = 0.1;
 const EASE_MIN = 0.7;
 const VS_TIME = 1.75; // the VS splash, then FIGHT
+// act I: he stands off by the arch while his men come in under it (level3/Enforcers.js)
+const BOSS_WATCH = new THREE.Vector3(-3.2, 0, -13.4);
+const MEN_GATE = new THREE.Vector3(-3.0, 0, -19.6);
+const MEN_NAME = 'THE COMPANY\u2019S MEN';
+// act III: the stone stag at the gate comes down off its plinth (level3/ShadowStag.js)
+const STAG_NAME = 'THE SHADOW STAG';
+const STAG_PLINTH = new THREE.Vector3(-8.6, 1.5, -14.2);
+const STAG_LAND = new THREE.Vector3(-6.4, 0, -10.2);
+const RISE_AFTER = 2.6; // s after the killing blow
+const RISE_TALK = [
+  { who: 'zwane', text: 'The horn\u2026 it is not finished with us.' },
+  { who: 'kai', text: 'What is that?' },
+  { who: 'zwane', text: 'The forest\u2019s anger. It will not let the horn go home while it burns like this.' },
+  { who: 'kai', text: 'Then let it burn at me.' },
+];
 const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
 const TOTAL_PAGES = 6; // three on Level 1's trail, three here
 const LETTER_SPOTS = {
@@ -292,6 +319,7 @@ export class Level03 extends Level {
       this.arena.build(assets),
       this.wreck.build(assets),
     ]);
+    const stagModel = await assets.model('level2/animals/stag.glb').catch(() => null); // act III
     if (!this.scene) return; // level was torn down while loading
 
     this.kaiMeta = kai.meta;
@@ -305,6 +333,25 @@ export class Level03 extends Level {
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
     this.keyItem = attachHorn(this.combat.fighter); // the horn he took off the stone, slung at his hip, still lit
     this._wireBoss(state);
+    // act I: the company's men, on his rig; act III: the Shadow Stag
+    this.squad = handler.meta ? new EnforcerSquad(this.root, this.arena, this.combat, handler.source, handler.meta, 3) : null;
+    if (this.squad) {
+      this.squad.onStrike = (info, who) => this._resolveStrike(info, who);
+      this.squad.onDown = (who) => {
+        this._addShake(0.3);
+        this.sound?.play('bodyFall', { volume: 0.7, rate: 1.05 });
+        const left = this.squad.alive.length;
+        this.hud.popup(left ? `${left} LEFT` : 'THEY\u2019RE DOWN', '#ffd9a8');
+        this.style.add('finisher');
+        void who;
+      };
+      this._menBodies = this.squad.men.map(() => ({ prev: null, plant: null }));
+    }
+    this.stag = stagModel ? new ShadowStag(this.root, this.arena, this.combat, stagModel) : null;
+    if (this.stag) {
+      this._wireStag();
+      this._stagBody = { prev: null, plant: null };
+    }
     // Kai comes out of the pool soaked; either of them gets soaked again wading back in
     this.water = new WaterFX(this.root, this.arena);
     this.kaiWet = new Wetness(this.combat.fighter, this.water, { autoShake: true });
@@ -510,7 +557,8 @@ export class Level03 extends Level {
   _wireBoss(state) {
     const hud = () => this.hud;
 
-    this.boss.onStrike = (info) => {
+    // a blow from anyone (the Marshal, one of his men, the stag): dodged, parried, blocked or taken
+    this._resolveStrike = (info, attacker = this.boss) => {
       const c = this.combat;
       if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
       if (this._hurtGrace > 0) return 'dodged';
@@ -540,7 +588,7 @@ export class Level03 extends Level {
         state.spendStamina(info.damage * 0.7);
         this._addShake(0.14);
         // the blow lands on his forearms: he rocks back with it, and it sparks off the guard
-        const bp = this.boss.root.position, cp = c.root.position;
+        const bp = attacker.root.position, cp = c.root.position;
         c.onBlocked(bp.x, bp.z);
         this.arena.burst(cp.x + (bp.x - cp.x) * 0.25, cp.z + (bp.z - cp.z) * 0.25, {
           color: 0xffe2a8, count: 18, speed: 2.6, size: 0.14, y: cp.y + 1.35, lift: 1.2, additive: true,
@@ -563,6 +611,8 @@ export class Level03 extends Level {
       this._checkPlayerDeath(state);
       return 'hit';
     };
+
+    this.boss.onStrike = (info) => this._resolveStrike(info, this.boss);
 
     this.boss.onCounter = () => {
       hud().popup('COUNTER!', '#ff5a3a');
@@ -594,11 +644,15 @@ export class Level03 extends Level {
       this.sound?.play('bodyFall', { volume: 0.9 });
       this.sound?.play('splash', { volume: 0.65, rate: 0.92 });
       this.sound?.duck(0.85, 1.6);
-      this.sound?.play('win', { volume: 0.85 });
-      this._endTimer = 2.6;
-      this._endKind = 'win';
+      if (this.stag) {
+        this._riseIn = RISE_AFTER; // the horn isn't finished with them: act III
+      } else {
+        this.sound?.play('win', { volume: 0.85 });
+        this._endTimer = 2.6;
+        this._endKind = 'win';
+        this.storm.clear();
+      }
       this._startFinal();
-      this.storm.clear();
     };
   }
 
@@ -625,13 +679,14 @@ export class Level03 extends Level {
 
   /** An arrow on the screen edge toward the Handler whenever he's out of shot. */
   _updatePointer() {
-    if (this.mode !== 'FIGHT' || this._ended || this.boss.state === 'DOWN') {
+    const foe = this.mode === 'FIGHT' && !this._ended ? this._foe() : null;
+    if (!foe || foe.state === 'DOWN') {
       this.hud.setPointer(null);
       return;
     }
     const cam = this.game.camera;
     const v = this._ptr || (this._ptr = new THREE.Vector3());
-    v.copy(this.boss.root.position);
+    v.copy(foe.root.position);
     v.y += 1.2;
     v.applyMatrix4(cam.matrixWorldInverse); // camera space: +x right, -z ahead
     const a = Math.atan2(v.x, -v.z); // 0 = dead ahead, +pi/2 = to the right, pi = behind
@@ -665,8 +720,8 @@ export class Level03 extends Level {
   }
 
   /** A damage number off the Handler's head, wherever that is on screen. */
-  _damageNumber(amount, kind) {
-    const bp = this.boss.root.position;
+  _damageNumber(amount, kind, at = this.boss.root.position) {
+    const bp = at;
     const v = (this._dmgV ||= new THREE.Vector3()).set(bp.x, bp.y + 1.8, bp.z).project(this.game.camera);
     if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) return; // behind the camera or off screen
     this.hud.damageNumber((v.x * 0.5 + 0.5) * window.innerWidth, (-v.y * 0.5 + 0.5) * window.innerHeight, amount, kind);
@@ -713,7 +768,7 @@ export class Level03 extends Level {
     if (input.pressed('skip') && (this.mode === 'INTRO' || (this.mode === 'EPILOGUE' && !this._talk))) {
       if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
       else this._skip();
-    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'SNATCH' || this.mode === 'EPILOGUE') && this._talk) {
+    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'SNATCH' || this.mode === 'EPILOGUE' || this.mode === 'RISE') && this._talk) {
       this._nextLine(true); // and through the mask-off conversation the same way
     }
 
@@ -751,13 +806,14 @@ export class Level03 extends Level {
     this.letters.update(dt, this.time, fighting ? kp : null);
     this.gifts.setMarkersVisible(this.mode === 'FIGHT' && !this._ended);
     this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null, this.game.camera);
-    if (fighting) {
-      const bp = this.boss.root.position;
+    if (fighting || this.mode === 'RISE') {
+      const bp = this._foePos || this.boss.root.position;
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
     } else this.arena.setFocus(kp.x, kp.z);
     if (this._hornDrop) this._updateHornDrop(dt);
     if (this.keyItem && !this._hornHeld && !this._blowing) {
-      const lying = this._hornDrop || this._pickup;
+      // lying where he fell (burning red through act III), or on its way back to Kai's hand
+      const lying = this._hornDrop || this._pickup || (this._hornTaken && !this._pickedUp && this.boss.state === 'DOWN');
       this.keyItem.userData.material.emissiveIntensity = this.combat.abilityActive ? 0.9 + Math.sin(this.time * 18) * 0.35
         : lying ? 0.45 + Math.sin(this.time * 4) * 0.25 : 0.05;
       this.keyItem.userData.glow.material.opacity = this.combat.abilityActive || lying ? 0.95 : 0.4;
@@ -776,11 +832,15 @@ export class Level03 extends Level {
     // camera yaw: swing round behind Kai (follow), aim at the boss (lock-on), or the player orbits freely
     const cp = this.combat.root.position;
     const bp = this.boss.root.position;
+    // who he's fighting this moment: one of the company's men, the Marshal, or the stag
+    const foe = this._foe();
+    const fp = foe ? foe.root.position : bp;
+    this._foePos = fp;
     const orbit = this.touch.consumeOrbit();
     if (this.camMode === 'follow') {
       this.camYaw += shortestAngle(this.camYaw, this.combat.heading) * (1 - Math.exp(-7 * dt));
     } else if (this.camMode === 'lock') {
-      const want = Math.atan2(bp.x - cp.x, bp.z - cp.z);
+      const want = Math.atan2(fp.x - cp.x, fp.z - cp.z);
       this.camYaw += shortestAngle(this.camYaw, want) * (1 - Math.exp(-7 * dt));
     } else {
       this.camYaw += orbit.dx * 0.006 + orbit.strip * 1.7 * real;
@@ -796,59 +856,76 @@ export class Level03 extends Level {
     const focus = this._focusT > 0 && this.mode === 'FIGHT';
     const stopped = performance.now() < this._hitStopUntil;
     const kaiDt = focus && !stopped ? real * FOCUS_KAI : dt;
-    this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: bp, steer: this.camMode === 'follow' });
+    this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, steer: this.camMode === 'follow' });
     this._updateTrail(kaiDt, focus);
     this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
     // Kai's swing
-    if (this.combat.consumeHit() && this.boss.state !== 'DOWN') {
-      this._toBoss.set(bp.x - cp.x, 0, bp.z - cp.z);
+    if (this.combat.consumeHit() && foe && foe.alive !== false && foe.state !== 'DOWN') {
+      // the stag is a tonne of stone: a blow barely shifts it
+      const shove = foe === this.stag ? 0.12 : 1;
+      this._toBoss.set(fp.x - cp.x, 0, fp.z - cp.z);
       const dist = this._toBoss.length();
       if (dist > 0.001) this._toBoss.divideScalar(dist);
       const facing = Math.sin(this.combat.heading) * this._toBoss.x + Math.cos(this.combat.heading) * this._toBoss.z;
       if (dist <= this.combat.attackRange && facing > 0.2) {
         const fin = this.combat.comboFinisher;
         // the blow straight after a parry, while he reels: the riposte
-        const riposte = this._riposte && this.boss.vulnerable;
+        const riposte = this._riposte && foe.vulnerable;
         if (riposte) this._riposte = false;
-        const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1) * (riposte ? RIPOSTE_DAMAGE : 1));
+        const dealt = foe.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1) * (riposte ? RIPOSTE_DAMAGE : 1));
+        // a finisher catches every one of his men in reach, not just the one he aimed at
+        if (fin && this.act === 'MEN') {
+          for (const m of this.squad.alive) {
+            if (m === foe) continue;
+            const mx = m.root.position.x - cp.x, mz = m.root.position.z - cp.z;
+            const md = Math.hypot(mx, mz);
+            if (md <= this.combat.attackRange + 0.4 && Math.sin(this.combat.heading) * mx + Math.cos(this.combat.heading) * mz > 0.2 * md) {
+              m.takeDamage(this.combat.attackDamage * 0.6);
+            }
+          }
+        }
+        if (dealt > 0 && foe === this.stag && foe.lastArmoured && this.time > (this._armourMsgAt || 0)) {
+          this.hud.popup('ARMOURED', '#9aa3ad'); // it shrugs it off: wait till its veins burn cyan
+          this._armourMsgAt = this.time + 1.6;
+        }
         if (dealt > 0) {
           this.sound?.play('punch', {
-            volume: this.boss.vulnerable ? 0.88 : fin ? 0.78 : 0.6,
+            volume: foe.vulnerable ? 0.88 : fin ? 0.78 : 0.6,
             rate: 0.96 + Math.random() * 0.08,
           });
           // the big ones draw a grunt out of him
-          if (this.boss.vulnerable || fin) {
+          if (foe.vulnerable || fin) {
             this.sound?.play('grunt', { volume: 0.5, rate: 0.82 + Math.random() * 0.06 });
           }
-          this.boss.root.position.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1));
+          fp.addScaledVector(this._toBoss, (fin ? 0.9 : 0.3) * (this.power ? 1.4 : 1) * shove);
           if (this.power) {
-            this.arena.burst(bp.x - this._toBoss.x * 0.4, bp.z - this._toBoss.z * 0.4, {
-              color: 0xffb347, count: fin ? 30 : 16, speed: fin ? 3.4 : 2.4, size: 0.2, y: bp.y + 1.1, lift: 1.4, additive: true,
+            this.arena.burst(fp.x - this._toBoss.x * 0.4, fp.z - this._toBoss.z * 0.4, {
+              color: 0xffb347, count: fin ? 30 : 16, speed: fin ? 3.4 : 2.4, size: 0.2, y: fp.y + 1.1, lift: 1.4, additive: true,
             });
           }
           this._hitStop(fin ? 0.06 : 0.03);
           this._addShake(fin ? 0.28 : 0.1);
           if (fin) {
-            this.waves.spawn(bp.x, bp.y, bp.z, {
+            this.waves.spawn(fp.x, fp.y, fp.z, {
               size: this.power ? 4.2 : 3.2, color: focus ? 0x8ff0ff : this.power ? 0xffb347 : 0xffe2b0,
             });
           }
-          const crit = this.boss.vulnerable;
+          const crit = foe.vulnerable;
           if (riposte) {
             this.hud.popup('RIPOSTE!', '#ffd23a');
             this._hitStop(0.22);
             this._addShake(0.6);
-            this.waves.spawn(bp.x, bp.y, bp.z, { size: 5.2, life: 0.55, color: 0xffd23a });
-            this.waves.spawn(bp.x, bp.y, bp.z, { size: 2.6, life: 0.35, color: 0xfff4c0 });
-            this.arena.burst(bp.x - this._toBoss.x * 0.4, bp.z - this._toBoss.z * 0.4, {
-              color: 0xffd23a, count: 46, speed: 4.6, size: 0.24, y: bp.y + 1.2, lift: 2.2, additive: true,
+            this.waves.spawn(fp.x, fp.y, fp.z, { size: 5.2, life: 0.55, color: 0xffd23a });
+            this.waves.spawn(fp.x, fp.y, fp.z, { size: 2.6, life: 0.35, color: 0xfff4c0 });
+            this.arena.burst(fp.x - this._toBoss.x * 0.4, fp.z - this._toBoss.z * 0.4, {
+              color: 0xffd23a, count: 46, speed: 4.6, size: 0.24, y: fp.y + 1.2, lift: 2.2, additive: true,
             });
-            this.boss.root.position.addScaledVector(this._toBoss, 0.8);
+            fp.addScaledVector(this._toBoss, 0.8 * shove);
             this.sound?.play('parry', { volume: 0.7, rate: 0.75 });
             this.style.add('perfect');
           } else if (crit) this.hud.popup('CRITICAL', '#ffd23a');
-          this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '');
+          this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '', fp);
           this.style.add(fin ? 'finisher' : 'hit');
           if (crit) this.style.add('crit');
         }
@@ -878,9 +955,13 @@ export class Level03 extends Level {
     }
 
     const b = this.boss.update(dt);
+    // the men: their fight in act I, and after it, the fallen settling where they dropped
+    if (this.squad) this.squad.update(dt);
+    if (this.act === 'MEN' && this.squad && this.mode === 'FIGHT' && !this._ended && this.squad.done) this._startBossAct();
+    if (this.act === 'STAG' && this.stag) this.stag.update(dt);
     // a riposte is only ever the blow into the reel his parry opened
-    if (this._riposte && b.state !== 'STAGGER' && b.state !== 'STRIKE') this._riposte = false;
-    if (this.mode === 'FIGHT' && !this._ended && b.state !== 'DOWN') this.zones.update(dt, this.boss.threat, this.boss.root.position);
+    if (this._riposte && foe && !foe.vulnerable && foe.state !== 'STRIKE') this._riposte = false;
+    if (this.mode === 'FIGHT' && !this._ended && b.state !== 'DOWN' && this.act === 'BOSS') this.zones.update(dt, this.boss.threat, this.boss.root.position);
     else this.zones.hide();
     this._separate();
     // out in the jungle: trees, bushes, statues and walls are solid, and the ground isn't flat
@@ -888,6 +969,15 @@ export class Level03 extends Level {
     this._collide(this._bossBody, bp, 0.45, dt, false);
     cp.y = this.arena.fighterY(cp.x, cp.z);
     bp.y = this.arena.fighterY(bp.x, bp.z);
+    if (this.squad) {
+      this.squad.men.forEach((m, i) => {
+        if (!m.alive) return;
+        const p = m.root.position;
+        this._collide(this._menBodies[i], p, 0.42, dt, false);
+        p.y = this.arena.fighterY(p.x, p.z);
+      });
+    }
+    if (this.stag?.alive && this.stag.state !== 'RISE') this._collide(this._stagBody, this.stag.root.position, 1.1, dt, false);
     // HandlerBoss glows orange through his phase transition; for the reveal close-up
     // we want his face, so put his materials back to their resting look
     if (this._hornHeld) this._updateHornPhase(dt, real, state);
@@ -901,8 +991,11 @@ export class Level03 extends Level {
     // the VS splash clears, then FIGHT
     if (this._fightCall > 0 && (this._fightCall -= real) <= 0) {
       this.hud.popup('FIGHT', '#ffd9a8');
-      for (const t of this._fightToasts) this.hud.toast(...t, { queue: true });
+      // the notes wait for the Marshal's opening line in act I, so they don't land on top of it
+      if (this.act === 'MEN') this._toastsIn = 4.2;
+      else for (const t of this._fightToasts) this.hud.toast(...t, { queue: true });
     }
+    if (this._toastsIn > 0 && (this._toastsIn -= real) <= 0) for (const t of this._fightToasts) this.hud.toast(...t, { queue: true });
     this.style.update(real);
     this.touch.setKey(1 - this.combat.abilityCD / this.combat.abilityRecharge);
 
@@ -917,6 +1010,9 @@ export class Level03 extends Level {
     if (this.mode === 'REVEAL') this._updateReveal(real);
     else if (this.mode === 'SNATCH') this._updateSnatch(dt, real);
     else if (this.mode === 'FINAL') this._updateFinal();
+    else if (this.mode === 'RISE') this._updateRise(real);
+    // the killing blow has played out: act III
+    if (this._riseIn > 0 && (this._riseIn -= real) <= 0) this._startRise();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
     state.timeScale = stopped ? 0.12
@@ -927,16 +1023,22 @@ export class Level03 extends Level {
       : this.combat.abilityActive ? 0.35 : 1;
 
     // what they shout at each other as it turns
-    if (this.mode === 'FIGHT' && !this._ended) {
+    if (this.mode === 'FIGHT' && !this._ended && this.act === 'BOSS') {
       if (state.health / state.maxHealth < 0.3) this._barkOnce(this.boss.helmetOff ? 'kaiLow' : 'kaiLowMasked');
       if (this.boss.helmetOff && this.boss.health / this.boss.maxHealth < 0.15 && this.boss.health > 0) this._barkOnce(this._hornHeld ? 'hornLow' : 'bossLow');
     }
     this._tickBark(real);
-    this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
+    if (this.act === 'MEN' && this.squad) {
+      const left = this.squad.alive.length + this.squad.men.filter((m) => m.state === 'OFF').length;
+      this.hud.setBoss(this.squad.fraction, left ? `${left} LEFT` : 'DOWN');
+    } else if (this.act === 'STAG' && this.stag) {
+      const s = this.stag;
+      this.hud.setBoss(s.health / s.maxHealth, !s.alive ? 'DEFEATED' : s.vulnerable ? 'OPEN \u2014 STRIKE!' : s.enraged ? 'ENRAGED \u00b7 ARMOURED' : 'ARMOURED');
+    } else this.hud.setBoss(this.boss.health / this.boss.maxHealth, b.state === 'DOWN' ? 'DEFEATED' : `PHASE ${this.boss.phaseIndex + 1} — ${b.phase}`);
     this.hud.setPlayer(state.health / state.maxHealth, state.stamina / state.maxStamina, state.maxHealth / this._baseMaxHealth);
 
     // Strategy gift: call his next move while he lines it up
-    const tell = this.strategy && this.mode === 'FIGHT' && !this._ended && TELLS[this.boss.attackName];
+    const tell = this.strategy && this.mode === 'FIGHT' && !this._ended && this.act === 'BOSS' && TELLS[this.boss.attackName];
     if (tell && (b.state === 'APPROACH' || b.state === 'TELEGRAPH')) {
       this.hud.setTell(b.state === 'TELEGRAPH' ? `${tell.name} \u2014 NOW` : `NEXT \u00b7 ${tell.name}`, tell.advice, tell.color);
     } else this.hud.setTell('');
@@ -965,16 +1067,163 @@ export class Level03 extends Level {
 
   /** Fighters are solid: never let them stand inside each other. */
   _separate() {
-    const a = this.combat.root.position;
-    const b = this.boss.root.position;
-    const dx = b.x - a.x, dz = b.z - a.z;
-    const d = Math.hypot(dx, dz);
-    const min = 0.95;
-    if (d >= min) return;
-    const nx = d > 0.001 ? dx / d : 0, nz = d > 0.001 ? dz / d : 1;
-    const push = (min - d) / 2;
-    a.x -= nx * push; a.z -= nz * push;
-    b.x += nx * push; b.z += nz * push;
+    // a moves `share` of the overlap, b the rest
+    const apart = (a, b, min, share = 0.5) => {
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= min) return;
+      const nx = d > 0.001 ? dx / d : 0, nz = d > 0.001 ? dz / d : 1;
+      const over = min - d;
+      a.x -= nx * over * share; a.z -= nz * over * share;
+      b.x += nx * over * (1 - share); b.z += nz * over * (1 - share);
+    };
+    const k = this.combat.root.position;
+    if (this.boss.state !== 'DOWN') apart(k, this.boss.root.position, 0.95);
+    const men = this.squad ? this.squad.alive : [];
+    for (let i = 0; i < men.length; i++) {
+      apart(k, men[i].root.position, 0.9);
+      for (let j = i + 1; j < men.length; j++) apart(men[i].root.position, men[j].root.position, 0.9);
+      if (this.boss.state !== 'DOWN') apart(men[i].root.position, this.boss.root.position, 0.95);
+    }
+    if (this.stag?.alive && this.stag.state !== 'RISE') apart(k, this.stag.root.position, 1.55, 0.9); // it barely gives
+  }
+
+  /** Who Kai is fighting this moment: the nearest of the company's men, the Marshal, or the Shadow Stag. */
+  _foe() {
+    if (this.act === 'MEN') return this.squad.target(this.combat.root.position, this.combat.heading);
+    if (this.act === 'STAG') return this.stag?.alive ? this.stag : null;
+    return this.boss;
+  }
+
+  /** Act II: his men are down, so he comes himself. */
+  _startBossAct() {
+    this.act = 'BOSS';
+    const b = this.boss;
+    b.watching = false;
+    b.restFor = VS_TIME + 0.4;
+    this.squad?.hideZones();
+    this.hud.setBossName(WHO.handler.name);
+    this.hud.versus(WHO.kai.name, WHO.handler.name);
+    this._fightCall = VS_TIME;
+    this._fightToasts = [];
+    this.sound?.play('handoff', { volume: 0.6 });
+    this._barkOnce('menOut');
+  }
+
+  /** The horn's light: clean (cyan) or tainted (the forest's anger, red). */
+  _taintHorn(tainted) {
+    const h = this.keyItem;
+    if (!h) return;
+    h.userData.material.emissive.setHex(tainted ? 0xff2a10 : 0x4fd6e0);
+    h.userData.glow.material.color.setHex(tainted ? 0xff5a2a : 0x7fe9f0);
+  }
+
+  _wireStag() {
+    const s = this.stag;
+    s.onStrike = (info, who) => this._resolveStrike(info, who);
+    s.onImpact = (kind, at) => {
+      if (kind === 'stomp') {
+        this.waves.spawn(at.x, at.y + 0.1, at.z, { size: 4.6, life: 0.45, color: 0xb070ff });
+        this._addShake(0.45);
+        this.sound?.play('bodyFall', { volume: 0.9, rate: 0.6 });
+      } else if (kind === 'thorns') {
+        this._addShake(0.35);
+        this.sound?.play('whoosh', { volume: 0.7, rate: 0.55 });
+      } else if (kind === 'stuck') {
+        this.hud.popup('STUCK \u2014 STRIKE!', '#7ff4ff');
+        this._addShake(0.5);
+        this.arena.burst(at.x, at.z, { color: 0x6b5a44, count: 30, speed: 3, size: 0.3, y: at.y + 1.2 });
+        this.sound?.play('bodyFall', { volume: 0.75, rate: 0.8 });
+      } else if (kind === 'land') {
+        this._addShake(0.55);
+        this.waves.spawn(at.x, at.y + 0.1, at.z, { size: 3.6, life: 0.4, color: 0xff3a14 });
+        this.sound?.play('bodyFall', { volume: 0.85, rate: 0.7 });
+      }
+    };
+    s.onEnrage = () => {
+      this.hud.popup('ENRAGED', '#ff5a3a');
+      this.sound?.play('guardianRoar', { volume: 0.9, rate: 0.8 });
+      this._addShake(0.4);
+      this._barkOnce('stagRage');
+    };
+    s.onDown = () => {
+      this._hitStop(0.15);
+      this._addShake(0.6);
+      this.sound?.play('guardianRoar', { volume: 0.7, rate: 0.6 });
+      this.sound?.duck(0.85, 1.6);
+      this.sound?.play('win', { volume: 0.85 });
+      this.hud.popup('THE HORN IS CLEAN', '#7ff4ff');
+      this._taintHorn(false);
+      this.storm.clear();
+      this._endTimer = 3.4;
+      this._endKind = 'win';
+    };
+  }
+
+  /**
+   * Act III begins: the horn, lying where he fell, burns red, and the stone
+   * stag at the gate cracks open and comes down off its plinth.
+   */
+  _startRise() {
+    this._enterBeat('RISE');
+    this.act = 'STAG';
+    this._riseTalked = false;
+    this._talk = this._talkDone = null;
+    this.story.setCinematic(true, true);
+    this.story.setSkipLabel('SPACE: NEXT LINE \u00b7 CLICK HERE: SKIP');
+    this.hud.setVisible(false);
+    this.hud.setTell('');
+    this.touch.setVisible(false);
+    this._taintHorn(true);
+    const st = this.arena.guardianStag;
+    if (st) {
+      st.visible = false;
+      const i = this.arena.obstacles.indexOf(this.arena.guardianStagObstacle);
+      if (i >= 0) this.arena.obstacles.splice(i, 1);
+    }
+    this.arena.burst(STAG_PLINTH.x, STAG_PLINTH.z, { color: 0x8a8a76, count: 60, speed: 5, size: 0.45, y: 1.8, lift: 3 });
+    this.arena.burst(STAG_PLINTH.x, STAG_PLINTH.z, { color: 0xff3a14, count: 40, speed: 3, size: 0.3, y: 2.2, lift: 2.5, additive: true });
+    this._addShake(0.7);
+    this.sound?.setVariant('battle');
+    this.sound?.play('guardianRoar', { volume: 1, rate: 0.7 });
+    this.sound?.duck(0.6, 2);
+    this.stag.rise(STAG_PLINTH, STAG_LAND);
+  }
+
+  _updateRise(real) {
+    const k = this.combat;
+    const kp = k.root.position;
+    const sp = this.stag.root.position;
+    k.heading += shortestAngle(k.heading, Math.atan2(sp.x - kp.x, sp.z - kp.z)) * (1 - Math.exp(-6 * real));
+    // from behind Kai, up at it
+    const d = this._tmp.set(kp.x - sp.x, 0, kp.z - sp.z).normalize();
+    const pos = new THREE.Vector3(kp.x + d.x * 3.4 + d.z * 1.3, kp.y + 2.1, kp.z + d.z * 3.4 - d.x * 1.3);
+    this._setCine(pos, new THREE.Vector3(sp.x, sp.y + 2.3, sp.z), { fov: 42, rate: 3, cut: !this._riseCut });
+    this._riseCut = true;
+    if (!this._riseTalked && this.beatT > 1.7) {
+      this._riseTalked = true;
+      this._converse(RISE_TALK, () => this._startStagAct());
+    }
+    this._tickLine(real);
+  }
+
+  /** The talk's done (or skipped): Kai and the Shadow Stag. */
+  _startStagAct() {
+    if (this.mode !== 'RISE') return;
+    this._talk = this._talkDone = null;
+    this.story.hideLine();
+    this.story.setSkipLabel();
+    this._enterBeat('FIGHT');
+    this.cine = null;
+    this.story.setCinematic(false);
+    this.hud.setVisible(true);
+    this.touch.setVisible(true);
+    this.hud.setBossName(STAG_NAME);
+    this.hud.versus(WHO.kai.name, STAG_NAME);
+    this._fightCall = VS_TIME;
+    this.stag.begin();
+    this.stag.restFor = VS_TIME + 0.4;
+    this._fightToasts = [[STAG_NAME, 'armoured: strike when its veins burn cyan \u00b7 lure its charge into a tree', 6]];
   }
 
   _finish(state) {
@@ -1024,6 +1273,7 @@ export class Level03 extends Level {
     if (this.mode === 'INTRO') this._startFight();
     else if (this.mode === 'REVEAL') this._endReveal();
     else if (this.mode === 'SNATCH') this._endSnatch();
+    else if (this.mode === 'RISE') this._startStagAct();
     else if (this.mode === 'EPILOGUE') this._showEnd();
   }
 
@@ -1386,7 +1636,16 @@ export class Level03 extends Level {
     b.root.rotation.y = b.heading;
     b.restFor = VS_TIME + 0.5; // he waits out the splash
     this.camYaw = k.heading;
-    this.hud.versus(WHO.kai.name, WHO.handler.name);
+    // act I: his men go in first, while he stands off by the arch and watches
+    this.act = this.squad ? 'MEN' : 'BOSS';
+    if (this.act === 'MEN') {
+      b.watching = true;
+      b.root.position.copy(BOSS_WATCH);
+      this.squad.start(MEN_GATE);
+      this.hud.setBossName(MEN_NAME);
+      this.hud.versus(WHO.kai.name, MEN_NAME);
+      this._barkOnce('menIn');
+    } else this.hud.versus(WHO.kai.name, WHO.handler.name);
     this._fightCall = VS_TIME;
     this.sound?.play('handoff', { volume: 0.6 });
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
@@ -1708,6 +1967,7 @@ export class Level03 extends Level {
     const k = this.combat;
     const bp = this.boss.root.position;
     this.boss.update(dt);
+    if (this.stag && this.stag.state !== 'OFF') this.stag.update(dt); // what's left of it, burning away
     if (this._shot !== 'E0') {
       this._shot = 'E0';
       this._orbitFrom = this.time;
@@ -1888,7 +2148,7 @@ export class Level03 extends Level {
       }
     } else {
       const cp = this.combat.root.position;
-      const bp = this.boss.root.position;
+      const bp = this._foePos || this.boss.root.position;
       let dist, height, fx, fz, fy;
       if (this.camMode === 'follow') {
         // over Kai's back, looking a couple of metres ahead of him: his left is the screen's left
@@ -1946,6 +2206,8 @@ export class Level03 extends Level {
   teardown() {
     this._loseCard?.destroy();
     this.zones?.dispose();
+    this.squad?.dispose();
+    this.stag?.dispose();
     if (this.vision) this.vision.dispose();
     if (this.sound) { this.sound.dispose(); this.sound = null; }
     if (this.touch) this.touch.dispose();

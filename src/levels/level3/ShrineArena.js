@@ -240,9 +240,11 @@ export class ShrineArena {
     for (const [x, piece] of [[-10.2, wallA], [4.2, wallAB], [-16.6, wallO], [10.6, wallO], [-19.8, wallO]]) {
       add(piece, x, 0, WALL_Z, { s: GATE_S });
     }
-    add(stag, -8.6, 0, -14.2, { s: RU * 0.85, ry: 0.35 });
+    // the stag is the one that wakes in act III (level3/ShadowStag.js): Level03 needs to hide it, and free its ground
+    this.guardianStag = add(stag, -8.6, 0, -14.2, { s: RU * 0.85, ry: 0.35 });
     add(fox, 3.2, 0, -14.4, { s: RU * 1.1, ry: -0.4 });
-    this.obstacles.push({ x: -8.6, z: -14.2, r: 1.5 }, { x: 3.2, z: -14.4, r: 1.5 });
+    this.guardianStagObstacle = { x: -8.6, z: -14.2, r: 1.5 };
+    this.obstacles.push(this.guardianStagObstacle, { x: 3.2, z: -14.4, r: 1.5 });
     this.templates = { pedestal: colShort, stag, fox, pot }; // the spirit shrines (Awards.js) are cut from the same stone
     // paved path from the courtyard edge, under the arch, to the pool's rim
     if (floor) {

@@ -10,6 +10,8 @@ import * as THREE from 'three';
  *   lunge, combo          a lane out in front of him, as long as the blow
  *                         carries him (reach plus how far it moves him)
  *   sweep, spin, blast    a disc of exactly the radius it hits
+ *   a ring (threat.inner)  a disc whose middle is safe: only the band from
+ *                         inner to radius is hit (the Shadow Stag's thorns)
  *
  * It fills from him outward as the wind-up runs (a bright front at the edge of
  * the fill), so how full it is says how long is left: full means now. As the
@@ -35,16 +37,17 @@ const vertexShader = /* glsl */ `
 
 const fragmentShader = /* glsl */ `
   uniform vec3 uColor;
-  uniform float uK, uAlpha, uFlash, uShape, uTime, uLen;
+  uniform float uK, uAlpha, uFlash, uShape, uTime, uLen, uInner;
   varying vec2 vUv;
   void main() {
     float d;       // 0 at him, 1 at the far edge of what it hits
     float edge;    // the outline
     if (uShape < 0.5) {
       vec2 p = vUv * 2.0 - 1.0;
-      d = length(p);
-      if (d > 1.0) discard;
-      edge = smoothstep(0.9, 0.975, d);
+      float r = length(p);
+      if (r > 1.0 || r < uInner) discard;
+      d = (r - uInner) / (1.0 - uInner); // 0 at the inner edge of what's hit, 1 at the outer
+      edge = max(smoothstep(0.9, 0.975, r), uInner > 0.0 ? 1.0 - smoothstep(uInner, uInner + 0.04, r) : 0.0);
     } else {
       float x = abs(vUv.x * 2.0 - 1.0);
       d = vUv.y;
@@ -72,7 +75,7 @@ export class Telegraphs {
         uniforms: {
           uColor: { value: new THREE.Color() },
           uK: { value: 0 }, uAlpha: { value: 1 }, uFlash: { value: 0 }, uShape: { value: shape },
-          uTime: { value: 0 }, uLen: { value: 1 },
+          uTime: { value: 0 }, uLen: { value: 1 }, uInner: { value: 0 },
         },
         transparent: true,
         depthWrite: false,
@@ -138,7 +141,7 @@ export class Telegraphs {
       mesh.scale.set(threat.radius, 1, threat.radius);
       mesh.rotation.y = 0;
     } else {
-      mesh.scale.set(LANE_W, 1, threat.length);
+      mesh.scale.set(threat.width || LANE_W, 1, threat.length);
       mesh.rotation.y = threat.heading;
     }
     const u = mesh.material.uniforms;
@@ -147,6 +150,7 @@ export class Telegraphs {
     u.uFlash.value = flash;
     u.uAlpha.value = alpha;
     u.uLen.value = ring ? 1 : threat.length;
+    u.uInner.value = ring ? threat.inner || 0 : 0;
   }
 
   hide() {

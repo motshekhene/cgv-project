@@ -18,7 +18,8 @@ import { WALK_R } from './ShrineArena.js';
  *     another square, every REPLAN s, or when he has been held up (stuck()).
  *
  * The grid is built on first use (by then every obstacle is in), and again if
- * the number of obstacles changes.
+ * the number of obstacles changes. Everyone of the same radius shares one
+ * (the company's men all walk the same grid); each keeps its own path.
  *
  *   const nav = new Nav(arena, 0.45);
  *   nav.clear(from, to)          // can he walk straight there?
@@ -49,6 +50,13 @@ export class Nav {
 
   _build() {
     const { arena, size, rad } = this;
+    const shared = (arena._navGrids ||= {})[rad];
+    if (shared && shared.builtFor === arena.obstacles.length) {
+      this.blocked = shared.blocked;
+      this._builtFor = shared.builtFor;
+      this.path.length = 0;
+      return;
+    }
     const blocked = new Uint8Array(size * size);
     const lim = WALK_R - rad;
     for (let j = 0; j < size; j++) {
@@ -81,6 +89,7 @@ export class Nav {
     }
     this.blocked = blocked;
     this._builtFor = arena.obstacles.length;
+    arena._navGrids[rad] = { blocked, builtFor: this._builtFor };
     this.path.length = 0;
   }
 
