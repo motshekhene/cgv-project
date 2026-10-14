@@ -39,6 +39,7 @@ import {
   cloneProp,
   makeJungleObstacle,
 } from "./level1/jungleWorld.js";
+import { LightPool } from "./level1/lightPool.js";
 
 /**
  * Level 01 — The Trail (Jungle Shrine theme).
@@ -825,6 +826,17 @@ export class Level01 extends Level {
     this._buildJetpackFx();
     this._buildTempleRunHUD();
     this._ensureAudio();
+
+    // Every glow on the course shares a fixed set of real lights (see
+    // level1/lightPool.js), so showing or hiding one never recompiles the
+    // scene's shaders. Then all of them are compiled now, behind the loading
+    // screen, instead of each the first time it comes into view mid-run.
+    this._lightPool = new LightPool(this.root);
+    this._poolFocus = new THREE.Vector3();
+    const renderer = this.game?.renderer;
+    if (renderer?.compileAsync && this.game.camera) {
+      await renderer.compileAsync(scene, this.game.camera).catch((err) => console.warn("[level01] shader precompile failed", err));
+    }
 
     // The shared readout, so the chase shows its numbers like every other
     // level. Level 1 has no damage model — the comment in GameState holds:
@@ -3011,6 +3023,18 @@ export class Level01 extends Level {
     this._bayCar = { model, bounds: model.userData.bounds };
     this._bayLights.fit(model.userData.bounds, model);
     this._setBayLights(this._finale && this._finale.t >= FINALE_LIGHTS ? 1 : 0);
+    // The driver's door (level1/carDoor.js) is cut out now, while he is still
+    // far off: cut at the finale, its new shaders froze the game for a second
+    // and a half just as he reached the car. Shut, the cut-out door looks
+    // exactly like the car without it, and the cabin behind it stays hidden
+    // until it opens. Then the car's shaders compile in the background (the
+    // camera can't see it from more than 500 m away anyway).
+    const renderer = this.game?.renderer;
+    if (renderer && !this._finale) {
+      this._bayDoor = new CarDoor(renderer, vehicle, model, model.userData.bounds, def.door);
+      if (this._bayDoor.cabin) this._bayDoor.cabin.visible = false;
+    }
+    renderer?.compileAsync?.(vehicle, this.game.camera, this.scene).catch(() => {});
   }
 
   /** 0 = off, 1 = on: the headlamps' glow. */
@@ -3365,7 +3389,9 @@ export class Level01 extends Level {
     // own frame, so that is min.x): cut out of the body so it can open
     // (level1/carDoor.js). The blue stand-in van has no model to cut.
     const def = this._bayCar.model ? CARS[loadSavedCar()] || CARS[0] : null;
-    const carDoor = def ? new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
+    const carDoor = def ? this._bayDoor || new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
+    this._bayDoor = null;
+    if (carDoor?.cabin) carDoor.cabin.visible = true;
     const [z0, z1] = carDoor ? carDoor.spec.z : [midZ - 0.2, midZ + 0.9];
     // in the car's frame: where he stands to open it (just behind its rear
     // edge, which swings out past him), where he steps back to as it comes,
@@ -3814,6 +3840,18 @@ export class Level01 extends Level {
   }
 
   update(dt, state) {
+    this._updateRun(dt, state);
+    const cam = this.game?.camera;
+    if (!cam) return;
+    cam.getWorldPosition(this._tmp);
+    // the glows' real lights go to the ones nearest what the camera is looking at
+    if (this._lightPool) {
+      cam.getWorldDirection(this._poolFocus).multiplyScalar(20);
+      this._lightPool.update(this._poolFocus.add(this._tmp));
+    }
+  }
+
+  _updateRun(dt, state) {
     const input = this.input;
 
     if (!this._audioReady) this._ensureAudio();
@@ -4582,6 +4620,8 @@ export class Level01 extends Level {
   teardown() {
     clearThoughts();
     this._finale?.carDoor?.dispose(); // left mid-scene: the renderer's clipping back as it was
+    this._bayDoor?.dispose(); // ...or before the finale ever began
+    this._bayDoor = null;
     if (this._coinEnv) {
       this._coinEnv.dispose();
       this._coinEnv = null;
