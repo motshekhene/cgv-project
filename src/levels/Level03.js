@@ -222,6 +222,9 @@ const PERFECT_DODGE = 0.2;
 // hit, Kai can't be hit again for this long (s, real time): the second blow of a combo, a spin's
 // second kick or the forest's splash can't land on top of the first while he's still reeling
 const HURT_GRACE = 0.75;
+// a perfect parry leaves him reeling; the first blow Kai lands while he is is a RIPOSTE: this much
+// harder again, with a heavy hit-stop, a gold shockwave and sparks. One per parry.
+const RIPOSTE_DAMAGE = 1.5;
 const FOCUS_TIME = 1.6;
 const FOCUS_SCALE = 0.25;
 const FOCUS_KAI = 0.9;
@@ -526,6 +529,7 @@ export class Level03 extends Level {
         this._addShake(0.4);
         hud().popup('PARRY!', '#ffe066');
         this.style.add('parry');
+        this._riposte = true; // his next blow while the Marshal reels is a riposte
         this.waves.spawn(c.root.position.x, c.root.position.y, c.root.position.z, { size: 2.2, life: 0.35, color: 0xffe066 });
         this.sound?.play('parry', { volume: 0.75 });
         this.sound?.duck(0.3, 0.4);
@@ -804,7 +808,10 @@ export class Level03 extends Level {
       const facing = Math.sin(this.combat.heading) * this._toBoss.x + Math.cos(this.combat.heading) * this._toBoss.z;
       if (dist <= this.combat.attackRange && facing > 0.2) {
         const fin = this.combat.comboFinisher;
-        const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1));
+        // the blow straight after a parry, while he reels: the riposte
+        const riposte = this._riposte && this.boss.vulnerable;
+        if (riposte) this._riposte = false;
+        const dealt = this.boss.takeDamage(this.combat.attackDamage * (focus ? FOCUS_DAMAGE : 1) * (riposte ? RIPOSTE_DAMAGE : 1));
         if (dealt > 0) {
           this.sound?.play('punch', {
             volume: this.boss.vulnerable ? 0.88 : fin ? 0.78 : 0.6,
@@ -828,7 +835,19 @@ export class Level03 extends Level {
             });
           }
           const crit = this.boss.vulnerable;
-          if (crit) this.hud.popup('CRITICAL', '#ffd23a');
+          if (riposte) {
+            this.hud.popup('RIPOSTE!', '#ffd23a');
+            this._hitStop(0.22);
+            this._addShake(0.6);
+            this.waves.spawn(bp.x, bp.y, bp.z, { size: 5.2, life: 0.55, color: 0xffd23a });
+            this.waves.spawn(bp.x, bp.y, bp.z, { size: 2.6, life: 0.35, color: 0xfff4c0 });
+            this.arena.burst(bp.x - this._toBoss.x * 0.4, bp.z - this._toBoss.z * 0.4, {
+              color: 0xffd23a, count: 46, speed: 4.6, size: 0.24, y: bp.y + 1.2, lift: 2.2, additive: true,
+            });
+            this.boss.root.position.addScaledVector(this._toBoss, 0.8);
+            this.sound?.play('parry', { volume: 0.7, rate: 0.75 });
+            this.style.add('perfect');
+          } else if (crit) this.hud.popup('CRITICAL', '#ffd23a');
           this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '');
           this.style.add(fin ? 'finisher' : 'hit');
           if (crit) this.style.add('crit');
@@ -859,6 +878,8 @@ export class Level03 extends Level {
     }
 
     const b = this.boss.update(dt);
+    // a riposte is only ever the blow into the reel his parry opened
+    if (this._riposte && b.state !== 'STAGGER' && b.state !== 'STRIKE') this._riposte = false;
     if (this.mode === 'FIGHT' && !this._ended && b.state !== 'DOWN') this.zones.update(dt, this.boss.threat, this.boss.root.position);
     else this.zones.hide();
     this._separate();
