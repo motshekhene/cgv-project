@@ -42,6 +42,7 @@ export const ROADBLOCKS = [
 export const DROP = 48;           // the pool is this far below the road
 
 /** Level 3's waterfall shader, plus scene fog so it fades in with everything else. */
+// (three.js's fog chunks spliced into the waterfall shader's own vertex and fragment stages)
 function foggyWaterfall(opts) {
   const m = createWaterfallMaterial(opts);
   m.fog = true;

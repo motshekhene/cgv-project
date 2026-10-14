@@ -342,24 +342,24 @@ export class ShrineArena {
     this.sky = createSky({ ...d.sky, sunDir: d.sunDir, sunSize: 1400 });
     this.root.add(this.sky);
     this.scene.background = null;
-    this.scene.fog = new THREE.FogExp2(d.fog, d.fogDensity);
+    this.scene.fog = new THREE.FogExp2(d.fog, d.fogDensity); // exponential fog, blended to dusk with the rest
   }
 
   _buildLights() {
     const d = SHRINE_DAY;
-    this.hemi = new THREE.HemisphereLight(d.hemiSky, d.hemiGround, d.hemiIntensity);
+    this.hemi = new THREE.HemisphereLight(d.hemiSky, d.hemiGround, d.hemiIntensity); // ambient fill: sky from above, ground bounce from below
     this.root.add(this.hemi);
 
     // warm sun from behind the gate, shadow box sized to the courtyard + gate
     this.sun = new THREE.DirectionalLight(d.sun, d.sunIntensity);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(2048, 2048); // the sharpest shadows in the game: the fight is close up
     const c = this.sun.shadow.camera;
     c.left = c.bottom = -24;
     c.right = c.top = 24;
     c.near = 1;
     c.far = 140;
-    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.bias = -0.0004; // bias / normalBias: no shadow acne (stripes) on lit surfaces
     this.sun.shadow.normalBias = 0.03;
     this.sun.target.position.set(0, 0, -3);
     this.root.add(this.sun, this.sun.target);
@@ -909,6 +909,7 @@ export class ShrineArena {
     u.uClouds.value = lerp(a.sky.clouds, b.sky.clouds);
     u.uSunDir.value.lerpVectors(a.sunDir, b.sunDir, k).normalize();
 
+    // every light blends from golden hour (a) to dusk (b) with the fight's last phase (game state)
     col(this.sun.color, a.sun, b.sun);
     this.sun.intensity = lerp(a.sunIntensity, b.sunIntensity);
     this.sun.position.copy(u.uSunDir.value).multiplyScalar(60).add(this.sun.target.position);

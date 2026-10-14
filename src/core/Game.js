@@ -46,11 +46,11 @@ export class Game {
     });
     this.renderer.setPixelRatio(this._pixelRatio()); // OPTIONS > GRAPHICS (applyQuality)
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = true; // shadow maps: lights flagged castShadow render a depth map each frame
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // PCF: soft-edged shadows (several samples per pixel)
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; // HDR lighting -> screen colours, film-like highlights
+    this.renderer.toneMappingExposure = 1.25; // overall brightness
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace; // lighting is computed in linear space, shown in sRGB
     this.parent.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();

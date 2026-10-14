@@ -39,6 +39,7 @@ export const TRAFFIC_PAINTS = [
 ];
 
 const GLSL_HSV = /* glsl */`
+// colour <-> hue / saturation / value, branch-free (so the GPU doesn't diverge)
 vec3 paint_rgb2hsv(vec3 c) {
   vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
   vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
@@ -52,24 +53,25 @@ vec3 paint_hsv2rgb(vec3 c) {
   vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
-uniform float uPaintOn;
-uniform float uSrcHue;
-uniform float uSrcVal;
-uniform vec3 uPaintHSV;
+uniform float uPaintOn; // 1 = a paint is chosen in the car picker (game state)
+uniform float uSrcHue; // the model's own body colour, as a hue
+uniform float uSrcVal; // and its brightness
+uniform vec3 uPaintHSV; // the paint the player chose
 `;
 
 const GLSL_APPLY = /* glsl */`
 #include <map_fragment>
+// runs just after three.js has read the texture: recolour only the bodywork, per pixel
 if (uPaintOn > 0.5) {
   vec3 hsv = paint_rgb2hsv(diffuseColor.rgb);
-  float dh = abs(hsv.x - uSrcHue);
-  dh = min(dh, 1.0 - dh);
+  float dh = abs(hsv.x - uSrcHue); // how far this pixel's hue is from the body colour
+  dh = min(dh, 1.0 - dh); // (hue wraps round)
   float mask = smoothstep(0.18, 0.32, hsv.y)          // saturated (not glass/tyre/chrome)
              * (1.0 - smoothstep(0.06, 0.10, dh))      // and the paint's hue (not the tail lights)
              * step(0.03, hsv.z);
-  float v = clamp(hsv.z / max(uSrcVal, 0.02) * uPaintHSV.z, 0.0, 1.0);
+  float v = clamp(hsv.z / max(uSrcVal, 0.02) * uPaintHSV.z, 0.0, 1.0); // keep the shading: dark stays dark
   vec3 painted = paint_hsv2rgb(vec3(uPaintHSV.x, uPaintHSV.y, v));
-  diffuseColor.rgb = mix(diffuseColor.rgb, painted, mask);
+  diffuseColor.rgb = mix(diffuseColor.rgb, painted, mask); // the rest of three.js's lighting then runs as usual
 }
 `;
 

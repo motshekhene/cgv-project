@@ -13,15 +13,15 @@ import * as THREE from 'three';
  *   vision.strength = 0..1;   vision.render(renderer, scene, camera, time);
  */
 const FRAG = /* glsl */ `
-  uniform sampler2D tScene;
-  uniform float uStrength;
+  uniform sampler2D tScene; // the frame, already rendered into a texture (post-processing)
+  uniform float uStrength; // 0..1: how bent time is right now (game state: the horn, a perfect dodge)
   uniform float uTime;
   uniform vec2 uAspect;
   varying vec2 vUv;
 
   void main() {
-    vec2 c = vUv - 0.5;
-    float r = length(c * uAspect);
+    vec2 c = vUv - 0.5; // from the screen's centre
+    float r = length(c * uAspect); // distance from the centre, corrected for the aspect ratio
     float s = uStrength;
     // radial streak: a few taps toward the centre, more at the edges
     vec2 dir = c * (0.035 * s * smoothstep(0.15, 0.75, r));
@@ -33,7 +33,7 @@ const FRAG = /* glsl */ `
       // colour fringes: red pushed out, blue pulled in
       vec2 uv = vUv - dir * k;
       vec2 ca = c * 0.006 * s * r;
-      col.r += texture2D(tScene, uv + ca).r * w;
+      col.r += texture2D(tScene, uv + ca).r * w; // each colour read from a slightly different place
       col.g += texture2D(tScene, uv).g * w;
       col.b += texture2D(tScene, uv - ca).b * w;
       wsum += w;
@@ -68,6 +68,7 @@ export class KeyVision {
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
+        // a full-screen quad: its corners are already at the screen's corners, no matrices needed
         void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: FRAG,
       depthTest: false,

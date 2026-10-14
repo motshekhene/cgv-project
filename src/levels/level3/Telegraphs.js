@@ -30,36 +30,36 @@ const LANE_W = 1.5; // m
 const vertexShader = /* glsl */ `
   varying vec2 vUv;
   void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vUv = uv; // across and along the shape on the ground
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); // object -> clip space
   }
 `;
 
 const fragmentShader = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uK, uAlpha, uFlash, uShape, uTime, uLen, uInner;
+  uniform vec3 uColor; // one colour per attack, so the player learns them
+  uniform float uK, uAlpha, uFlash, uShape, uTime, uLen, uInner; // uK = 0..1 how far the wind-up is (game state); uShape: 0 disc/ring, 1 lane
   varying vec2 vUv;
   void main() {
     float d;       // 0 at him, 1 at the far edge of what it hits
     float edge;    // the outline
     if (uShape < 0.5) {
-      vec2 p = vUv * 2.0 - 1.0;
+      vec2 p = vUv * 2.0 - 1.0; // -1..1, 0 at the attacker
       float r = length(p);
-      if (r > 1.0 || r < uInner) discard;
+      if (r > 1.0 || r < uInner) discard; // a disc, or a ring with a safe middle (uInner)
       d = (r - uInner) / (1.0 - uInner); // 0 at the inner edge of what's hit, 1 at the outer
       edge = max(smoothstep(0.9, 0.975, r), uInner > 0.0 ? 1.0 - smoothstep(uInner, uInner + 0.04, r) : 0.0);
     } else {
-      float x = abs(vUv.x * 2.0 - 1.0);
-      d = vUv.y;
+      float x = abs(vUv.x * 2.0 - 1.0); // 0 down the lane's middle, 1 at its edges
+      d = vUv.y; // distance along the lane
       edge = max(smoothstep(0.82, 0.94, x), smoothstep(1.0 - 0.18 / uLen, 1.0, d));
       // chevrons running out along the lane, the way the blow goes
       float chev = fract(d * uLen * 0.9 - x * 0.45 - uTime * 2.2);
       edge = max(edge, (1.0 - smoothstep(0.0, 0.12, abs(chev - 0.5))) * 0.35 * step(d, uK));
     }
-    float fill = step(d, uK) * (0.26 + 0.14 * d);
-    float front = (1.0 - smoothstep(0.0, 0.035, abs(d - uK))) * step(0.02, uK);
+    float fill = step(d, uK) * (0.26 + 0.14 * d); // fills outward as the attack winds up: full = it lands
+    float front = (1.0 - smoothstep(0.0, 0.035, abs(d - uK))) * step(0.02, uK); // a bright line at the filling edge
     float a = max(max(edge * 0.85, fill), front);
-    a = clamp(a * uAlpha + uFlash * a, 0.0, 1.0);
+    a = clamp(a * uAlpha + uFlash * a, 0.0, 1.0); // uFlash: the moment it strikes
     gl_FragColor = vec4(uColor * (1.0 + 0.6 * uFlash + 0.5 * front), a);
   }
 `;

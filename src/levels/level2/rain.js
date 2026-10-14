@@ -20,12 +20,12 @@ import * as THREE from 'three';
 
 const STREAK_VERT = /* glsl */ `
 attribute vec4 seed;                // x, y, z in the box (0..1), w: this drop's size and speed
-uniform float uTime, uSpeed, uLength, uWidth, uPixel, uNear;
-uniform vec3 uCenter, uBox, uWind, uViewVel;
+uniform float uTime, uSpeed, uLength, uWidth, uPixel, uNear; // time drives the whole fall: no per-frame CPU work
+uniform vec3 uCenter, uBox, uWind, uViewVel; // the box follows the camera; uViewVel = the car's velocity (game state)
 varying vec2 vUv;
 varying float vFade, vShade;
 void main() {
-  float spd = uSpeed * (0.8 + seed.w * 0.4);
+  float spd = uSpeed * (0.8 + seed.w * 0.4); // each drop falls at its own speed
   vec3 vel = vec3(uWind.x, -spd, uWind.z);
   // anchored in the world, falling, wrapped into a box round the camera
   vec3 p = seed.xyz * uBox + vel * uTime;
@@ -41,7 +41,7 @@ void main() {
   // a real width, but never under about a pixel: far drops get fainter, not shimmery
   float w = uWidth * (0.6 + seed.x * 0.8);
   float ww = max(w, dist * uPixel);
-  vec3 pos = p - dir * len * position.y + side * ww * position.x;
+  vec3 pos = p - dir * len * position.y + side * ww * position.x; // billboard: the quad stretched along the fall, facing the camera
   vUv = vec2(position.x * 2.0, position.y);
   vFade = (w / ww)
     * smoothstep(uNear, uNear + 1.6, dist)                       // not smeared over the lens
@@ -56,7 +56,7 @@ uniform float uOpacity;
 varying vec2 vUv;
 varying float vFade, vShade;
 void main() {
-  float across = 1.0 - abs(vUv.x);
+  float across = 1.0 - abs(vUv.x); // soft across the streak's width
   across *= across;
   // brightest at the drop itself, the blur trailing off behind it
   float along = smoothstep(0.0, 0.1, vUv.y) * (1.0 - smoothstep(0.2, 1.0, vUv.y));
@@ -69,21 +69,21 @@ void main() {
 
 const SPLASH_VERT = /* glsl */ `
 attribute vec3 seed;                // x, z on the patch (0..1), phase
-uniform float uTime, uRate, uY;
+uniform float uTime, uRate, uY; // seconds, splashes per second, the road's height
 uniform vec3 uCenter, uBox;
 varying vec2 vUv;
 varying float vAge, vFade;
 void main() {
-  float t = uTime * uRate + seed.z;
-  float age = fract(t);
-  float cycle = floor(t);
+  float t = uTime * uRate + seed.z; // each splash on its own phase
+  float age = fract(t); // 0..1 through this splash's life
+  float cycle = floor(t); // which splash it is
   // each splash lands somewhere new every cycle, anchored in the world
   vec2 jitter = fract(vec2(sin(cycle * 12.9898 + seed.z * 78.233), cos(cycle * 39.425 + seed.x * 11.13)) * 43758.5453);
   vec2 xz = (seed.xy + jitter * 0.37) * uBox.xz;
   vec2 c = uCenter.xz;
   xz = c + mod(xz - c + 0.5 * uBox.xz, uBox.xz) - 0.5 * uBox.xz;
-  float r = mix(0.05, 0.38, sqrt(age));
-  vec3 pos = vec3(xz.x + position.x * r, uY, xz.y + position.y * r);
+  float r = mix(0.05, 0.38, sqrt(age)); // the ring spreads out fast, then slows
+  vec3 pos = vec3(xz.x + position.x * r, uY, xz.y + position.y * r); // a flat quad on the road
   vUv = position.xy;
   vAge = age;
   float dist = length(xz - c);
@@ -97,9 +97,9 @@ uniform float uOpacity;
 varying vec2 vUv;
 varying float vAge, vFade;
 void main() {
-  float d = length(vUv);
-  float ring = smoothstep(0.62, 0.85, d) * (1.0 - smoothstep(0.85, 1.0, d));
-  float a = uOpacity * ring * (1.0 - vAge) * (1.0 - vAge) * vFade;
+  float d = length(vUv); // distance from the splash's centre
+  float ring = smoothstep(0.62, 0.85, d) * (1.0 - smoothstep(0.85, 1.0, d)); // a thin ring
+  float a = uOpacity * ring * (1.0 - vAge) * (1.0 - vAge) * vFade; // fading as it spreads
   if (a < 0.003) discard;
   gl_FragColor = vec4(uColor, a);
   #include <tonemapping_fragment>

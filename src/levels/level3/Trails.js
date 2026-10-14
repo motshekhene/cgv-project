@@ -37,17 +37,17 @@ export class StrikeTrail {
     this.material = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(color) } },
       vertexShader: /* glsl */ `
-        attribute float aFade;
-        attribute float aTip;
+        attribute float aFade; // per vertex: 1 for the newest sample of the swing, 0 for the oldest
+        attribute float aTip; // 1 at the fist or foot, 0 at the joint
         varying float vA;
         void main() {
-          vA = aFade * (0.15 + 0.85 * aTip);
+          vA = aFade * (0.15 + 0.85 * aTip); // the ribbon fades out behind the limb and toward the joint
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
       fragmentShader: /* glsl */ `
         uniform vec3 uColor;
         varying float vA;
-        void main() { gl_FragColor = vec4(uColor, vA); }`,
+        void main() { gl_FragColor = vec4(uColor, vA); }`, // additive: a streak of light along the swing
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,

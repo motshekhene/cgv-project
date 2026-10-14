@@ -165,13 +165,14 @@ export class WaterFX {
     const mat = new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uMap: { value: map }, uColor: { value: new THREE.Color(0x0e0c09) } }]),
       vertexShader: /* glsl */ `
-        attribute float aFade;
+        attribute float aFade; // per footprint (instance): 1 when fresh, drying to 0
         varying vec2 vUv;
         varying float vFade;
         #include <fog_pars_vertex>
         void main() {
           vUv = uv;
           vFade = aFade;
+          // instancing: one draw call for every print, each placed by its own instanceMatrix
           vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
@@ -183,7 +184,7 @@ export class WaterFX {
         varying float vFade;
         #include <fog_pars_fragment>
         void main() {
-          float a = texture2D(uMap, vUv).a * vFade * 0.72;
+          float a = texture2D(uMap, vUv).a * vFade * 0.72; // the print's shape from a canvas texture, fading as it dries
           if (a < 0.004) discard;
           gl_FragColor = vec4(uColor, a);
           #include <colorspace_fragment>

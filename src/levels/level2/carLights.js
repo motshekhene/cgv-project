@@ -65,6 +65,7 @@ export class CarLights {
         HEADLIGHT.angle, HEADLIGHT.penumbra, HEADLIGHT.decay
       );
       s.castShadow = false;           // the sun casts the shadows in daylight
+      // a spotlight per headlamp: a cone with a soft edge (penumbra), fading with distance (decay)
       s.shadow.mapSize.set(HEADLIGHT.shadowMapSize, HEADLIGHT.shadowMapSize);
       s.shadow.camera.near = 0.5;
       s.shadow.camera.far = HEADLIGHT.shadowFar;
@@ -115,8 +116,8 @@ export class CarLights {
 export class PoliceLights {
   constructor(holder) {
     this.t = 0;
-    this.red = new THREE.PointLight(0xff2020, 0, POLICE.distance, 2);
-    this.blue = new THREE.PointLight(0x2050ff, 0, POLICE.distance, 2);
+    this.red = new THREE.PointLight(0xff2020, 0, POLICE.distance, 2); // the Marshal's lightbar: real lights,
+    this.blue = new THREE.PointLight(0x2050ff, 0, POLICE.distance, 2); // so red and blue wash over the road and your car
     this.redLamp = lamp(0xff2222);
     this.blueLamp = lamp(0x2255ff);
     holder.add(this.red, this.blue, this.redLamp, this.blueLamp);
@@ -149,7 +150,7 @@ export class PoliceLights {
     // double flash each side, like a real lightbar
     const redOn = p < 0.2 || (p >= 0.3 && p < 0.5);
     const blueOn = (p >= 0.5 && p < 0.7) || p >= 0.8;
-    const power = fast ? POLICE.telegraphIntensity : POLICE.intensity;
+    const power = fast ? POLICE.telegraphIntensity : POLICE.intensity; // brighter and faster while he's attacking (game state)
     this.red.intensity = redOn ? power : 0;
     this.blue.intensity = blueOn ? power : 0;
     this.redLamp.material.color.setHex(redOn ? 0xff3030 : 0x2a0808);

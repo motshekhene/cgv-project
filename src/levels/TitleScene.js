@@ -41,8 +41,8 @@ export class TitleScene extends Level {
     sky.material.uniforms.uSunDir.value.set(0.1, 0.12, -1).normalize();
     this.root.add(sky);
 
-    this.root.add(new THREE.HemisphereLight(0x9fb0c4, 0x2a2416, 0.75));
-    const sun = new THREE.DirectionalLight(0xffc888, 2.6);
+    this.root.add(new THREE.HemisphereLight(0x9fb0c4, 0x2a2416, 0.75)); // ambient fill: cool sky, dark earth
+    const sun = new THREE.DirectionalLight(0xffc888, 2.6); // low dawn sun behind the stone: long shadows
     sun.position.set(-4, 7, -12);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -116,7 +116,7 @@ export class TitleScene extends Level {
     this.horn.position.set(-0.22, 0.86 - minY, -0.02);
     this.horn.rotation.y = 0.25;
     g.add(this.horn);
-    this.hornLight = new THREE.PointLight(0x4fd6e0, 3.2, 6, 2);
+    this.hornLight = new THREE.PointLight(0x4fd6e0, 3.2, 6, 2); // the horn's own cyan glow on the stone
     this.hornLight.position.set(0, 1.15, 0);
     g.add(this.hornLight);
     this.root.add(g);

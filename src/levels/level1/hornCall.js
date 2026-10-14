@@ -118,23 +118,24 @@ export function hornBlowPose(kai, k) {
 
 const ringVertex = /* glsl */ `
   varying vec2 vUv;
+  // a flat quad on the ground, scaled out as the ring grows; uv passed on, nothing displaced
   void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
 `;
 const ringFragment = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uT, uOpacity;
+  uniform vec3 uColor; // the horn's cyan
+  uniform float uT, uOpacity; // seconds since the call; fades out as the ring reaches its edge
   varying vec2 vUv;
   void main() {
-    vec2 p = vUv * 2.0 - 1.0;
-    float r = length(p);
-    if (r > 1.0) discard;
+    vec2 p = vUv * 2.0 - 1.0; // -1..1 across the quad, 0 at the centre
+    float r = length(p); // distance from the centre: 1 at the ring's rim
+    if (r > 1.0) discard; // a circle, not a square
     // a bright front at the rim, a fading wake behind it, and spokes of light in the wake
     float front = smoothstep(0.82, 0.985, r) * (1.0 - smoothstep(0.985, 1.0, r));
     float wake = smoothstep(0.2, 0.95, r) * 0.32;
-    float ang = atan(p.y, p.x);
-    float spokes = pow(abs(sin(ang * 14.0 + uT * 3.0)), 18.0) * smoothstep(0.3, 0.9, r) * 0.5;
+    float ang = atan(p.y, p.x); // angle round the centre
+    float spokes = pow(abs(sin(ang * 14.0 + uT * 3.0)), 18.0) * smoothstep(0.3, 0.9, r) * 0.5; // 28 thin rotating spokes
     float a = (front + wake + spokes) * uOpacity;
-    gl_FragColor = vec4(uColor * (1.0 + front * 1.5), a);
+    gl_FragColor = vec4(uColor * (1.0 + front * 1.5), a); // additive blending: glows over the trail
   }
 `;
 

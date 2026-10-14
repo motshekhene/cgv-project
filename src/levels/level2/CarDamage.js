@@ -74,8 +74,8 @@ class Cloud {
     // a size per particle on top of the material's
     this.mat.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float aSize;')
-        .replace('gl_PointSize = size;', 'gl_PointSize = size * aSize;');
+        .replace('#include <common>', '#include <common>\nattribute float aSize;') // a size for each particle (vertex attribute)
+        .replace('gl_PointSize = size;', 'gl_PointSize = size * aSize;'); // vertex stage: each point drawn at its own size
     };
     this.mat.customProgramCacheKey = () => 'car-damage-cloud' + (toneMapped ? '' : '-hot');
     this.points = new THREE.Points(geo, this.mat);

@@ -44,6 +44,7 @@ export function shore(x, zr) {
 }
 
 const SHORE_GLSL = /* glsl */ `
+  // distance in from the river's bank at (x, z): the same maths as shore() in JS, so the land and water meet
   float shore(float x, float zr) {
     float ax = abs(x);
     float outer = 100.0 + 14.0 * sin(zr * 0.031 + 1.3) + 7.0 * sin(zr * 0.083 + 0.4) + 12.0 * smoothstep(-40.0, 0.0, zr);
@@ -59,18 +60,18 @@ const vertex = /* glsl */ `
   varying vec3 vWorld;
   #include <fog_pars_vertex>
   void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWorld = wp.xyz;
+    vec4 wp = modelMatrix * vec4(position, 1.0); // object -> world
+    vWorld = wp.xyz; // all the river's patterns are in world space
     vec4 mvPosition = viewMatrix * wp;
-    gl_Position = projectionMatrix * mvPosition;
+    gl_Position = projectionMatrix * mvPosition; // world -> camera -> clip
     #include <fog_vertex>
   }
 `;
 
 const fragment = NOISE_GLSL + SHORE_GLSL + /* glsl */ `
-  uniform float uTime, uEnd, uWall, uOpacity;
+  uniform float uTime, uEnd, uWall, uOpacity; // seconds, where the falls are, half the causeway's width
   uniform vec3 uDeep, uShallow, uMud, uSky, uSunDir, uSunColor;
-  uniform vec3 uRocks[${MAX_ROCKS}];   // x, z, radius
+  uniform vec3 uRocks[${MAX_ROCKS}];   // x, z, radius: an array uniform, set from the scene's real boulders
   uniform int uRockCount;
   varying vec3 vWorld;
   #include <fog_pars_fragment>
@@ -99,22 +100,22 @@ const fragment = NOISE_GLSL + SHORE_GLSL + /* glsl */ `
     float w0 = 1.0 - abs(1.0 - 2.0 * ph0);
     vec2 o0 = flow * ph0 * 4.0, o1 = flow * ph1 * 4.0 + vec2(17.3, 9.1);
 
-    float e = 0.2;
+    float e = 0.2; // finite-difference step for the normal
     vec3 hs = vec3(0.0);   // h, h(x+e), h(z+e)
     hs += w0 * vec3(waves(p - o0), waves(p - o0 + vec2(e, 0.0)), waves(p - o0 + vec2(0.0, e)));
     hs += (1.0 - w0) * vec3(waves(p - o1), waves(p - o1 + vec2(e, 0.0)), waves(p - o1 + vec2(0.0, e)));
     float rough = 0.55 - 0.3 * rapids;          // choppier towards the lip
-    vec3 n = normalize(vec3(hs.x - hs.y, rough * e * 4.0, hs.x - hs.z));
+    vec3 n = normalize(vec3(hs.x - hs.y, rough * e * 4.0, hs.x - hs.z)); // normal from the wave height's slope
 
-    vec3 v = normalize(cameraPosition - vWorld);
-    float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+    vec3 v = normalize(cameraPosition - vWorld); // towards the camera
+    float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0); // fresnel: sky reflected at grazing angles
 
     // deep in the middle, shallow and silty at the edges
     vec3 c = mix(uDeep, uShallow, smoothstep(0.3, 0.8, hs.x));
     c = mix(c, uMud, (1.0 - smoothstep(0.0, 9.0, d)) * 0.55);
     c = mix(c, uSky, fres * 0.6);
     vec3 r = reflect(-normalize(uSunDir), n);
-    c += uSunColor * pow(max(dot(r, v), 0.0), 120.0) * 1.1;
+    c += uSunColor * pow(max(dot(r, v), 0.0), 120.0) * 1.1; // Phong specular: the sun glinting off the chop
 
     // white water: the shore, the causeway walls, the boulders, the rapids
     float shoreFoam = 1.0 - smoothstep(0.0, 2.2, d);
@@ -131,7 +132,7 @@ const fragment = NOISE_GLSL + SHORE_GLSL + /* glsl */ `
     }
     float amount = clamp(max(max(shoreFoam, wallFoam), max(rockFoam, rapids * rapids)), 0.0, 1.0);
     float ft = w0 * foamTex(p - o0) + (1.0 - w0) * foamTex(p - o1);
-    float foam = smoothstep(0.75, 1.05, ft + amount * 0.55) * amount;
+    float foam = smoothstep(0.75, 1.05, ft + amount * 0.55) * amount; // foam texture, kept where there should be white water
     c = mix(c, vec3(0.92, 0.96, 0.95), foam * 0.85);
     // the white crest where it pours over the lip
     float lip = smoothstep(-9.0, -1.0, zr) * (0.55 + 0.45 * ft);

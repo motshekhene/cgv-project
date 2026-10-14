@@ -1026,15 +1026,15 @@ export function createJungleSky({ fog = null } = {}) {
       uSun: { value: sunColor },
       uSunDir: { value: sunDir },
       uFog: { value: fog || horizon },
-      uFogBand: { value: fog ? 0.22 : 0 },
-      uDark: { value: 0 },
+      uFogBand: { value: fog ? 0.22 : 0 }, // how high up the sky the fog colour reaches
+      uDark: { value: 0 }, // 0..1 from Level 1: the dark shrine stretches (game state)
     },
     vertexShader: `
       varying vec3 vDir;
       void main(){
-        vDir = position;
+        vDir = position; // direction from the dome's centre, where the camera is
         vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        gl_Position = p.xyww;
+        gl_Position = p.xyww; // depth 1: always behind everything
       }
     `,
     fragmentShader: `
@@ -1043,12 +1043,13 @@ export function createJungleSky({ fog = null } = {}) {
       varying vec3 vDir;
       void main(){
         vec3 d = normalize(vDir);
-        float h = d.y;
+        float h = d.y; // -1 straight down .. 1 straight up
+        // gradient: horizon to zenith above, horizon to ground below
         vec3 c = h > 0.0
           ? mix(uHorizon, uTop, pow(clamp(h,0.0,1.0), 0.55))
           : mix(uHorizon, uBottom, pow(clamp(-h*3.0,0.0,1.0), 0.65));
-        float s = max(dot(d, uSunDir), 0.0);
-        c += uSun * (pow(s, 1000.0) * 7.0 + pow(s, 18.0) * 0.25);
+        float s = max(dot(d, uSunDir), 0.0); // 1 looking at the sun
+        c += uSun * (pow(s, 1000.0) * 7.0 + pow(s, 18.0) * 0.25); // sun disc + glow
         // the fog colour as fogged things come out on screen: the sky itself
         // is drawn as is, but they go through tone mapping and sRGB
         vec3 fogC = uFog;
@@ -1056,8 +1057,8 @@ export function createJungleSky({ fog = null } = {}) {
           fogC = toneMapping(fogC);
         #endif
         fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
-        float haze = uFogBand > 0.0 ? 1.0 - smoothstep(0.0, uFogBand, h) : 0.0;
-        c = mix(c, fogC, max(haze, uDark));
+        float haze = uFogBand > 0.0 ? 1.0 - smoothstep(0.0, uFogBand, h) : 0.0; // fog at the horizon, none overhead
+        c = mix(c, fogC, max(haze, uDark)); // so fogged scenery melts into the sky
         gl_FragColor = vec4(c, 1.0);
       }
     `,
@@ -1088,10 +1089,10 @@ export function createLightShaft(width = 2.0, color = 0xffd9a0, opacity = 0.13) 
       varying vec3 vNormal;
       varying vec3 vView;
       void main(){
-        vUv = uv;
+        vUv = uv; // y along the beam
         vec4 world = modelMatrix * vec4(position, 1.0);
-        vNormal = normalize(mat3(modelMatrix) * normal);
-        vView = normalize(cameraPosition - world.xyz);
+        vNormal = normalize(mat3(modelMatrix) * normal); // world-space normal
+        vView = normalize(cameraPosition - world.xyz); // towards the camera
         gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
@@ -1102,10 +1103,10 @@ export function createLightShaft(width = 2.0, color = 0xffd9a0, opacity = 0.13) 
       varying vec3 vNormal;
       varying vec3 vView;
       void main(){
-        float edge = pow(abs(dot(normalize(vNormal), vView)), 1.4);
-        float fade = smoothstep(0.0, 0.18, vUv.y) * smoothstep(1.0, 0.58, vUv.y);
+        float edge = pow(abs(dot(normalize(vNormal), vView)), 1.4); // bright core, soft edges (inverse fresnel)
+        float fade = smoothstep(0.0, 0.18, vUv.y) * smoothstep(1.0, 0.58, vUv.y); // fades at both ends
         float a = edge * fade * uOpacity;
-        gl_FragColor = vec4(uColor * (0.7 + a * 2.0), a);
+        gl_FragColor = vec4(uColor * (0.7 + a * 2.0), a); // additive: a beam of light through the canopy
       }
     `,
   });

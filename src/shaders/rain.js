@@ -19,19 +19,19 @@ import { NOISE_GLSL } from './noise.js';
 const vertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vUv = uv; // 0..1 across the screen
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); // a plane held in front of the camera
   }
 `;
 
 const fragment = NOISE_GLSL + /* glsl */ `
-  uniform float uTime;
-  uniform float uIntensity;
-  uniform vec2 uResolution;
+  uniform float uTime; // seconds: the streaks fall with it
+  uniform float uIntensity; // 0..1 from the level: how hard it's raining (game state)
+  uniform vec2 uResolution; // screen size, for the aspect ratio
   varying vec2 vUv;
 
   void main() {
-    if (uIntensity < 0.01) discard;
+    if (uIntensity < 0.01) discard; // no rain: draw nothing at all
 
     // Stretch UV so streaks are tall and thin
     vec2 uv = vUv;
@@ -41,9 +41,9 @@ const fragment = NOISE_GLSL + /* glsl */ `
     float rain = 0.0;
 
     // Layer 1 — fast, fine streaks
-    vec2 p1 = uv * vec2(80.0, 12.0);
-    p1.y += uTime * 6.0;
-    float streak1 = smoothstep(0.55, 0.75, noise(p1));
+    vec2 p1 = uv * vec2(80.0, 12.0); // noise squashed: thin in x, long in y = a streak
+    p1.y += uTime * 6.0; // scrolled down over time
+    float streak1 = smoothstep(0.55, 0.75, noise(p1)); // keep only the noise peaks
     streak1 *= smoothstep(0.0, 0.15, fract(p1.y * 0.5));
     rain += streak1 * 0.5;
 
@@ -72,7 +72,7 @@ const fragment = NOISE_GLSL + /* glsl */ `
     vec3 col = vec3(0.75, 0.82, 0.92) * rain * uIntensity;
     float alpha = rain * uIntensity * 0.45;
 
-    gl_FragColor = vec4(col, alpha);
+    gl_FragColor = vec4(col, alpha); // additive blending: only ever brightens the scene
   }
 `;
 

@@ -819,20 +819,21 @@ export class Level01 extends Level {
     state.templeScore = 0;
 
     scene.background = new THREE.Color(0xcfd6a8);
-    scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014);
+    scene.fog = new THREE.FogExp2(0xcfd6a8, 0.014); // exponential fog: hides the far end of the trail, adds depth
     // a dome around the camera (update() keeps it centred there): left at the
     // start line, it only surrounded the first 350 m, and from further on it
     // hung over the trail behind him as a big blue oval
     this._sky = createJungleSky({ fog: scene.fog.color });
     this.root.add(this._sky);
 
-    const hemi = new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6);
+    const hemi = new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6); // ambient fill: sky blue from above, green bounce from the ground
     this.hemi = hemi;
     this.root.add(hemi);
 
-    this.key = new THREE.DirectionalLight(0xffd29a, 4.5);
-    this.key.castShadow = true;
-    this.key.shadow.mapSize.set(1024, 1024);
+    this.key = new THREE.DirectionalLight(0xffd29a, 4.5); // the sun: warm, parallel rays
+    this.key.castShadow = true; // the only shadow-casting light in the level
+    this.key.shadow.mapSize.set(1024, 1024); // shadow map resolution
+    // the shadow camera's box: 32 m round Kai only (it follows him), so the map's detail isn't spread over the whole trail
     this.key.shadow.camera.left = -16;
     this.key.shadow.camera.right = 16;
     this.key.shadow.camera.top = 16;
@@ -892,7 +893,7 @@ export class Level01 extends Level {
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
-    this.kaiTorch = new THREE.SpotLight(0xc9fff0, 0, 24, 0.48, 0.6, 1.4);
+    this.kaiTorch = new THREE.SpotLight(0xc9fff0, 0, 24, 0.48, 0.6, 1.4); // a cone of light ahead of Kai, only on in the dark shrine
     this.kaiTorch.position.set(0, 1.55, -0.25);
     this.kaiTorch.target.position.set(0, 0.9, -9);
     this.player.add(this.kaiTorch, this.kaiTorch.target);
@@ -913,7 +914,7 @@ export class Level01 extends Level {
     // the horn call's effects; its flash is a light like any other glow, so it
     // has to exist before the light pool below takes its census
     this._hornFx = { wave: new Shockwave(this.root), roots: new RootBurst(this.root), shards: new Shards(this.root) };
-    this._hornLight = new THREE.PointLight(0x4fd6e0, 0, 34, 2);
+    this._hornLight = new THREE.PointLight(0x4fd6e0, 0, 34, 2); // the horn call's cyan flash
     this._hornLight.position.set(0, 1.7, -1.5);
     this.player.add(this._hornLight);
     this._hornAt = new THREE.Vector3();
@@ -922,7 +923,7 @@ export class Level01 extends Level {
     // level1/lightPool.js), so showing or hiding one never recompiles the
     // scene's shaders. Then all of them are compiled now, behind the loading
     // screen, instead of each the first time it comes into view mid-run.
-    this._lightPool = new LightPool(this.root);
+    this._lightPool = new LightPool(this.root); // 8 real point lights handed to the nearest glows each frame (no shader recompiles)
     this._poolFocus = new THREE.Vector3();
     const renderer = this.game?.renderer;
     if (renderer?.compileAsync && this.game.camera) {
@@ -1144,7 +1145,7 @@ export class Level01 extends Level {
         rune.position.set(side * 3.86, floor + 1.55, z);
         group.add(rune);
       }
-      const light = new THREE.PointLight(0x5dffd2, 1.8, 17, 2);
+      const light = new THREE.PointLight(0x5dffd2, 1.8, 17, 2); // the runes' glow: lights the dark shrine
       light.position.set(0, floor + 1.9, z);
       group.add(light);
       this._darkRuneLights.push(light);
@@ -1163,6 +1164,7 @@ export class Level01 extends Level {
     const target = THREE.MathUtils.clamp(enter * exit, 0, 1);
     this._darkFactor += (target - this._darkFactor) * (1 - Math.exp(-7 * dt));
 
+    // into the dark shrine: the sun and sky dim, Kai's torch takes over (and back again on the way out)
     if (this.key) this.key.intensity = THREE.MathUtils.lerp(4.5, 0.38, this._darkFactor);
     if (this.hemi) this.hemi.intensity = THREE.MathUtils.lerp(0.6, 0.10, this._darkFactor);
     if (this.kaiTorch) this.kaiTorch.intensity = 5.2 * this._darkFactor;
@@ -3144,7 +3146,7 @@ export class Level01 extends Level {
     warning.position.set(0, 4.2, 0.25);
     gateGroup.add(warning);
 
-    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 28, 2);
+    const gateLight = new THREE.PointLight(0xffa63d, 1.4, 28, 2); // the gate's warning lamp
     gateLight.position.set(0, 4.0, 1.5);
     gateGroup.add(gateLight);
 
@@ -3274,7 +3276,7 @@ export class Level01 extends Level {
     vehicle.userData.startsLevel2 = true;
     camp.add(vehicle);
 
-    const workLight = new THREE.PointLight(0xffd39b, 2.1, 22, 2);
+    const workLight = new THREE.PointLight(0xffd39b, 2.1, 22, 2); // the camp's work lamp over the car
     workLight.position.set(3.3, 5, SERVICE_CAR_LOCAL_Z);
     camp.add(workLight);
 
@@ -3350,7 +3352,7 @@ export class Level01 extends Level {
     torch.position.set(0.28, 1.55, -0.4);
     group.add(torch);
 
-    const beam = new THREE.SpotLight(0xffc071, 7.5, 34, 0.33, 0.55, 1.6);
+    const beam = new THREE.SpotLight(0xffc071, 7.5, 34, 0.33, 0.55, 1.6); // the Marshal's torch: a spotlight cone
     beam.position.set(0.25, 1.62, -0.35);
     beam.target.position.set(0, 0.9, -14);
     group.add(beam, beam.target);
@@ -4440,7 +4442,7 @@ export class Level01 extends Level {
     this._updateObstacleVisuals();
 
     // shadow camera follows so shadows stay inside it
-    this.key.position.set(x - 35, 55 + this._floorY, this.z - 75);
+    this.key.position.set(x - 35, 55 + this._floorY, this.z - 75); // the sun moves with Kai, so its shadow box stays on him
     this.key.target.position.set(x, this._floorY, this.z - 12);
 
     // --- look-back camera (mouse2 / C) ---

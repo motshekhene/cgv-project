@@ -130,15 +130,15 @@ function spiritMaterial(src, u) {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying float vSpiritY;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvSpiritY = (modelMatrix * vec4(transformed, 1.0)).y;');
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvSpiritY = (modelMatrix * vec4(transformed, 1.0)).y; // world height of this vertex');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uFill, uGlow, uBaseY, uHeight;\nuniform vec3 uSpirit;\nvarying float vSpiritY;')
+      .replace('#include <common>', '#include <common>\nuniform float uFill, uGlow, uBaseY, uHeight; // uFill 0..1: how far the light has climbed (game state)\nuniform vec3 uSpirit;\nvarying float vSpiritY;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float hN = clamp((vSpiritY - uBaseY) / uHeight, 0.0, 1.0);
-        float below = 1.0 - smoothstep(uFill - 0.05, uFill, hN);
-        float seam = (1.0 - abs(hN - uFill) / 0.045) * step(uFill, 0.995);
-        float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.2);
-        totalEmissiveRadiance += uSpirit * (below * uGlow * (0.06 + 1.5 * rim) + max(seam, 0.0) * 1.3);`);
+        float hN = clamp((vSpiritY - uBaseY) / uHeight, 0.0, 1.0); // 0 at the statue's foot, 1 at its top
+        float below = 1.0 - smoothstep(uFill - 0.05, uFill, hN); // 1 under the fill line
+        float seam = (1.0 - abs(hN - uFill) / 0.045) * step(uFill, 0.995); // a bright band at the line as it rises
+        float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.2); // fresnel rim
+        totalEmissiveRadiance += uSpirit * (below * uGlow * (0.06 + 1.5 * rim) + max(seam, 0.0) * 1.3); // on top of three.js's own lighting`);
   };
   m.customProgramCacheKey = () => 'spirit-statue';
   return m;

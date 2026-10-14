@@ -72,20 +72,20 @@ export class Level02 extends Level {
     // and the shafts are mirrored to stay in front of you) ----
     const FOG = 0xcfd6a8;
     scene.background = new THREE.Color(FOG);
-    scene.fog = new THREE.FogExp2(FOG, 0.014);
+    scene.fog = new THREE.FogExp2(FOG, 0.014); // exponential fog: depth, and hides where the road streams in
 
     this._sky = createJungleSky();
     this._sky.material.uniforms.uSunDir.value.set(-0.35, 0.55, 0.75).normalize();
     this.root.add(this._sky);
 
-    this.root.add(new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6));
-    const sun = new THREE.DirectionalLight(0xffd29a, 4.5);
+    this.root.add(new THREE.HemisphereLight(0xbfdcff, 0x4a5a26, 0.6)); // ambient fill: sky from above, green bounce from below
+    const sun = new THREE.DirectionalLight(0xffd29a, 4.5); // the sun: the one shadow caster
     // a tight shadow box that follows the car: every car gets a contact
     // shadow on the trail for the cost of one small shadow map
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 160 });
-    sun.shadow.bias = -0.0008;
+    sun.shadow.bias = -0.0008; // bias / normalBias: no shadow acne (stripes) on lit surfaces
     sun.shadow.normalBias = 0.03;
     this.root.add(sun, sun.target);
     this._sun = sun;
@@ -301,12 +301,19 @@ export class Level02 extends Level {
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: { uColor: { value: new THREE.Color(0x6fe3ff) }, uAlpha: { value: 0 }, uTime: { value: 0 } },
       vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vP;
-        void main(){ vec4 w = modelMatrix * vec4(position,1.0); vN = normalize(mat3(modelMatrix)*normal);
-          vV = normalize(cameraPosition - w.xyz); vP = position; gl_Position = projectionMatrix * viewMatrix * w; }`,
+        void main(){
+          vec4 w = modelMatrix * vec4(position,1.0); // world position
+          vN = normalize(mat3(modelMatrix)*normal); // world-space normal
+          vV = normalize(cameraPosition - w.xyz); // towards the camera
+          vP = position; // the sphere's own coordinates, for the bands
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }`,
       fragmentShader: `uniform vec3 uColor; uniform float uAlpha; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP;
-        void main(){ float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.2);
-          float bands = 0.5 + 0.5 * sin(vP.y * 9.0 - uTime * 4.0);
-          gl_FragColor = vec4(uColor * (0.6 + f * 1.6), (f * 0.85 + bands * 0.08) * uAlpha); }`,
+        void main(){
+          float f = pow(1.0 - abs(dot(normalize(vN), vV)), 2.2); // fresnel: the bubble glows at its rim, clear in the middle
+          float bands = 0.5 + 0.5 * sin(vP.y * 9.0 - uTime * 4.0); // energy bands climbing the bubble over time
+          gl_FragColor = vec4(uColor * (0.6 + f * 1.6), (f * 0.85 + bands * 0.08) * uAlpha); // uAlpha: the shield's time left (game state)
+        }`,
     });
     this._shield = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), mat);
     this._shield.userData.keep = true;      // survives car swaps (attachModel)

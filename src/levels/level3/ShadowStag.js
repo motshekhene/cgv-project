@@ -59,6 +59,7 @@ const ATTACKS = {
 };
 
 const NOISE = /* glsl */ `
+  // 3D value noise (pseudo-random per lattice cell, smoothly blended): patterns fixed to the body, not the screen
   float sHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
   float sNoise(vec3 x) {
     vec3 i = floor(x), f = fract(x);
@@ -68,7 +69,7 @@ const NOISE = /* glsl */ `
   }
   float sRidged(vec3 p) {
     float n = sNoise(p) * 0.65 + sNoise(p * 2.13 + 7.1) * 0.35;
-    return 1.0 - abs(n * 2.0 - 1.0);
+    return 1.0 - abs(n * 2.0 - 1.0); // folded noise: sharp ridges where it crosses the middle = cracks
   }
 `;
 
@@ -84,7 +85,7 @@ const PARTS = {
 
 /**
  * One part of it (PARTS): a physical material with the coat, the cracks of
- * light, the rim, the eyes' coals, the stone it turns to, and the burn.
+ * light, the rim, the eyes' coals, and the stone it turns to.
  */
 function stagMaterial(part, u) {
   const p = PARTS[part] || PARTS.Stag_2;
@@ -94,7 +95,7 @@ function stagMaterial(part, u) {
     clearcoat: p.coat || 0, clearcoatRoughness: 0.06,
   });
   const kind = p.kind.toUpperCase();
-  m.defines = { ...m.defines, [kind]: '' };
+  m.defines = { ...m.defines, [kind]: '' }; // FUR / HARD / EYE / ANTLER: one shader, compiled per part
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
@@ -105,22 +106,19 @@ function stagMaterial(part, u) {
           varying float vTip;
         #endif`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vObj = position;
+        vObj = position; // bind-pose position: the patterns stay stuck to the body as it animates
         #ifdef ANTLER
           vTip = aTip;
         #endif`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         ${NOISE}
-        uniform float uTime, uVein, uOpen, uDissolve, uScale, uLife, uStone, uEyeR;
-        uniform vec3 uCorrupt, uClean, uEyeA, uEyeB, uLong;
+        uniform float uTime, uVein, uOpen, uScale, uLife, uStone, uEyeR; // uOpen: open to hits (game state); uLife 1 -> 0 as it dies; uStone 0..1
+        uniform vec3 uCorrupt, uClean, uEyeA, uEyeB, uLong; // red armoured / cyan open; the eyes' centres; which way is its length
         varying vec3 vObj;
         #ifdef ANTLER
           varying float vTip;
         #endif`)
-      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
-        float burnN = sNoise(vObj * uScale * 2.6);
-        if (burnN < uDissolve) discard;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec3 q0 = vObj * uScale;
         #ifdef FUR
@@ -152,7 +150,7 @@ function stagMaterial(part, u) {
         #endif`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         vec3 q = vObj * uScale;
-        vec3 veinCol = mix(uCorrupt, uClean, uOpen);
+        vec3 veinCol = mix(uCorrupt, uClean, uOpen); // the light tells the player when to strike
         #ifdef EYE
           // a coal in each eye, round its pupil
           float dE = min(distance(vObj, uEyeA), distance(vObj, uEyeB)) / uEyeR;
@@ -162,12 +160,11 @@ function stagMaterial(part, u) {
           vec3 qw = q * 1.75 + (vec3(sNoise(q * 1.3), sNoise(q * 1.3 + 4.1), sNoise(q * 1.3 + 8.3)) - 0.5) * 1.2;
           float ridge = sRidged(qw + vec3(0.0, uTime * 0.04, 0.0));
           float vein = smoothstep(0.955, 0.99, ridge) + 0.22 * smoothstep(0.88, 0.955, ridge);
-          float pulse = 0.65 + 0.35 * sin(uTime * 4.0 + q.y * 3.0 + q.z * 2.0);
-          totalEmissiveRadiance += veinCol * vein * uVein * pulse * uLife;
-          float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0);
+          float pulse = 0.65 + 0.35 * sin(uTime * 4.0 + q.y * 3.0 + q.z * 2.0); // a heartbeat travelling through it
+          totalEmissiveRadiance += veinCol * vein * uVein * pulse * uLife; // emissive: glows on top of the lighting
+          float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0); // fresnel rim
           totalEmissiveRadiance += mix(vec3(0.14, 0.01, 0.02), vec3(0.03, 0.34, 0.4), uOpen) * rim * 0.5 * uLife * (1.0 - uStone);
-        #endif
-        if (uDissolve > 0.0) totalEmissiveRadiance += vec3(1.0, 0.55, 0.2) * (1.0 - smoothstep(uDissolve, uDissolve + 0.07, burnN)) * 6.0;`);
+        #endif`);
   };
   m.customProgramCacheKey = () => 'shadow-stag-' + p.kind;
   return m;
@@ -259,7 +256,7 @@ export class ShadowStag {
     parent.add(this.root);
 
     this.u = {
-      uTime: { value: 0 }, uVein: { value: 3.2 }, uOpen: { value: 0 }, uDissolve: { value: 0 }, uScale: { value: 1 }, uLife: { value: 1 },
+      uTime: { value: 0 }, uVein: { value: 3.2 }, uOpen: { value: 0 }, uScale: { value: 1 }, uLife: { value: 1 },
       uStone: { value: 0 }, uEyeR: { value: 1 }, uEyeA: { value: new THREE.Vector3() }, uEyeB: { value: new THREE.Vector3() },
       uLong: { value: new THREE.Vector3(0, 1, 0) },
       uCorrupt: { value: new THREE.Color(0xff3a14) }, uClean: { value: new THREE.Color(0x4fe6f0) },
@@ -430,7 +427,6 @@ export class ShadowStag {
     this._q3 = new THREE.Quaternion();
     this._before = new THREE.Vector3();
     this._emitT = 0;
-    this.dissolve = 0;
   }
 
   /** Thorns: dark spikes, red at the tips, that burst up out of the ground in the ring round it. */

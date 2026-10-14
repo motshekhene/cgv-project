@@ -40,11 +40,12 @@ export class Fireflies {
         uScale: { value: Math.min(window.devicePixelRatio || 1, 2) },
       },
       vertexShader: /* glsl */ `
-        attribute vec4 aSeed;
-        uniform float uTime, uAmount, uSize, uScale;
+        attribute vec4 aSeed; // per firefly: phase, speed, blink rate, how far it wanders
+        uniform float uTime, uAmount, uSize, uScale; // uAmount 0..1: they come out once the storm has passed (game state)
         varying float vGlow;
         void main() {
           float t = uTime * aSeed.y;
+          // vertex animation: each one drifts in its own slow loop round where it was placed
           vec3 p = position + vec3(
             sin(t + aSeed.x) * aSeed.w,
             sin(t * 0.7 + aSeed.x * 2.0) * 0.35,
@@ -53,15 +54,15 @@ export class Fireflies {
           // a slow pulse: dark most of the time, a soft glow now and then
           float blink = pow(max(0.0, sin(uTime * aSeed.z + aSeed.x * 3.0)), 5.0);
           vGlow = (0.12 + 0.88 * blink) * uAmount;
-          gl_PointSize = uSize * uScale * (0.45 + 0.55 * blink) * (10.0 / max(1.0, -mv.z));
+          gl_PointSize = uSize * uScale * (0.45 + 0.55 * blink) * (10.0 / max(1.0, -mv.z)); // smaller further away
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
         uniform vec3 uColor;
         varying float vGlow;
         void main() {
-          vec2 c = gl_PointCoord - 0.5;
-          float d2 = dot(c, c);
+          vec2 c = gl_PointCoord - 0.5; // where in the point sprite this pixel is
+          float d2 = dot(c, c); // squared distance from its centre
           float a = exp(-d2 * 60.0) + 0.35 * exp(-d2 * 10.0); // a hot core in a soft halo
           gl_FragColor = vec4(uColor * a * vGlow, 1.0);
         }`,

@@ -14,16 +14,16 @@ import { NOISE_GLSL } from './noise.js';
 const vertex = /* glsl */ `
   varying vec2 vUv;
   void main() {
-    vUv = uv;
+    vUv = uv; // texture coordinate, handed on to the fragment stage
     vec3 p = position;
-    p.z += pow(uv.y, 2.0) * 0.9;   // lip of the fall juts out from the cliff
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    p.z += pow(uv.y, 2.0) * 0.9;   // vertex displacement: lip of the fall juts out from the cliff
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); // object -> clip space
   }
 `;
 
 const fragment = NOISE_GLSL + /* glsl */ `
-  uniform float uTime;
-  uniform float uTint;
+  uniform float uTime; // seconds x flow speed: scrolls the streaks down
+  uniform float uTint; // 0..1: the water runs red (Level 3, game state)
   uniform vec3 uWater;
   uniform vec3 uFoam;
   uniform vec3 uBlood;
@@ -34,7 +34,7 @@ const fragment = NOISE_GLSL + /* glsl */ `
     float s1 = fbm(vec2(vUv.x * 14.0, vUv.y * 2.2 + uTime * 2.4));
     float s2 = fbm(vec2(vUv.x * 23.0 + 3.7, vUv.y * 3.1 + uTime * 3.6));
     float streak = mix(s1, s2, 0.4);
-    float foam = smoothstep(0.45, 0.8, streak);
+    float foam = smoothstep(0.45, 0.8, streak); // white foam where the streaks peak
 
     vec3 water = mix(uWater, uBlood, uTint);
     vec3 c = mix(water, uFoam, foam);
@@ -44,9 +44,9 @@ const fragment = NOISE_GLSL + /* glsl */ `
     float churn = noise(vec2(vUv.x * 30.0, uTime * 6.0)) * base;
     c += (base * 0.45 + churn * 0.35) * uFoam;
 
-    float edge = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x);
-    float top = smoothstep(1.0, 0.94, vUv.y);
-    float a = edge * top * (0.72 + foam * 0.28) * smoothstep(0.0, 0.05, vUv.y);
+    float edge = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.86, vUv.x); // fade out at the sides
+    float top = smoothstep(1.0, 0.94, vUv.y); // and at the top
+    float a = edge * top * (0.72 + foam * 0.28) * smoothstep(0.0, 0.05, vUv.y); // alpha: foam is more opaque
     gl_FragColor = vec4(c, a);
 
     #include <tonemapping_fragment>

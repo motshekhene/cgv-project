@@ -925,12 +925,13 @@ export class Prologue extends Level {
     this.sky = createJungleSky();
     this.root.add(this.sky);
 
+    // ambient fill: sky colour from above, ground bounce from below (starts at night, warms to dawn)
     this.hemi = new THREE.HemisphereLight(
       NIGHT.hemiSky, NIGHT.hemiGround, NIGHT.hemiIntensity,
     );
     this.root.add(this.hemi);
 
-    this.sun = new THREE.DirectionalLight(NIGHT.sunColor, NIGHT.sunIntensity);
+    this.sun = new THREE.DirectionalLight(NIGHT.sunColor, NIGHT.sunIntensity); // moonlight that becomes the sunrise
     this.sun.position.copy(SUN_DIR).multiplyScalar(60);
     this.root.add(this.sun, this.sun.target);
 
@@ -1041,7 +1042,7 @@ export class Prologue extends Level {
 
     // the far end of the trail: the first warm light of the morning, where
     // the forest opens. It grows with the dawn — the run is toward it.
-    this.exitLight = new THREE.PointLight(0xffd29a, 0, 20, 2);
+    this.exitLight = new THREE.PointLight(0xffd29a, 0, 20, 2); // grows with the dawn: what Kai runs toward
     this.exitLight.position.set(RUN_EXIT_X + 2, 3.2, RUN_TO.z);
     this.root.add(this.exitLight);
   }
@@ -1120,9 +1121,9 @@ export class Prologue extends Level {
     }
 
     // the light itself. Flickers with its own noise so nothing loops.
-    this.fireLight = new THREE.PointLight(0xff9a3a, 7, 14, 2);
+    this.fireLight = new THREE.PointLight(0xff9a3a, 7, 14, 2); // the campfire: warm, falling off over 14 m
     this.fireLight.position.set(FIRE.x, 0.85, FIRE.z);
-    this.fireLight.castShadow = true;
+    this.fireLight.castShadow = true; // a point light's shadow: a cube map, 6 renders, so kept small
     this.fireLight.shadow.mapSize.set(512, 512);
     this.root.add(this.fireLight);
   }
@@ -1996,6 +1997,7 @@ export class Prologue extends Level {
     mix(u.uBottom.value, NIGHT.bottom, DAWN.bottom);
     mix(u.uSun.value, NIGHT.sun, DAWN.sun);
 
+    // night -> dawn: every light, the sky and the fog blended by one value, k
     mix(this.hemi.color, NIGHT.hemiSky, DAWN.hemiSky);
     mix(this.hemi.groundColor, NIGHT.hemiGround, DAWN.hemiGround);
     this.hemi.intensity = lerp(NIGHT.hemiIntensity, DAWN.hemiIntensity);
@@ -2208,7 +2210,7 @@ export class Prologue extends Level {
 
     // fire flicker — its own noise, never a loop you can hear
     const power = this.sfx.firePower;
-    this.fireLight.intensity = (5.6 + Math.sin(this.t * 11) * 0.9 + Math.sin(this.t * 23.7) * 0.6) * power;
+    this.fireLight.intensity = (5.6 + Math.sin(this.t * 11) * 0.9 + Math.sin(this.t * 23.7) * 0.6) * power; // two sines, out of step: a flicker that never repeats
     this.ember.material.opacity = 0.85 * power;
     for (let i = 0; i < this.flames.length; i++) {
       const f = this.flames[i];

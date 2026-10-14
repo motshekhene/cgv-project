@@ -71,8 +71,8 @@ export class Epilogue extends Level {
     sky.material.uniforms.uBottom.value.setHex(0x3c4430);
     sky.material.uniforms.uSunDir.value.set(-0.3, 0.35, -1).normalize();
     this.root.add(sky);
-    this.root.add(new THREE.HemisphereLight(0xbfd0e0, 0x3a3220, 0.9));
-    this.sun = new THREE.DirectionalLight(0xffe0b0, 2.3);
+    this.root.add(new THREE.HemisphereLight(0xbfd0e0, 0x3a3220, 0.9)); // ambient fill: full morning
+    this.sun = new THREE.DirectionalLight(0xffe0b0, 2.3); // the sun, casting the glade's shadows
     this.sun.position.set(-6, 9, -10);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -154,7 +154,7 @@ export class Epilogue extends Level {
     fallen.position.set(-0.95, 0.2, 0.55);
     fallen.rotation.set(0.2, 0.5, 0.12);
     for (const m of [base, cap, fallen]) { m.castShadow = m.receiveShadow = true; g.add(m); }
-    this.hornLight = new THREE.PointLight(0x4fd6e0, 0, 7, 2);
+    this.hornLight = new THREE.PointLight(0x4fd6e0, 0, 7, 2); // flares as the horn is laid back on its stone
     this.hornLight.position.set(0, 1.15, 0);
     g.add(this.hornLight);
     this.stone = g;
