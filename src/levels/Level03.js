@@ -4,6 +4,7 @@ import { CombatController } from './level3/CombatController.js';
 import { HandlerBoss } from './level3/HandlerBoss.js';
 import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
 import { Nav } from './level3/Nav.js';
+import { Telegraphs } from './level3/Telegraphs.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
@@ -311,6 +312,7 @@ export class Level03 extends Level {
     this.vision = new KeyVision(); // the look of bent time (a perfect dodge, the Key)
     this.trail = new StrikeTrail(this.root); // the swoosh behind Kai's kicks and heavy punches
     this.waves = new Shockwaves(this.root); // rings across the ground from heavy blows and parries
+    this.zones = new Telegraphs(this.root, this.arena); // where his next blow lands, lit on the ground as he winds up
     this.flies = new Fireflies(this.root, this.arena); // out once the storm has passed
     this._fliesAmt = 0;
     if (this.handlerMeta?.clips.jump) {
@@ -857,6 +859,8 @@ export class Level03 extends Level {
     }
 
     const b = this.boss.update(dt);
+    if (this.mode === 'FIGHT' && !this._ended && b.state !== 'DOWN') this.zones.update(dt, this.boss.threat, this.boss.root.position);
+    else this.zones.hide();
     this._separate();
     // out in the jungle: trees, bushes, statues and walls are solid, and the ground isn't flat
     this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
@@ -1920,6 +1924,7 @@ export class Level03 extends Level {
 
   teardown() {
     this._loseCard?.destroy();
+    this.zones?.dispose();
     if (this.vision) this.vision.dispose();
     if (this.sound) { this.sound.dispose(); this.sound = null; }
     if (this.touch) this.touch.dispose();

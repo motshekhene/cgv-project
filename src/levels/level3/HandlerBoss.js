@@ -491,6 +491,30 @@ export class HandlerBoss {
     return this.state === 'STAGGER';
   }
 
+  /**
+   * The attack he's winding up or throwing, for the ground telegraph
+   * (level3/Telegraphs.js): its colour, how far into the wind-up he is (k,
+   * 0..1), and what it covers: a disc of `radius` round him (sweep, spin,
+   * blast) or a lane `length` m long the way he faces (lunge, combo). Null
+   * when he isn't attacking.
+   */
+  get threat() {
+    const atk = ATTACKS[this.attackName];
+    if (!atk || (this.state !== 'TELEGRAPH' && this.state !== 'STRIKE')) return null;
+    const radius = atk.hits[0].radius || 0;
+    const length = radius ? 0 : Math.max(...atk.hits.map((h) => h.reach || 0)) + atk.hits.reduce((s, h) => s + (h.move || 0) * h.dur, 0);
+    const dur = atk.telegraph * this.phase.pace * (this.countering ? COUNTER_TELL : 1);
+    return {
+      name: this.attackName,
+      color: atk.tell,
+      striking: this.state === 'STRIKE',
+      k: this.state === 'STRIKE' ? 1 : Math.min(1, this.t / dur),
+      radius,
+      length,
+      heading: this.state === 'STRIKE' ? Math.atan2(this.strikeDir.x, this.strikeDir.z) : this.heading,
+    };
+  }
+
   _attachHelmet() {
     // the same coat and helmet he chased Kai in through Level 1 (dressAsHandler)
     const worn = this.fighter.rig === 'mixamo' && dressAsHandler(this.fighter);
