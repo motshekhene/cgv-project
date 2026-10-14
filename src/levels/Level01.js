@@ -1483,7 +1483,11 @@ export class Level01 extends Level {
 
       const tree = cloneProp(this._jungleKit.deadTree || this._jungleKit.tree4);
       tree.scale.setScalar(0.034);
-      tree.rotation.y = def.side < 0 ? 0.25 : -0.25;
+      // The dead tree's trunk and crown lean ~0.5 m / ~3 m off its origin
+      // toward local -x. That lean must point AWAY from the trail while it
+      // stands, so the fall turns it skyward and the trunk lands on top of the
+      // ground; pointed the other way it drove the whole trunk underground.
+      tree.rotation.y = def.side < 0 ? 0.25 : Math.PI - 0.25;
       pivot.add(tree);
 
       // A tiny dust/leaf marker at the base makes the source of the motion
