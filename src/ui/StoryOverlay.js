@@ -77,7 +77,7 @@ export class StoryOverlay {
       <div class="so-shade"></div>
       <div class="so-talk"><small></small><p><span class="typed-part"></span><i class="caret"></i><span class="rest"></span></p></div>
       <div class="so-letter"><small></small><q></q></div>
-      <div class="so-award plaque"><i></i><div><small>SHRINE GIFT · ONCE ONLY</small><b></b><span></span></div></div>
+      <div class="so-award plaque"><i></i><div><small>SPIRIT SHRINE</small><b></b><span></span></div></div>
       <div class="end"></div>`;
     host.appendChild(this.el);
 
@@ -188,8 +188,9 @@ export class StoryOverlay {
   }
 
   /** A forest shrine's gift: icon, name, what it does. */
-  showAward(icon, title, desc, color, seconds = 4) {
+  showAward(icon, title, desc, color, seconds = 4, label = 'SPIRIT SHRINE') {
     this.awardEl.style.setProperty('--c', color);
+    this.awardEl.querySelector('small').textContent = label;
     this.awardEl.querySelector('i').textContent = icon;
     this.awardEl.querySelector('b').textContent = title;
     this.awardEl.querySelector('span').textContent = desc;

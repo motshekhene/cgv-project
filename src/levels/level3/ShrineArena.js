@@ -243,7 +243,7 @@ export class ShrineArena {
     add(stag, -8.6, 0, -14.2, { s: RU * 0.85, ry: 0.35 });
     add(fox, 3.2, 0, -14.4, { s: RU * 1.1, ry: -0.4 });
     this.obstacles.push({ x: -8.6, z: -14.2, r: 1.5 }, { x: 3.2, z: -14.4, r: 1.5 });
-    this.templates = { pedestal: colShort };
+    this.templates = { pedestal: colShort, stag, fox, pot }; // the spirit shrines (Awards.js) are cut from the same stone
     // paved path from the courtyard edge, under the arch, to the pool's rim
     if (floor) {
       this.paving = [-12.7, -15.9, -19.1].map((z, i) => ({ x: -TILE, y: -0.05 - i * 0.02, z }));

@@ -55,9 +55,10 @@ import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
  *             pool red and brings a storm in (level3/Storm.js). A perfect
  *             dodge bends time (FOCUS_*, drawn by level3/KeyVision.js). The
  *             fight isn't penned in: Kai can break for the jungle ring, where
- *             three shrines each give one gift (Awards.js), with the Handler
- *             after him. From the second loss on, each makes the next
- *             attempt's Marshal weaker.
+ *             three spirit shrines wait (Awards.js), with the Handler after
+ *             him: the Stag heals and wakes again, the Fox and the Ember give
+ *             their gift for the fight. All three are back on every attempt.
+ *             From the second loss on, each makes the next attempt's Marshal weaker.
  *   SNATCH    at a quarter of his health Baba Zwane tears the horn off Kai's
  *             hip and lifts it himself, the thing he told Kai he never dared
  *             do (SNATCH_TALK). Phase IV: THE HORN. He fights with it (the
@@ -317,7 +318,13 @@ export class Level03 extends Level {
 
     this._baseMaxHealth = state.maxHealth;
     this._baseParry = this.combat.parryWindow;
+    state.awards.length = 0; // every attempt starts with all three spirits awake
     this.gifts = new ShrineGifts(this.arena, state, (id, gift) => this._onGift(id, gift));
+    this.gifts.onReady = (id, gift) => {
+      this.hud.toast(gift.name, 'its spirit has woken: it can heal you again', 3);
+      this.sound?.play('shrinePulse', { volume: 0.5 });
+      this._applyGifts();
+    };
 
     this.letters = new LetterDrops(this.root, state, (id, text) => {
       const found = state.letters.length;
@@ -337,7 +344,7 @@ export class Level03 extends Level {
     this.story = new StoryOverlay();
     this.story.onSkip = () => this._skip();
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
-    this._applyGifts(); // gifts taken on an earlier attempt stay taken
+    this._applyGifts();
 
     const cam = this.game.camera;
     cam.position.set(0, 3.6, 12.5);
@@ -439,30 +446,33 @@ export class Level03 extends Level {
 
   /* ---------------------------------------------------------------- gifts */
 
-  /** Make Kai match state.awards. Safe to call again after each new gift. */
+  /**
+   * Make Kai match the spirits' gifts. The HUD's icons: the fox's and the
+   * ember's light up once taken (they last the fight); the stag's is lit
+   * while its shrine is awake, i.e. a heal is waiting out there.
+   */
   _applyGifts(fresh = null) {
     const has = (id) => this.state.awards.includes(id);
     const st = this.state;
-    const max = this._baseMaxHealth * (has('vitality') ? 1.4 : 1);
-    if (max !== st.maxHealth || fresh === 'vitality') {
-      st.maxHealth = max;
-      st.health = max; // the gift heals as it grows the bar
-    }
     this.combat.parryWindow = this._baseParry * (has('strategy') ? 1.5 : 1);
     this.strategy = has('strategy');
     this.combat.damageMul = has('power') ? 1.4 : 1;
     this.power = has('power');
     this._setFistGlow(this.power);
-    this.hud.setAwards(st.awards, fresh);
+    const lit = this.gifts?.ready('vitality') ? [...st.awards, 'vitality'] : st.awards;
+    this.hud.setAwards(lit, fresh);
   }
 
   _onGift(id, gift) {
+    if (gift.heal) {
+      const before = this.state.health;
+      this.state.heal(this.state.maxHealth * gift.heal);
+      this.hud.popup(`+${Math.round(this.state.health - before)} LIFE`, gift.css);
+    }
     this._applyGifts(id);
     this.sound?.play('pickupHeart', { volume: 0.7 });
-    this.story.showAward(gift.icon, gift.name, gift.desc, gift.css);
+    this.story.showAward(gift.icon, gift.name, gift.desc, gift.css, 4, gift.recharge ? 'SPIRIT SHRINE · WAKES AGAIN' : 'SPIRIT SHRINE · FOR THIS FIGHT');
     this._addShake(0.2);
-    const left = this.gifts.remaining;
-    if (left > 0) this.hud.toast('SHRINES', `${left} more gift${left > 1 ? 's' : ''} in the jungle`, 3);
   }
 
   /** Power gift: embers in both fists. */
@@ -727,7 +737,8 @@ export class Level03 extends Level {
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
-    this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null);
+    this.gifts.setMarkersVisible(this.mode === 'FIGHT' && !this._ended);
+    this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null, this.game.camera);
     if (fighting) {
       const bp = this.boss.root.position;
       this.arena.setFocus((kp.x + bp.x) / 2, (kp.z + bp.z) / 2);
@@ -1350,8 +1361,7 @@ export class Level03 extends Level {
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);
     // notes for the player, once FIGHT has been called
     this._fightToasts = [];
-    const left = this.gifts.remaining;
-    if (left > 0) this._fightToasts.push(['SHRINES', `${left} gift${left > 1 ? 's glow' : ' glows'} in the jungle \u00b7 each can be taken once`, 5]);
+    this._fightToasts.push(['SPIRIT SHRINES', 'three spirits wait in the jungle \u00b7 the stag heals you, and wakes again', 5]);
     if (this._eased < 1) {
       const pct = Math.round((1 - this._eased) * 100);
       this._fightToasts.push(['WEAKENED', `he still feels the last fight \u00b7 ${pct}% less health this time`, 4.5]);
@@ -1916,7 +1926,7 @@ export class Level03 extends Level {
     if (this.letters) this.letters.dispose();
     if (this.gifts) this.gifts.dispose();
     if (this.state && this._baseMaxHealth) {
-      // Vitality is re-applied from state.awards on the next init; other levels see the normal max
+      // other levels see the normal max
       this.state.maxHealth = this._baseMaxHealth;
       this.state.health = Math.min(this.state.health, this.state.maxHealth);
     }
