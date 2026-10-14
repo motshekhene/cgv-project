@@ -392,6 +392,9 @@ export class ShadowStag {
       this.nose.position.copy(head.worldToLocal(tip));
       head.add(this.nose);
     }
+    // where a rider sits (Level03: Kai can get up on its back): the dip of its back behind the
+    // withers, riding the spine bone there, and how broad it is at each depth below that
+    this.rider = this._measureBack([parts.Stag_2, parts.Stag_1].filter(Boolean), model.getObjectByName('Torso2'));
     this._breathT = 1;
     this._breathOut = 0;
     this._hard = 0; // how hard it's breathing (a charge, a stomp, a ride)
@@ -612,10 +615,88 @@ export class ShadowStag {
     this.stagger(0.8);
   }
 
-  /** Where a rider sits on its back, in the world (out). */
+  /** Where a rider sits, in the world (out): on top of its back, moving with its spine as it bucks. */
   seat(out) {
     this.root.updateMatrixWorld(true);
-    return out.set(0, this.height * 0.5, -0.25).applyMatrix4(this.root.matrixWorld);
+    if (this.rider) return this.rider.bone.localToWorld(out.copy(this.rider.local));
+    return out.set(0, this.height * 0.57, -0.4).applyMatrix4(this.root.matrixWorld);
+  }
+
+  /** Its half-width `depth` m below the top of its back, where a rider sits. */
+  girth(depth) {
+    const r = this.rider;
+    if (!r) return 0.5;
+    const f = THREE.MathUtils.clamp(depth / r.step, 0, r.half.length - 1);
+    const i = Math.floor(f), j = Math.min(i + 1, r.half.length - 1);
+    return r.half[i] + (r.half[j] - r.half[i]) * (f - i);
+  }
+
+  /**
+   * Its back, from the rest pose: slices across the body every 0.1 m along
+   * it, the lowest top among them (the dip behind the withers a rider sits
+   * in), and there its half-width at each depth below the top. Measured where
+   * the slice's edges cross each height, not from the points: a low-poly
+   * body has too few of them to measure a width by.
+   */
+  _measureBack(meshes, bone) {
+    if (!meshes.length || !bone) return null;
+    this.root.updateMatrixWorld(true);
+    const toLocal = new THREE.Matrix4().copy(this.root.matrixWorld).invert();
+    const v = new THREE.Vector3();
+    const tris = [];
+    for (const m of meshes) {
+      const pos = m.geometry.attributes.position, idx = m.geometry.index;
+      const P = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        m.getVertexPosition(i, v).applyMatrix4(m.matrixWorld).applyMatrix4(toLocal);
+        P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z;
+      }
+      const n = idx ? idx.count : pos.count;
+      for (let t = 0; t < n; t += 3) tris.push([P, idx ? idx.getX(t) : t, idx ? idx.getX(t + 1) : t + 1, idx ? idx.getX(t + 2) : t + 2]);
+    }
+    // a slice across it at z: its outline, as segments [x0, y0, x1, y1]
+    const slice = (z) => {
+      const segs = [];
+      for (const [P, a, b, c] of tris) {
+        const pts = [];
+        for (const [i, j] of [[a, b], [b, c], [c, a]]) {
+          const zi = P[i * 3 + 2] - z, zj = P[j * 3 + 2] - z;
+          if ((zi < 0) === (zj < 0)) continue;
+          const t = zi / (zi - zj);
+          pts.push(P[i * 3] + (P[j * 3] - P[i * 3]) * t, P[i * 3 + 1] + (P[j * 3 + 1] - P[i * 3 + 1]) * t);
+        }
+        if (pts.length === 4) segs.push(pts);
+      }
+      return segs;
+    };
+    // the top of a slice, along its middle
+    const topOf = (segs) => {
+      let top = -Infinity;
+      for (const [x0, y0, x1, y1] of segs) {
+        if ((x0 < 0) !== (x1 < 0)) top = Math.max(top, y0 + (y1 - y0) * (-x0 / (x1 - x0)));
+      }
+      return top;
+    };
+    let best = null;
+    for (let z = -1.0; z <= 0.05; z += 0.1) {
+      const segs = slice(z);
+      const top = topOf(segs);
+      if (top > -Infinity && (!best || top < best.top)) best = { z, top, segs };
+    }
+    if (!best) return null;
+    const step = 0.05;
+    const half = new Float32Array(30);
+    for (let i = 0; i < half.length; i++) {
+      const y = best.top - i * step;
+      let w = 0;
+      for (const [x0, y0, x1, y1] of best.segs) {
+        if ((y0 - y) * (y1 - y) > 0 || y0 === y1) continue;
+        w = Math.max(w, Math.abs(x0 + ((x1 - x0) * (y - y0)) / (y1 - y0)));
+      }
+      half[i] = Math.max(w, i ? half[i - 1] : 0); // the barrel of it only widens, this near the top
+    }
+    const seat = new THREE.Vector3(0, best.top, best.z).applyMatrix4(this.root.matrixWorld);
+    return { bone, local: bone.worldToLocal(seat), half, step, top: best.top, z: best.z };
   }
 
   _pick(dist, clear) {

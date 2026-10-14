@@ -7,6 +7,7 @@ import { Nav } from './level3/Nav.js';
 import { Telegraphs } from './level3/Telegraphs.js';
 import { EnforcerSquad } from './level3/Enforcers.js';
 import { ShadowStag } from './level3/ShadowStag.js';
+import { BodyIK, HIP_UP } from './level3/BodyIK.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
@@ -267,6 +268,8 @@ const RIDE_TIME = 3.2;
 const RIDE_HIT = 10; // a blow from its back, before the open x2.2
 const RIDE_HIT_CD = 0.42;
 const RIDE_THROWN = 8;
+const RIDE_LEAP = 0.45; // s up onto its back
+const RIDE_OFF = 0.5; // s down off it
 const MEN_NAME = 'THE COMPANY\u2019S MEN';
 // act III: the stone stag at the gate comes down off its plinth (level3/ShadowStag.js)
 const STAG_NAME = 'THE SHADOW STAG';
@@ -343,6 +346,7 @@ export class Level03 extends Level {
     this.kaiMeta = kai.meta;
     this.handlerMeta = handler.meta;
     this.combat = new CombatController(this.root, kai.source, kai.meta);
+    this.kaiIK = BodyIK.for(this.combat.fighter); // the poses no clip has: astride the stag, down for the horn
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.boss.nav = new Nav(this.arena, 0.45); // his way round the trees after Kai (his collision radius, _collide below)
@@ -943,6 +947,7 @@ export class Level03 extends Level {
     if (this.squad) this.squad.update(dt);
     if (this.act === 'MEN' && this.squad && this.mode === 'FIGHT' && !this._ended && this.squad.done) this._startBossAct();
     if (this.act === 'STAG' && this.stag) this.stag.update(dt);
+    if (this._ride) this._poseRider(); // on its back: posed to where it is now
     // a riposte is only ever the blow into the reel his parry opened
     if (this._riposte && foe && !foe.vulnerable && foe.state !== 'STRIKE') this._riposte = false;
     if (this.mode === 'FIGHT' && !this._ended && b.state !== 'DOWN' && this.act === 'BOSS') this.zones.update(dt, this.boss.threat, this.boss.root.position);
@@ -1027,7 +1032,7 @@ export class Level03 extends Level {
 
     // Strategy gift: call his next move while he lines it up
     const tell = this.strategy && this.mode === 'FIGHT' && !this._ended && this.act === 'BOSS' && TELLS[this.boss.attackName];
-    if (this._ride) {
+    if (this._ride && !this._ride.off) {
       this.hud.setTell(this._rideBar(), 'A / D: lean against it \u00b7 PUNCH / KICK: strike it', '#7ff4ff');
     } else if (this._canRide) {
       this.hud.setTell('E \u00b7 LEAP ON ITS BACK', 'it\u2019s open: get on it, and hold on', '#7ff4ff');
@@ -1584,7 +1589,7 @@ export class Level03 extends Level {
 
   /** The stag's down and cold stone: a few words over it, then the epilogue. */
   _startStagDown() {
-    if (this._ride) this._endRide(false);
+    if (this._ride) this._finishRide();
     this._enterBeat('STAGDOWN');
     this._downCut = false;
     this._downSide = null;
@@ -1651,15 +1656,30 @@ export class Level03 extends Level {
   /** Up onto the stag's back while it's open. */
   _startRide() {
     const k = this.combat;
+    const kf = k.fighter;
     k.blocking = false;
     k.queued = null;
-    k.fighter.setGuard(false);
-    this._ride = { t: 0, balance: 0, push: 0, pushT: 0.3, hitCD: 0.3, from: k.root.position.clone(), punchT: 0 };
+    kf.setGuard(false);
+    k.root.updateMatrixWorld(true);
+    const hips = kf.bone('Hips');
+    this._ride = {
+      t: 0, balance: 0, push: 0, pushT: 0.3, hitCD: RIDE_LEAP, punchT: 0, hands: 1,
+      hipsFrom: hips ? hips.getWorldPosition(new THREE.Vector3()) : k.root.position.clone().setY(k.root.position.y + 0.95),
+      qFrom: k.root.quaternion.clone(),
+    };
+    this._rideBase(0.15);
     this.stag.ride(RIDE_TIME);
     this.hud.popup('ON ITS BACK!', '#7ff4ff');
     this.sound?.play('whoosh', { volume: 0.6, rate: 0.8 });
     this.sound?.play('guardianRoar', { volume: 0.7, rate: 1.15 });
     this._addShake(0.3);
+  }
+
+  /** What he's doing under the pose on its back: standing easy (his legs and hands are laid over it, _poseRider). */
+  _rideBase(fade) {
+    const kf = this.combat.fighter;
+    if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, fade);
+    else kf.play('idle', { fade });
   }
 
   /** On its back: it bucks to throw him one way and the other; he leans against it and lands blows. */
@@ -1668,18 +1688,15 @@ export class Level03 extends Level {
     R.t += dt;
     const k = this.combat;
     const kf = k.fighter;
-    const kp = k.root.position;
     const s = this.stag;
-    const seat = s.seat(this._rideSeat ||= new THREE.Vector3());
-    seat.y -= 0.5; // his hips on its back, legs down its flanks
-    if (R.t < 0.35) {
-      // the leap: an arc up onto it
-      const u = R.t / 0.35;
-      kp.lerpVectors(R.from, seat, u);
-      kp.y += Math.sin(u * Math.PI) * 1.1;
-      if (!R.sat) { R.sat = true; kf.play('sitting', { fade: 0.15 }); }
-    } else {
-      kp.copy(seat);
+    k.heading = s.heading;
+    if (R.off) {
+      // getting off: the arc down beside it is _poseRider's
+      R.off.t += dt;
+      kf.update(dt);
+      return;
+    }
+    if (R.t >= RIDE_LEAP) {
       // it throws its weight one way, then the other; A / D lean against it
       R.pushT -= dt;
       if (R.pushT <= 0) {
@@ -1688,7 +1705,11 @@ export class Level03 extends Level {
       }
       const lean = input.axis('left', 'right');
       R.balance += (R.push + lean * 2.4) * dt * 0.5; // one buck alone won't throw him; two the same way will
-      if (Math.abs(R.balance) >= 1) { this._endRide(true); return; }
+      if (Math.abs(R.balance) >= 1) {
+        this._endRide(true);
+        kf.update(dt);
+        return;
+      }
       // blows from its back
       R.hitCD -= dt;
       if ((input.pressed('attack') || input.pressed('kick')) && R.hitCD <= 0) {
@@ -1703,35 +1724,92 @@ export class Level03 extends Level {
         this.arena.burst(at.x, at.z, { color: 0x7ff4ff, count: 16, speed: 2.6, size: 0.18, y: at.y, lift: 1.2, additive: true });
         if (kf.actions.cross) kf.playOnce('cross', { from: 0.95, speed: 1.9, fade: 0.05 });
         R.punchT = 0.32;
-        if (!s.alive) { this._endRide(false); return; }
+        if (!s.alive) {
+          this._endRide(false);
+          kf.update(dt);
+          return;
+        }
       }
-      if (R.punchT > 0 && (R.punchT -= dt) <= 0) kf.play('sitting', { fade: 0.12 });
-      kf.visual.rotation.z = -R.balance * 0.45;
+      if (R.punchT > 0 && (R.punchT -= dt) <= 0) this._rideBase(0.12);
     }
-    k.heading = s.heading;
-    k.root.rotation.y = k.heading;
+    // a hand comes off it to throw a punch, and goes back
+    R.hands += ((R.punchT > 0 ? 0 : 1) - R.hands) * (1 - Math.exp(-16 * dt));
     state.regenStamina(8, dt);
-    if (R.t >= RIDE_TIME) { this._endRide(false); return; }
+    if (R.t >= RIDE_TIME) this._endRide(false);
     kf.update(dt);
   }
 
-  /** Off its back: thrown (a fall, and it hurts), or he jumps clear when it tires. */
+  /**
+   * Kai on the stag, posed once it has moved this frame (BodyIK over his
+   * standing-easy clip): the leap up onto its back, his hips in an arc and
+   * his legs swinging over; astride it, tipped with it as it bucks and leaning
+   * with his balance, his legs down its flanks; or the arc down off it beside
+   * it, the legs coming back under him as he drops.
+   */
+  _poseRider() {
+    const R = this._ride;
+    const k = this.combat;
+    const kr = k.root;
+    const s = this.stag;
+    const ik = this.kaiIK;
+    const seat = s.seat(this._rideSeat ||= new THREE.Vector3());
+    const frame = s.root.getWorldQuaternion(this._rideQ ||= new THREE.Quaternion());
+    const girth = (this._girth ||= (d) => this.stag.girth(d));
+    if (R.off) {
+      const O = R.off;
+      const u = Math.min(1, O.t / RIDE_OFF);
+      const e = smooth(0, 1, u);
+      kr.quaternion.slerpQuaternions(O.qFrom, O.qTo, e);
+      kr.position.lerpVectors(O.from, O.to, e);
+      kr.position.y += Math.sin(u * Math.PI) * (O.thrown ? 0.5 : 0.8);
+      kr.updateMatrixWorld(true);
+      // the straddle let go of as he drops, carried along with him
+      const carried = (this._rideArc ||= new THREE.Vector3()).copy(O.seat).add(kr.position).sub(O.from);
+      ik?.straddle(carried, O.frame, girth, 1 - smooth(0, 0.75, u), { place: 0, lean: O.lean, hands: 0 });
+      if (u >= 1) this._finishRide();
+      return;
+    }
+    if (!ik) {
+      kr.quaternion.copy(frame);
+      kr.position.copy(seat).y -= 0.95;
+      return;
+    }
+    if (R.t < RIDE_LEAP) {
+      // the leap: his hips in an arc from where he stood, up and over onto its back
+      const u = R.t / RIDE_LEAP;
+      const e = smooth(0, 1, u);
+      kr.quaternion.slerpQuaternions(R.qFrom, frame, e);
+      const up = (this._rideUp ||= new THREE.Vector3()).set(0, 1, 0).applyQuaternion(frame);
+      const arc = (this._rideArc ||= new THREE.Vector3()).copy(R.hipsFrom).addScaledVector(up, -HIP_UP).lerp(seat, e);
+      arc.y += Math.sin(u * Math.PI) * 0.9;
+      ik.straddle(arc, frame, girth, smooth(0, 0.3, u), { place: 1, hands: smooth(0.5, 1, u), tuck: 1 - smooth(0.45, 1, u) });
+    } else {
+      kr.quaternion.copy(frame);
+      ik.straddle(seat, frame, girth, 1, { lean: R.balance * 0.5, hands: R.hands });
+    }
+  }
+
+  /** Off its back: thrown (a fall, and it hurts), or he jumps clear when it tires. The drop itself is _poseRider's. */
   _endRide(thrown) {
     const R = this._ride;
-    if (!R) return;
-    this._ride = null;
+    if (!R || R.off) return;
     const k = this.combat;
-    const kf = k.fighter;
-    const kp = k.root.position;
     const s = this.stag;
     const side = thrown ? Math.sign(R.balance) || 1 : 1;
     // down beside it, on the side he fell (its right is -x in its frame)
     const h = s.heading;
-    kp.set(s.root.position.x - Math.cos(h) * side * 2.4, 0, s.root.position.z + Math.sin(h) * side * 2.4);
-    this.arena.collide(kp, 0.4);
-    kp.y = this.arena.fighterY(kp.x, kp.z);
-    kf.visual.rotation.z = 0;
-    kf.play('idle', { fade: 0.2 });
+    const to = new THREE.Vector3(s.root.position.x - Math.cos(h) * side * 2.4, 0, s.root.position.z + Math.sin(h) * side * 2.4);
+    this.arena.collide(to, 0.4);
+    to.y = this.arena.fighterY(to.x, to.z);
+    R.off = {
+      t: 0, thrown, to,
+      from: k.root.position.clone(),
+      qFrom: k.root.quaternion.clone(),
+      qTo: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, k.heading, 0)),
+      seat: s.seat(new THREE.Vector3()),
+      frame: s.root.getWorldQuaternion(new THREE.Quaternion()),
+      lean: R.balance * 0.5,
+    };
     if (s.alive) s.endRide();
     if (thrown) {
       this.state.damage(RIDE_THROWN);
@@ -1740,8 +1818,22 @@ export class Level03 extends Level {
       this._addShake(0.4);
       this.hud.popup('THROWN!', '#ff8a5a');
       this.sound?.play('bodyFall', { volume: 0.7 });
+      if (!this.state.alive) this._finishRide(); // it was the last of him: down at once, for the fall
       this._checkPlayerDeath(this.state);
     } else this.hud.popup('JUMPED CLEAR', '#7ff4ff');
+  }
+
+  /** Off it and on his feet beside it (at the end of the drop, or at once), back in the fight. */
+  _finishRide() {
+    const R = this._ride;
+    if (!R) return;
+    if (!R.off) this._endRide(false);
+    this._ride = null;
+    const k = this.combat;
+    k.root.position.copy(R.off.to);
+    k.root.rotation.set(0, k.heading, 0);
+    k.fighter.visual.rotation.z = 0;
+    if (!k.dead) k.fighter.play('idle', { fade: 0.2 });
   }
 
   /** Where his balance is, as a bar for the HUD: the marker drifts as it bucks. */
@@ -2295,10 +2387,21 @@ export class Level03 extends Level {
     const s = this.time - this._orbitFrom;
     const a = this._orbitA0 + s * 0.18;
     this.cine.pos.set(bp.x + Math.cos(a) * 3.8, bp.y + 1.4 + Math.min(s, 6) * 0.12, bp.z + Math.sin(a) * 3.8);
+    this.cine.look.set(bp.x, bp.y + 0.4, bp.z);
     this.cine.rate = 3;
     // if he had the horn, it's lying where it fell: Kai goes and takes it back first
     const waiting = this._hornTaken && !this._pickedUp;
     if (waiting && this.beatT > 1.2) this._updatePickup(dt);
+    const P = this._pickup;
+    if (waiting && P) {
+      // on him while he does it: following him over, then close and low on his right as he gets down to it
+      const kp = k.root.position;
+      const fx = Math.sin(k.heading), fz = Math.cos(k.heading);
+      const near = P.phase !== 'walk';
+      const side = near ? 2.3 : 3.4, ahead = near ? 1.1 : -1.8;
+      this.cine.pos.set(kp.x - fz * side + fx * ahead, kp.y + (near ? 0.95 : 1.7), kp.z + fx * side + fz * ahead);
+      this.cine.look.set(kp.x + fx * 0.35, kp.y + (near ? 0.5 : 1.0), kp.z + fz * 0.35);
+    }
     // a breath over him, then last words; then Kai blows the horn, the forest answers, and the card
     if (this.mode === 'EPILOGUE' && !this._epiTalked && !waiting && this.beatT > 2.2) {
       this._epiTalked = true;
@@ -2307,13 +2410,15 @@ export class Level03 extends Level {
     this._tickLine(dt);
     if (this.mode === 'EPILOGUE' && this._endAt && this.beatT > this._endAt) this._showEnd();
     k.fighter.update(dt);
+    this._posePickup();
   }
 
   /**
-   * Kai takes the horn back. He walks over to where it fell and holds out his
-   * hand, and it lifts off the ground and comes to him, glowing, the way it
-   * came up off the stone into his hand at the start: it was always his to
-   * carry home.
+   * Kai takes the horn back, the way anyone picks a thing up off the ground:
+   * he walks over to it (round whatever's in the way, at a jog if it's far),
+   * stops with it just ahead of his right foot, squats down over it, takes it
+   * in his right hand and stands up with it. The squat and the reach are
+   * BodyIK.stoop over his standing-easy pose (_posePickup, after the clip).
    */
   _updatePickup(dt) {
     const k = this.combat;
@@ -2321,52 +2426,79 @@ export class Level03 extends Level {
     const horn = this.keyItem;
     const palm = kf.bone('PalmR');
     if (!horn || !palm || this._hornDrop) return; // still falling
-    const P = this._pickup || (this._pickup = { phase: 'walk', t: 0, from: new THREE.Vector3(), to: new THREE.Vector3() });
+    const P = this._pickup || (this._pickup = { phase: 'walk', t: 0, w: 0, at: new THREE.Vector3(), stand: new THREE.Vector3(), root: new THREE.Vector3(), dir: new THREE.Vector3() });
     P.t += dt;
     const kp = k.root.position;
-    const hp = horn.getWorldPosition(P.to);
-    const dx = hp.x - kp.x, dz = hp.z - kp.z;
-    const dist = Math.hypot(dx, dz);
-    if (P.phase !== 'hold') {
-      k.heading += shortestAngle(k.heading, Math.atan2(dx, dz)) * (1 - Math.exp(-8 * dt));
-      k.root.rotation.y = k.heading;
-    }
     if (P.phase === 'walk') {
-      if (dist > 1.05) {
-        kf.play('walk', { fade: 0.25 });
-        kp.x += (dx / dist) * 1.5 * dt;
-        kp.z += (dz / dist) * 1.5 * dt;
+      const hp = horn.getWorldPosition(P.at);
+      const dx = hp.x - kp.x, dz = hp.z - kp.z;
+      const dist = Math.max(1e-4, Math.hypot(dx, dz));
+      // the way he comes at it, settled once he's close (or the spot to stand on would circle it as he moved)
+      if (!P.f || dist > 1.6) P.f = { x: dx / dist, z: dz / dist };
+      const fx = P.f.x, fz = P.f.z;
+      // where to stand: a step short of it, with it just ahead of his right foot
+      const stand = P.stand.set(hp.x - fx * 0.4 + fz * 0.15, 0, hp.z - fz * 0.4 - fx * 0.15);
+      const sx = stand.x - kp.x, sz = stand.z - kp.z;
+      const togo = Math.hypot(sx, sz);
+      if (togo > 0.08 && P.t < 14) {
+        const run = togo > 4;
+        const dir = togo > 1.2 ? (this._kaiNav ||= new Nav(this.arena, 0.4)).steer(kp, stand, P.dir) : P.dir.set(sx / togo, 0, sz / togo);
+        const step = Math.min(togo, (run ? 3.4 : 1.4) * dt);
+        kp.x += dir.x * step;
+        kp.z += dir.z * step;
+        this.arena.collide(kp, 0.4);
         kp.y = this.arena.fighterY(kp.x, kp.z);
+        kf.play(run ? 'run' : 'walk', { fade: 0.25 });
+        // facing the way he's going, and for the last metre, the horn
+        const face = togo > 0.9 ? Math.atan2(dir.x, dir.z) : Math.atan2(fx, fz);
+        k.heading += shortestAngle(k.heading, face) * (1 - Math.exp(-8 * dt));
       } else {
-        P.phase = 'call';
+        // there: he stands easy, square to it, and gets down to it
+        P.phase = 'stoop';
         P.t = 0;
-        P.from.copy(hp);
-        P.spin = horn.rotation.clone();
-        if (!kf.actions.reach) kf.pose('reach', 'cross', 1.133); // his right arm out at full stretch, as at the stone
-        kf.play('reach', { fade: 0.4 });
-        this.sound?.play('whoosh', { volume: 0.45, rate: 0.7 });
+        P.root.copy(kp);
+        P.face = Math.atan2(fx, fz);
+        if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, 0.25);
+        else kf.play('idle', { fade: 0.25 });
       }
-    } else if (P.phase === 'call') {
-      const u = smooth(0.35, 1.6, P.t);
-      palm.getWorldPosition(P.to);
-      horn.position.lerpVectors(P.from, P.to, u);
-      horn.position.y += Math.sin(u * Math.PI) * 0.45;
-      horn.rotation.set(P.spin.x * (1 - u), P.spin.y + u * Math.PI * 2, P.spin.z * (1 - u));
-      this.root.worldToLocal(horn.position);
-      const glow = Math.sin(Math.min(1, P.t / 1.6) * Math.PI);
-      horn.userData.material.emissiveIntensity = 0.5 + 1.4 * glow;
-      horn.userData.glow.material.opacity = 0.6 + 0.4 * glow;
-      if (P.t >= 1.6) {
+      k.root.rotation.y = k.heading;
+      return;
+    }
+    // down to it, take it, back up: the squat is laid on afresh every frame, from where he stands
+    kp.copy(P.root);
+    if (P.phase === 'stoop') {
+      k.heading += shortestAngle(k.heading, P.face) * (1 - Math.exp(-10 * dt));
+      P.w = smooth(0.15, 0.85, P.t);
+      if (!P.held && P.t >= 0.85) {
+        // his hand round it
+        P.held = true;
         palm.attach(horn);
+        this.sound?.play('parry', { volume: 0.35, rate: 0.7 });
+      }
+      if (P.t >= 1.05) {
+        P.phase = 'rise';
+        P.t = 0;
+      }
+    } else if (P.phase === 'rise') {
+      P.w = 1 - smooth(0, 0.8, P.t);
+      if (P.t >= 0.8) {
         P.phase = 'hold';
         P.t = 0;
-        kf.play('idle', { fade: 0.6 });
-        this.sound?.play('parry', { volume: 0.4, rate: 0.6 });
       }
     } else {
-      poseHorn(horn, palm, HORN_HAND, 1 - Math.exp(-10 * dt));
-      if (P.t > 0.7) this._pickedUp = true;
+      P.w = 0;
+      if (P.t > 0.4) this._pickedUp = true;
     }
+    if (P.held) poseHorn(horn, palm, HORN_HAND, 1 - Math.exp(-9 * dt)); // settling into his grip
+    k.root.rotation.y = k.heading;
+  }
+
+  /** The squat over the horn, laid over his standing-easy pose once the clip has run this frame. */
+  _posePickup() {
+    const P = this._pickup;
+    if (!P || P.phase === 'walk' || P.w < 0.002 || !this.kaiIK) return;
+    const kp = this.combat.root.position;
+    this.kaiIK.stoop(P.at, P.w, this.arena.fighterY(kp.x, kp.z));
   }
 
   /**
