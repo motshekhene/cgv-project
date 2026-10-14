@@ -40,6 +40,8 @@ import {
   makeJungleObstacle,
 } from "./level1/jungleWorld.js";
 import { LightPool } from "./level1/lightPool.js";
+import { hornBlowPose, Shockwave, RootBurst, Shards, hornBuffer } from "./level1/hornCall.js";
+import { loadAnimalModels, makeAnimalFromModel, makeKudu } from "./level2/obstacles.js";
 import { isMuted, toggleMuted, onMuteChange } from "../audio/masterMute.js";
 
 /**
@@ -304,6 +306,20 @@ const OBSTACLE_POOL = 16;
 const OBSTACLE_BEHIND = 30; // metres behind Kai a mesh stays drawn
 const OBSTACLE_AHEAD = 210; // ...and ahead, past the fog wall
 
+// --- the horn call (level1/hornCall.js) ---
+// The tokens fill the horn; full, Kai blows it on the run and the forest
+// answers: everything on the trail HORN_REACH m ahead of him shatters, and
+// roots hold the Marshal where he stands for HORN_HOLD s (about 10-15 m of
+// ground, at his speed), then he breaks free and comes on again.
+const HORN_TOKENS = 20;
+const HORN_REACH = 45;
+const HORN_HOLD = 0.7;
+const HORN_BLOW = 1.3; // s: hand up, the call, hand down
+const HORN_FIRE = 0.4; // s in: the forest answers
+const HORN_RAISE = 0.3; // s to get it to his lips, and the same to put it back
+// what each obstacle breaks into
+const SHARD_COLOUR = { barrier: 0x5a4330, trolley: 0x6b5a44, duct: 0x8a8a76, crate: 0x7a5c3a, barrel: 0x6e4a2a, trap: 0x55524a, wall: 0x8a8a76 };
+
 // --- falling-tree set pieces ---
 // These are telegraphed well ahead of Kai and land as jumpable obstacles. They
 // are deliberately placed on flatter stretches so the trunk visibly falls
@@ -368,12 +384,38 @@ const HIGH_RUINS_HAZARDS = [
   { type: "rotor", z: -4090 },
 ];
 
+// --- the trail's own life ---
+// Not everything on the trail was put there: kudu bolt across it as Kai
+// comes (too tall to jump: change lanes), and logs
+// from the logging company's timber come rolling down it at him across two
+// lanes (jump, or take the open one). Each starts on time, not distance: a
+// herd so its first animal reaches the middle of the trail as he does (they
+// stand in plain sight at the treeline before that), a log `lead` s before
+// he'd reach it, so it's the same read in every gear. The random obstacle
+// field keeps clear of them.
+const TRAIL_LIFE = [
+  { type: "stampede", z: -175, side: -1, herd: ["kudu"] },
+  { type: "stampede", z: -1885, side: 1, herd: ["kudu", "kudu"] },
+  { type: "rollingLog", z: -2010, lanes: [1, 2], lead: 2.2 },
+  { type: "stampede", z: -2660, side: -1, herd: ["kudu", "kudu", "kudu"] },
+  { type: "rollingLog", z: -2860, lanes: [0, 1], lead: 2.2 },
+];
+const TRAIL_LIFE_CLEAR = 24; // m either side of one with no random obstacles
+const ANIMAL = {
+  kudu: { speed: 11.5, halfX: 1.1, hiY: 1.75, length: 2.1 },
+};
+const LOG_R = 0.42;
+const LOG_LEN = 5.0;
+const LOG_SPEED = 10;
+
 function scriptedSetPieceZone(z) {
   return (
     (z <= -660 && z >= -1245) ||
     (z <= -1270 && z >= -1635) ||
     (z <= -2110 && z >= -2535) ||
-    (z <= -3240 && z >= -4135)
+    (z <= -3240 && z >= -4135) ||
+    // round each piece of the trail's life, and down the trail to where a log lies waiting
+    TRAIL_LIFE.some((t) => z <= t.z + TRAIL_LIFE_CLEAR && z >= t.z - TRAIL_LIFE_CLEAR - (t.type === "rollingLog" ? 12 : 0))
   );
 }
 
@@ -482,6 +524,12 @@ const LEVEL1_HUD_CSS = `
 .l1h-pip { position:absolute; top:-2px; bottom:-2px; width:2px; background:rgba(0,0,0,.7); }
 .l1h-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; white-space:nowrap; margin-top:5px; font-size:9px; letter-spacing:.2em; color:var(--ink-dim); }
 .l1h-jet { color:var(--key); }
+.l1h-hornrow { align-items:center; }
+.l1h-horn { color:#7fb9bd; transition:color .3s, text-shadow .3s; }
+.l1h-horn.full { color:#aaf6fb; text-shadow:0 0 8px #4fd6e0; animation:l1hHorn 1.1s ease-in-out infinite; }
+.l1h-hornbar { flex:1; height:4px; background:rgba(0,0,0,.55); border-radius:2px; overflow:hidden; box-shadow:0 0 0 1px rgba(0,0,0,.6); }
+.l1h-hornbar > div { height:100%; width:0; background:linear-gradient(90deg,#1f7f88,#7fe9f0); box-shadow:0 0 8px #4fd6e0; transition:width .25s ease-out; }
+@keyframes l1hHorn { 50% { filter:brightness(1.5); } }
 .l1h-player { position:relative; grid-column:1; justify-self:start; width:250px; max-width:100%; padding:5px 11px 7px; transition:border-color .3s; }
 .l1h-player.low { border-color:rgba(242,147,79,.75); }
 .l1h-player.low .l1h-hp { animation:l1hLow .8s ease-in-out infinite; }
@@ -645,6 +693,11 @@ export class Level01 extends Level {
     this._rewardTime = 0;
     this.rewardCount = 0;
     this.rewardScore = 0;
+    this._hornCharge = 0; // 0..1, from tokens
+    this._hornT = -1; // seconds into a horn call, or -1
+    this._hornCalls = 0;
+    this._handlerRootedT = 0; // > 0 while the roots have him
+    this._hornFov = 0;
     this._jetpackPickups = [];
     this._jetpackActive = false;
     this._jetpackT = 0;
@@ -776,6 +829,7 @@ export class Level01 extends Level {
     this._wildlife = createJungleWildlife(this.root);
     this._buildRouteSplit(mats);
     this._buildDarkShrine(mats);
+    this._animalModels = await loadAnimalModels(assets).catch(() => ({})); // the trail's animals (TRAIL_LIFE)
     this._buildAdventureHazards(mats);
     this._buildGuardianTeases();
     this._buildStoryLetters();
@@ -831,6 +885,14 @@ export class Level01 extends Level {
     this._buildJetpackFx();
     this._buildTempleRunHUD();
     this._ensureAudio();
+
+    // the horn call's effects; its flash is a light like any other glow, so it
+    // has to exist before the light pool below takes its census
+    this._hornFx = { wave: new Shockwave(this.root), roots: new RootBurst(this.root), shards: new Shards(this.root) };
+    this._hornLight = new THREE.PointLight(0x4fd6e0, 0, 34, 2);
+    this._hornLight.position.set(0, 1.7, -1.5);
+    this.player.add(this._hornLight);
+    this._hornAt = new THREE.Vector3();
 
     // Every glow on the course shares a fixed set of real lights (see
     // level1/lightPool.js), so showing or hiding one never recompiles the
@@ -1229,6 +1291,7 @@ export class Level01 extends Level {
     for (let i = this._obsCursor; i < this.obstacles.length; i++) {
       const o = this.obstacles[i];
       if (o.z < horizon) break; // sorted, so nothing past this is in view either
+      if (o.gone) continue; // the horn took it
       const pool = this._obstacleMeshes[o.kind];
       if (used[o.kind] >= pool.length) continue;
       const mesh = pool[used[o.kind]++];
@@ -1322,6 +1385,77 @@ export class Level01 extends Level {
     // the high ruins: all of them again, closer together
     const build = { boulder, swing, fallingBlock, doors, rotor };
     for (const h of HIGH_RUINS_HAZARDS) build[h.type](h.z, h.lane);
+
+    // the trail's own life: animals across it, timber down it
+    for (const def of TRAIL_LIFE) {
+      if (def.type === "stampede") this._buildStampede(def, add);
+      else this._buildRollingLog(def, add);
+    }
+  }
+
+  /** One of Level 2's kudu (the deer and stag models, else the low-poly one), facing +x. */
+  _makeTrailAnimal(kind, n) {
+    const list = this._animalModels?.KUDU || [];
+    if (list.length) return makeAnimalFromModel({ ...list[n % list.length], length: ANIMAL[kind].length }, 7);
+    return makeKudu();
+  }
+
+  /** A herd waiting in the treeline on one side, to bolt across when Kai is close. */
+  _buildStampede(def, add) {
+    const animals = def.herd.map((kind, i) => {
+      const mesh = this._makeTrailAnimal(kind, i);
+      const z = def.z + (i - (def.herd.length - 1) / 2) * 2.4;
+      const x = -def.side * (10.5 + i * 1.8);
+      mesh.position.set(x, jungleCourseHeight(z), z);
+      mesh.rotation.y = def.side > 0 ? 0 : Math.PI;
+      this.root.add(mesh);
+      return { kind, mesh, z, x, delay: i * 0.3, gait: Math.random() * 6, flee: false, ...ANIMAL[kind] };
+    });
+    // off when he's as long away as the first of them takes to reach the middle of the trail
+    const lead = Math.min(...animals.map((a) => Math.abs(a.x) / a.speed + a.delay)) + 0.1;
+    add({ type: "stampede", object: null, z: def.z, side: def.side, animals, lead, triggerZ: def.z + 40 });
+  }
+
+  /** A log across two lanes, lying further down the trail until it comes rolling at him. */
+  _buildRollingLog(def, add) {
+    if (!this._logMats) {
+      this._logMats = [
+        new THREE.MeshStandardMaterial({ color: 0x5d4330, roughness: 1, flatShading: true }),
+        new THREE.MeshStandardMaterial({ color: 0xb48c5c, roughness: 0.9 }),
+      ];
+    }
+    const geo = new THREE.CylinderGeometry(LOG_R, LOG_R * 1.06, LOG_LEN, 12, 1);
+    geo.rotateZ(Math.PI / 2); // lying across the trail, its axis along x
+    const log = new THREE.Mesh(geo, [this._logMats[0], this._logMats[1], this._logMats[1]]);
+    log.castShadow = true;
+    log.receiveShadow = true;
+    const x = (LANE_X[def.lanes[0]] + LANE_X[def.lanes[1]]) / 2;
+    const startZ = def.z - 30;
+    log.position.set(x, jungleCourseHeight(startZ) + LOG_R, startZ);
+    this.root.add(log);
+    add({ type: "rollingLog", object: log, z: def.z, x, logZ: startZ, speed: 0, lead: def.lead, triggerZ: def.z + 40 });
+  }
+
+  /** Legs or run cycle, for one of the trail's animals. */
+  _animalGait(a, dt, running) {
+    const ud = a.mesh.userData;
+    if (ud.mixer) {
+      if (running && ud.run && !a.running) {
+        a.running = true;
+        ud.idle?.stop();
+        ud.run.reset().play();
+        ud.run.timeScale = 1.5;
+      }
+      ud.mixer.update(dt);
+      return;
+    }
+    a.gait += dt * (running ? ud.stride * 1.4 : 0);
+    const sw = running ? Math.sin(a.gait) * ud.swing : 0;
+    if (ud.legs) {
+      ud.legs[0].rotation.z = sw; ud.legs[3].rotation.z = sw;
+      ud.legs[1].rotation.z = -sw; ud.legs[2].rotation.z = -sw;
+    }
+    if (ud.tail) ud.tail.rotation.x = Math.sin(this._rewardTime * 9 + a.z) * 0.4;
   }
 
   _updateAdventureHazards(dt, x, prevZ) {
@@ -1350,7 +1484,19 @@ export class Level01 extends Level {
         h.object.rotation.z = h.swingAngle;
       }
 
+      // the trail's life starts on time, not distance: `lead` s before he's there, at his speed
+      if (h.lead) h.triggerZ = h.z + Math.max(8, this.speed * h.lead);
+      // a herd is only drawn (and its legs or run cycle kept going) while he's anywhere near it:
+      // skinned models can't be culled by the camera, so it would otherwise cost every frame of the run
+      if (h.type === "stampede") {
+        const near = h.z < this.z + 40 && h.z > this.z - 220;
+        for (const a of h.animals) a.mesh.visible = near && !a.done;
+        if (!h.active && near) for (const a of h.animals) this._animalGait(a, dt, false);
+      }
+
       if (!h.active && this.z <= h.triggerZ) {
+        if (h.type === "stampede") this._showTransientBanner("KUDU BOLTING ACROSS \u2014 CHANGE LANES", 1.8);
+        if (h.type === "rollingLog") this._showTransientBanner("ROLLING TIMBER \u2014 JUMP IT OR TAKE THE OPEN LANE", 1.8);
         h.active = true;
         h.t = 0;
         if (this._audio) this._audio.playOneShot("stoneGrind", { volume: h.type === "boulder" ? 0.52 : 0.38 });
@@ -1358,6 +1504,36 @@ export class Level01 extends Level {
       }
       if (!h.active) continue;
       h.t += dt;
+
+      if (h.type === "stampede") {
+        const feetNow = feet;
+        for (const a of h.animals) {
+          if (h.t < a.delay || a.done) continue;
+          const dir = a.flee ? -h.side : h.side;
+          a.x += dir * a.speed * (a.flee ? 1.4 : 1) * dt;
+          a.mesh.position.x = a.x;
+          a.mesh.rotation.y = dir > 0 ? 0 : Math.PI;
+          this._animalGait(a, dt, true);
+          if (!a.flee && !h.hit && Math.abs(this.z - a.z) < 0.95 && Math.abs(x - a.x) < a.halfX + 0.35 && feetNow < a.hiY) {
+            registerHit(h, a.x);
+          }
+          if (Math.abs(a.x) > 19) { a.done = true; a.mesh.visible = false; }
+        }
+        continue;
+      } else if (h.type === "rollingLog") {
+        if (h.gone) continue;
+        h.speed = Math.min(LOG_SPEED, h.speed + 14 * dt);
+        const rel0 = prevZ - h.logZ;
+        h.logZ += h.speed * dt;
+        const rel = this.z - h.logZ;
+        h.object.position.set(h.x, jungleCourseHeight(h.logZ) + LOG_R, h.logZ);
+        h.object.rotation.x += (h.speed / LOG_R) * dt;
+        // he and it meet (swept: at 35 m/s closing they can pass between frames)
+        const met = (rel0 > 0) !== (rel > 0) || Math.abs(rel) < LOG_R + 0.45;
+        if (!h.hit && met && Math.abs(x - h.x) < LOG_LEN / 2 + 0.3 && feet < LOG_R * 2 + 0.06) registerHit(h, h.x);
+        if (h.logZ > this.z + 25) { h.gone = true; h.object.visible = false; }
+        continue;
+      }
 
       if (h.type === "boulder") {
         const u = THREE.MathUtils.clamp(h.t / 1.55, 0, 1);
@@ -1554,6 +1730,7 @@ export class Level01 extends Level {
 
     for (const ev of this._fallingTrees) {
       const treeTrigger = ev.behind ? ev.z - 4 : ev.z + FALL_TREE_TRIGGER_AHEAD;
+      if (ev.phase === "gone") continue; // the horn took it
       if (ev.phase === "waiting" && this.z <= treeTrigger) {
         ev.phase = "falling";
         ev.t = 0;
@@ -1972,6 +2149,11 @@ export class Level01 extends Level {
       this.rewardScore += r.value;
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
+      // every token feeds the horn
+      if (this._hornCharge < 1) {
+        this._hornCharge = Math.min(1, this._hornCharge + 1 / HORN_TOKENS);
+        if (this._hornCharge >= 1) this._hornFull();
+      }
 
       if (this._audio) this._audio.playOneShot("coin", { volume: 0.42, rate: 0.97 + Math.random() * 0.06 });
     }
@@ -2250,6 +2432,7 @@ export class Level01 extends Level {
       <div class="l1h-name">KAI <em><span data-reward-count>0</span> TOKENS · <span data-reward-score>0</span></em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
+      <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
     `;
 
     const handlerPanel = document.createElement("div");
@@ -2287,7 +2470,7 @@ export class Level01 extends Level {
       position: "absolute",
       right: "27px",
       bottom: "48px", // clear of the H · CONTROLS pill in the corner
-      width: "144px",
+      width: "220px",
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
@@ -2308,6 +2491,10 @@ export class Level01 extends Level {
       <button type="button" data-screen-hold="lookBack" title="Hold to look back" style="${lookStyle}">
         <span>LOOK<br>BACK</span>
         <span style="font-size:7px;letter-spacing:.12em;opacity:.28;font-weight:700">C</span>
+      </button>
+      <button type="button" data-screen-action="horn" title="Blow the horn (when it's full)" style="${lookStyle};border-color:rgba(79,214,224,.6);color:#bff6fa">
+        <span>HORN</span>
+        <span style="font-size:7px;letter-spacing:.12em;opacity:.28;font-weight:700">V</span>
       </button>
     `;
 
@@ -2364,6 +2551,8 @@ export class Level01 extends Level {
     this._hudRewardCount = stat.querySelector("[data-reward-count]");
     this._hudRewardScore = stat.querySelector("[data-reward-score]");
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
+    this._hudHornLabel = stat.querySelector("[data-horn-label]");
+    this._hudHornFill = stat.querySelector("[data-horn-fill]");
     this._hudHealthFill = stat.querySelector("[data-health-fill]");
     this._hudHealthFlash = stat.querySelector("[data-health-flash]");
     this._hudHealthText = stat.querySelector("[data-health-text]");
@@ -2544,6 +2733,12 @@ export class Level01 extends Level {
 
     if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
     if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
+    if (this._hudHornFill) {
+      const full = this._hornCharge >= 1;
+      this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
+      this._hudHornLabel.classList.toggle("full", full);
+      this._hudHornLabel.textContent = this._hornT >= 0 ? "THE FOREST ANSWERS" : full ? "THE HORN \u00b7 PRESS V" : "THE HORN";
+    }
 
     // --- health bar ---
     if (this._hudHealthFill) {
@@ -2715,7 +2910,7 @@ export class Level01 extends Level {
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
-      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M` }],
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  ${this.rewardCount} TOKENS  ·  HORN CALLS ${this._hornCalls}` }],
       action: {
         label: "CONTINUE",
         key: "SPACE",
@@ -3212,7 +3407,7 @@ export class Level01 extends Level {
       // hasn't reached anything past it either.
       if (o.z + o.halfZ + CLIP_PAD_Z < this.z) break;
 
-      if (o.clipped) continue; // already paid for this one
+      if (o.clipped || o.gone) continue; // already paid for this one, or the horn took it
       if (prevZ <= o.z - o.halfZ - CLIP_PAD_Z) continue; // already behind him
       if (Math.abs(x - o.x) >= o.halfX + CLIP_PAD_X) continue; // dodged by lane
       if (feet >= o.hiY || head <= o.loY) continue; // jumped over it, or slid under
@@ -3292,7 +3487,8 @@ export class Level01 extends Level {
     if (!this.caught && !this.escaped) {
       if (this._handlerRageT > 0) this._handlerRageT = Math.max(0, this._handlerRageT - dt);
       const rageBoost = this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0;
-      const handlerSpeed = this.baseSpeed + HANDLER_CREEP + rageBoost;
+      // the roots have him: he stands where they caught him until he tears free
+      const handlerSpeed = this._handlerRootedT > 0 ? 0 : this.baseSpeed + HANDLER_CREEP + rageBoost;
       this.gap = Math.min(HANDLER_MAX_GAP, this.gap + (this.speed - handlerSpeed) * dt);
 
       if (this.gap <= 0) {
@@ -3835,6 +4031,7 @@ export class Level01 extends Level {
 
   update(dt, state) {
     this._updateRun(dt, state);
+    if (this._finale || this.caught) state.timeScale = 1; // never stuck in a horn call's slow beat
     const cam = this.game?.camera;
     if (!cam) return;
     cam.getWorldPosition(this._tmp);
@@ -3955,6 +4152,8 @@ export class Level01 extends Level {
         this._audio?.playOneShot("land", { volume: 0.48, rate: 0.9 + Math.random() * 0.2 });
       }
     }
+
+    this._updateHornCall(dt, input, state);
 
     // --- slide (CTRL) ---
     // @1A: input.slide was already bound but nothing read it, and the ceiling
@@ -4184,7 +4383,7 @@ export class Level01 extends Level {
 
     // boost widens the FOV — cheapest honest way to sell acceleration.
     // Restored in teardown() since the camera belongs to Game, not the level.
-    const fovTarget = this._baseFov + (this.boostSpeed / 10) * 7 + (this._jetpackActive ? 5 : 0);
+    const fovTarget = this._baseFov + (this.boostSpeed / 10) * 7 + (this._jetpackActive ? 5 : 0) + (this._hornFov || 0);
     if (Math.abs(cam.fov - fovTarget) > 0.01) {
       cam.fov += (fovTarget - cam.fov) * (1 - Math.exp(-5 * dt));
       cam.updateProjectionMatrix();
@@ -4511,7 +4710,9 @@ export class Level01 extends Level {
     const monk = this.handlerMonk;
     if (!monk) return;
     const stopped = this.caught || (this._handlerSealed && this.handler.position.z <= this._handlerBarZ + 0.05);
-    if (stopped) {
+    if (this._handlerRootedT > 0 && !stopped) {
+      monk.play(monk.actions.stunned ? "stunned" : "idle", { fade: 0.12 }); // caught round the legs
+    } else if (stopped) {
       if (monk.currentName === "run") {
         if (monk.actions.angry) monk.playOnce("angry", { fade: 0.25 });
         else monk.play("idle", { fade: 0.25 });
@@ -4574,7 +4775,124 @@ export class Level01 extends Level {
     kai.update(dt);
     if (fk > 0.01 && kai.currentName === "fly") this._flightPose(kai, fk);
     if (slide > 0.01) this._slidePose(kai, slide);
+    // the horn call: up to his lips mid-stride, and back to his hip
+    if (this._hornT >= 0 || this._hornPosed) {
+      const t = this._hornT;
+      const k = t < 0 ? 0 : THREE.MathUtils.smoothstep(Math.min(t, HORN_BLOW - t), 0, HORN_RAISE);
+      hornBlowPose(kai, k);
+      this._hornPosed = t >= 0;
+    }
     this._updateExhaust(dt);
+  }
+
+  /**
+   * THE HORN CALL, per frame (level1/hornCall.js for the look of it): V or
+   * the HORN button blows it when the tokens have filled it, and HORN_FIRE s
+   * into the call the forest answers (_fireHorn). The world slows for a beat
+   * round that moment so it reads. Pressed before it's full, it says how far off.
+   */
+  _updateHornCall(dt, input, state) {
+    const fx = this._hornFx;
+    if (!fx) return;
+    const want = input.pressed("ability") || this._consumeVirtual("horn");
+    if (want && this._hornT < 0 && !this.caught && !this.escaped) {
+      if (this._hornCharge >= 1) {
+        this._hornT = 0;
+        this._hornCharge = 0;
+        this._hornCalls++;
+      } else {
+        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} TOKENS`, 1.2);
+      }
+    }
+    if (this._hornT >= 0) {
+      const was = this._hornT;
+      this._hornT += dt;
+      if (was < HORN_FIRE && this._hornT >= HORN_FIRE) this._fireHorn();
+      if (this._hornT >= HORN_BLOW) this._hornT = -1;
+    }
+    // a slow beat as the call goes out
+    const slow = this._hornT >= HORN_FIRE - 0.12 && this._hornT < HORN_FIRE + 0.28;
+    state.timeScale = slow ? 0.4 : 1;
+    if (this._handlerRootedT > 0) this._handlerRootedT -= dt;
+    fx.wave.update(dt);
+    fx.roots.update(dt);
+    fx.shards.update(dt);
+    this._hornFov *= Math.exp(-2.5 * dt);
+    this._hornLight.intensity *= Math.exp(-3.5 * dt);
+    // the horn on his hip glows as it fills, and burns when it's full
+    const halo = this.kai?.horn?.userData.glow;
+    if (halo) {
+      const full = this._hornCharge >= 1;
+      const pulse = 0.5 + 0.5 * Math.sin(this._rewardTime * 5);
+      halo.material.opacity = this._hornT >= 0 ? 0.95 : full ? 0.55 + 0.35 * pulse : 0.2 + 0.3 * this._hornCharge;
+      halo.scale.setScalar(this._hornT >= 0 ? 0.55 : full ? 0.42 + 0.12 * pulse : 0.3);
+    }
+  }
+
+  /** The horn is full: tell him, once with a thought, every time with the banner. */
+  _hornFull() {
+    this._showTransientBanner("THE HORN IS FULL \u00b7 PRESS V", 2.2);
+    if (this._audio) this._audio.playOneShot("coin", { volume: 0.55, rate: 0.62 });
+    if (!this._saidHornFull) {
+      this._saidHornFull = true;
+      kaiThinks("The horn\u2019s warm against my hip. Like it wants to be blown.");
+    }
+  }
+
+  /** The forest answers: the trail ahead clears, roots take the Marshal. */
+  _fireHorn() {
+    const fx = this._hornFx;
+    const at = this._hornAt.set(this.player.position.x, jungleCourseHeight(this.z), this.z);
+    fx.wave.fire(at, HORN_REACH);
+    this._hornLight.intensity = 7;
+    this._hornFov = -9;
+    this._shake = Math.max(this._shake, 0.4);
+    if (this._audio) {
+      if (!this._audio.buffers.has("hornCall") && this._audio.listener) {
+        this._audio.buffers.set("hornCall", hornBuffer(this._audio.listener.context));
+      }
+      this._audio.playOneShot("hornCall", { volume: 0.9 });
+      this._duckMusic(0.5);
+    }
+
+    // everything on the trail ahead of him goes
+    let cleared = 0;
+    for (let i = this._obsCursor; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      if (o.z > this.z + 1 || o.gone) continue; // behind him already
+      if (o.z < this.z - HORN_REACH) break; // sorted: nothing further is in reach
+      o.gone = true;
+      cleared++;
+      fx.shards.spawn(at.set(o.x, jungleCourseHeight(o.z), o.z), 16, SHARD_COLOUR[o.kind] ?? 0x8a8a76);
+    }
+    for (const ev of this._fallingTrees) {
+      if (ev.phase === "gone" || ev.z > this.z + 1 || ev.z < this.z - HORN_REACH) continue;
+      ev.phase = "gone";
+      ev.pivot.visible = false;
+      cleared++;
+      fx.shards.spawn(at.set(0, jungleCourseHeight(ev.z), ev.z), 30, 0x5a4330);
+    }
+
+    // the trail's life in reach: the animals turn and run, the timber shatters
+    for (const h of this._specialHazards) {
+      if (h.type === "stampede" && h.z <= this.z + 1 && h.z >= this.z - HORN_REACH) {
+        for (const a of h.animals) if (!a.flee && !a.done) { a.flee = true; cleared++; }
+        h.active = true;
+      } else if (h.type === "rollingLog" && !h.gone && h.logZ <= this.z + 1 && h.logZ >= this.z - HORN_REACH) {
+        h.gone = true;
+        h.object.visible = false;
+        cleared++;
+        fx.shards.spawn(at.set(h.x, jungleCourseHeight(h.logZ), h.logZ), 30, 0x5d4330);
+      }
+    }
+
+    // and behind him, roots out of the ground round the Marshal's legs
+    if (!this._handlerSealed && !this.caught && this.handler) {
+      this._handlerRootedT = HORN_HOLD;
+      fx.roots.fire(this.handler.position, HORN_HOLD + 1.6);
+    }
+    this._showTransientBanner(cleared ? `THE FOREST ANSWERS \u00b7 ${cleared} CLEARED` : "THE FOREST ANSWERS", 1.8);
+    if (this._hornCalls === 1) kaiThinks("It answered me. The whole forest answered.");
   }
 
   /**
@@ -4615,6 +4933,8 @@ export class Level01 extends Level {
   teardown() {
     clearThoughts();
     this._offMute?.();
+    if (this._hornFx) for (const fx of Object.values(this._hornFx)) fx.dispose();
+    if (this.state) this.state.timeScale = 1; // a horn call's slow beat, if he left mid-call
     this._finale?.carDoor?.dispose(); // left mid-scene: the renderer's clipping back as it was
     this._bayDoor?.dispose(); // ...or before the finale ever began
     this._bayDoor = null;

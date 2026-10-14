@@ -87,6 +87,7 @@ const LEVEL_CONTROLS = {
       { label: 'SLIDE', action: 'slide' },
       { label: 'BOOST', action: 'boost' },
       { label: 'LOOK BACK', action: 'lookBack' },
+      { label: 'BLOW THE HORN (WHEN FULL)', action: 'ability' },
       { label: 'RESTART', action: 'restart' },
     ],
   },

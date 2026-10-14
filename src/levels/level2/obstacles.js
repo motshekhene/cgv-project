@@ -117,7 +117,7 @@ function makeBoar() {
   return g;
 }
 
-function makeKudu() {
+export function makeKudu() {
   const g = new THREE.Group();
   const coat = new THREE.MeshStandardMaterial({ color: 0x9c7a55, roughness: 1 });
   const pale = new THREE.MeshStandardMaterial({ color: 0xece2cc, roughness: 1 });
@@ -206,7 +206,7 @@ const IDLE = /^(.*\|)?(idle|eating)$/i;
  * facing +x, feet on y = 0, centred. If the model is rigged its own run cycle
  * plays (userData.mixer); a static one just gets the bob and a rocking trot.
  */
-function makeAnimalFromModel({ gltf, length, yaw }, stride) {
+export function makeAnimalFromModel({ gltf, length, yaw }, stride) {
   const model = cloneSkinned(gltf.scene);
   const inner = new THREE.Group();
   inner.add(model);
