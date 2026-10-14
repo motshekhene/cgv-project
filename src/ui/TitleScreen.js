@@ -20,7 +20,7 @@ import { GAME_TITLE, GAME_SUBTITLE, TAGLINE } from './brand.js';
  * main.js passes onStart(levelName) and onControls.
  */
 
-const THEME_MUSIC = '/assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
+const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
 
 const MENU = [
   { id: 'new', label: 'NEW GAME' },

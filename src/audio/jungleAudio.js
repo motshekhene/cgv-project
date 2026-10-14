@@ -716,7 +716,7 @@ export function createJungleMusicBuffer(ctx, kind = "pursuit") {
  * AudioBuffer belongs to the context that decoded it) and cached per one.
  */
 const THEME_FILE =
-  "/assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3";
+  "./assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3";
 
 const _fileCache = new WeakMap(); // ctx -> Map<url, Promise<AudioBuffer|null>>
 

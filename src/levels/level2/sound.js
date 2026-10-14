@@ -103,7 +103,7 @@ export class Level2Sound {
 
     // the recorded traffic wreck (Pixabay, ~5 s of swerve and crunch) —
     // trafficCrash prefers it the moment it's decoded
-    loadAudioFileBuffer(ctx, '/assets/audio/rsf_studios-car-crash-swerving-and-crash-592672.mp3', { peak: 0.9 })
+    loadAudioFileBuffer(ctx, './assets/audio/rsf_studios-car-crash-swerving-and-crash-592672.mp3', { peak: 0.9 })
       .then((b) => { if (b && this.ctx) this._crashBuffer = b; });
 
     // The shared jungle world: cue palette, living bed and drive music, at

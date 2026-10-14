@@ -3977,7 +3977,7 @@ export class Level01 extends Level {
 
     // the recorded coin chime (Pixabay) swaps over the synthesised one by
     // name the moment it decodes — same headroom, so the volume is unchanged
-    loadAudioFileBuffer(ctx, "/assets/audio/liecio-collect-points-190037.mp3", { peak: 0.9 })
+    loadAudioFileBuffer(ctx, "./assets/audio/liecio-collect-points-190037.mp3", { peak: 0.9 })
       .then((b) => { if (b && this._audio) this._audio.buffers.set("coin", b); });
 
     // The living bed — birds, insects, wind through the leaves — routed
