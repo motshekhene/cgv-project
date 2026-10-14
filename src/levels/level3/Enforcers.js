@@ -92,12 +92,22 @@ function dressAsEnforcer(fighter) {
   hat.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   head.add(hat);
 
-  // over the nose and mouth, round the front of the face and knotted at the back
-  const mask = new THREE.Mesh(new THREE.CylinderGeometry(0.104 / s, 0.118 / s, 0.105 / s, 22, 1, true, -Math.PI * 0.62, Math.PI * 1.24), cloth);
-  mask.position.set(0, 0.05 / s, 0.012 / s);
-  mask.scale.set(1.04, 1, 1.15);
-  mask.castShadow = true;
-  head.add(mask);
+  // a cloth gaiter pulled up over the nose: closed all the way round and down over the jaw and the
+  // throat, wide enough to swallow the beard (the rig is Baba Zwane's: a beard would give it away)
+  const gaiter = new THREE.Mesh(new THREE.CylinderGeometry(0.112 / s, 0.15 / s, 0.27 / s, 26, 1, true), cloth);
+  gaiter.position.set(0, -0.045 / s, 0.012 / s);
+  gaiter.scale.set(1.08, 1, 1.2);
+  gaiter.castShadow = true;
+  head.add(gaiter);
+  // its top edge, over the bridge of the nose, and the knot at the back
+  const hem = new THREE.Mesh(new THREE.TorusGeometry(0.114 / s, 0.008 / s, 5, 26), cloth);
+  hem.rotation.x = Math.PI / 2;
+  hem.position.set(0, 0.09 / s, 0.012 / s);
+  hem.scale.set(1.08, 1.2, 1);
+  head.add(hem);
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.03 / s, 8, 6), cloth);
+  knot.position.set(0, 0.07 / s, -0.115 / s);
+  head.add(knot);
 
   if (arm) {
     const as = arm.getWorldScale(new THREE.Vector3()).x || 1;
@@ -358,6 +368,23 @@ export class EnforcerSquad {
     this._order = [];
     this._orderT = 0;
     this._base = null;
+  }
+
+  /**
+   * Already down (off the zip line, or the intro skipped): each man stands where
+   * he landed, at spots[i], and goes straight to standing off Kai.
+   */
+  arrive(spots) {
+    this.men.forEach((m, i) => {
+      const p = spots[i % spots.length];
+      m.root.visible = true;
+      m.root.position.set(p.x, m.arena.fighterY(p.x, p.z), p.z);
+      m.fighter.visual.position.y = 0;
+      m.fighter.play('idle', { fade: 0.2 });
+      m._enter('WAIT');
+    });
+    this._entering = [];
+    this._t = 0;
   }
 
   /** In they come, through the gate one after another (`gate` the far side of the arch). */

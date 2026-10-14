@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Telegraphs } from './Telegraphs.js';
 import { Nav } from './Nav.js';
 
@@ -13,12 +14,19 @@ import { Nav } from './Nav.js';
  * again (Level03 runs the ending from there).
  *
  * Its look is the showpiece (all in the material, one shader on the model):
- *   - black stone, with veins of light running through it: a ridged 3D noise
- *     on the body's own (bind-pose) coordinates, so they stay put on it as it
- *     moves, pulsing. Red while it's armoured; cyan when it's open to hits
- *   - a smouldering rim round its outline (fresnel)
- *   - burning eyes, smoke pouring off it, embers rising
- *   - when it dies it burns away: a noise dissolve with a white-hot edge
+ *   - a real animal: a red-brown coat with a pale belly, rump and eye rings,
+ *     a darker face, hair (fine streaks of noise along its length, and a
+ *     velvet sheen), a wet black nose, hard hooves, antlers pale at the tines,
+ *     and eyes of black glass with a coal burning in each. Smoothed normals:
+ *     no facets on it
+ *   - cracks of light running through the coat: a ridged 3D noise on the
+ *     body's own (bind-pose) coordinates, so they stay put on it as it moves,
+ *     pulsing. Red while it's armoured; cyan when it's open to hits
+ *   - it breathes: vapour from its nose, harder after a charge; its head
+ *     follows Kai; a faint rim round its outline; wisps of smoke and embers
+ *   - stone: it comes off the plinth grey stone and turns to flesh as it lands,
+ *     and when it's beaten it goes down and turns back to cold stone where it
+ *     falls: the cracks and the eyes go out, the smoke stops
  *
  * How it fights (every attack lights its ground first, level3/Telegraphs.js):
  *   CHARGE   head down, a long lane at Kai, then a gallop down it. Get out of
@@ -29,7 +37,8 @@ import { Nav } from './Nav.js';
  *            round it: the middle is safe, and so is well outside
  * It's ARMOURED (hits do 40%) except while it's OPEN: stuck after a charge,
  * skidding to a stop, getting over a stomp, or reeling from a parry. Open,
- * hits do 2.2x. The veins say which.
+ * hits do 2.2x. The veins say which. Open, Kai can leap onto its back
+ * (Level03): it bucks to throw him (ride / seat / endRide).
  *
  *   const stag = new ShadowStag(root, arena, kai, gltf);
  *   stag.rise(from, to);                  // off its plinth into the fight
@@ -41,6 +50,7 @@ const RAD = 1.1; // m, its body for collisions and the way round trees
 const ARMOUR = 0.4;
 const OPEN = 2.2;
 const LENGTH = 4.2; // m nose to tail
+const UP = new THREE.Vector3(0, 1, 0);
 
 const ATTACKS = {
   charge: { tell: 0xb3122a, telegraph: [1.15, 0.92], damage: 22, blockMul: 0.5, speed: [15, 17], width: 2.2 },
@@ -62,40 +72,114 @@ const NOISE = /* glsl */ `
   }
 `;
 
-/** Its stone: the model's own shading, darkened to black rock, with the veins, the rim and the burn in it. */
-function shadowMaterial(src, u) {
-  const c = src.color ? src.color : new THREE.Color(0x888888);
-  const lum = c.r * 0.3 + c.g * 0.59 + c.b * 0.11;
-  const m = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setScalar(0.035 + lum * 0.1),
-    roughness: 0.48, metalness: 0.3, flatShading: true,
+// each part of the model by its mesh (Quaternius' stag, one mesh per colour), and what it's made of
+const PARTS = {
+  Stag_2: { color: 0x5b3e25, sheen: 0xc8a070, rough: 0.9, kind: 'fur' }, // the coat: a deep red-brown
+  Stag_1: { color: 0xc2a27a, sheen: 0xf2e0c0, rough: 0.92, kind: 'fur' }, // belly, rump, throat, the rings round its eyes
+  Stag_3: { color: 0x3b2a1a, sheen: 0xa07a52, rough: 0.9, kind: 'fur' }, // its face, darker
+  Stag_4: { color: 0x16120f, rough: 0.3, coat: 0.8, kind: 'hard' }, // the nose (wet) and the hooves
+  Stag_5: { color: 0x020202, rough: 0.04, coat: 1, kind: 'eye' }, // the eyes: black glass, a coal burning in each
+  Stag_Horns: { color: 0x4a3a28, rough: 0.62, kind: 'antler' }, // bone, pale at the tines
+};
+
+/**
+ * One part of it (PARTS): a physical material with the coat, the cracks of
+ * light, the rim, the eyes' coals, the stone it turns to, and the burn.
+ */
+function stagMaterial(part, u) {
+  const p = PARTS[part] || PARTS.Stag_2;
+  const m = new THREE.MeshPhysicalMaterial({
+    color: p.color, roughness: p.rough, metalness: 0,
+    sheen: p.sheen ? 1 : 0, sheenColor: p.sheen ?? 0, sheenRoughness: 0.5,
+    clearcoat: p.coat || 0, clearcoatRoughness: 0.06,
   });
+  const kind = p.kind.toUpperCase();
+  m.defines = { ...m.defines, [kind]: '' };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
+      .replace('#include <common>', `#include <common>
+        varying vec3 vObj;
+        #ifdef ANTLER
+          attribute float aTip;
+          varying float vTip;
+        #endif`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vObj = position;
+        #ifdef ANTLER
+          vTip = aTip;
+        #endif`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         ${NOISE}
-        uniform float uTime, uVein, uOpen, uDissolve, uScale;
-        uniform vec3 uCorrupt, uClean;
-        varying vec3 vObj;`)
+        uniform float uTime, uVein, uOpen, uDissolve, uScale, uLife, uStone, uEyeR;
+        uniform vec3 uCorrupt, uClean, uEyeA, uEyeB, uLong;
+        varying vec3 vObj;
+        #ifdef ANTLER
+          varying float vTip;
+        #endif`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         float burnN = sNoise(vObj * uScale * 2.6);
         if (burnN < uDissolve) discard;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 q0 = vObj * uScale;
+        #ifdef FUR
+          // hair: fine streaks running along its length, and a little clumping
+          vec3 qs = q0 * (vec3(1.0) - uLong * 0.86);
+          float strand = sNoise(qs * 34.0) * 0.6 + sNoise(qs * 83.0 + 3.7) * 0.4;
+          float clump = sNoise(q0 * 5.0);
+          diffuseColor.rgb *= 0.72 + 0.42 * strand + 0.16 * (clump - 0.5);
+        #endif
+        #ifdef ANTLER
+          // bone, darker and rougher at the base, pale and smooth at the tines
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.8, 0.68), smoothstep(0.35, 1.0, vTip));
+          diffuseColor.rgb *= 0.82 + 0.3 * sNoise(q0 * 40.0);
+        #endif
+        // stone: what it was on the plinth, and what it goes back to
+        vec3 stoneCol = vec3(0.43, 0.42, 0.4) * (0.78 + 0.34 * sNoise(q0 * 11.0));
+        diffuseColor.rgb = mix(diffuseColor.rgb, stoneCol, uStone);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        #ifdef ANTLER
+          roughnessFactor = mix(0.85, 0.45, smoothstep(0.3, 1.0, vTip));
+        #endif
+        roughnessFactor = mix(roughnessFactor, 0.95, uStone);`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        #ifdef USE_SHEEN
+          material.sheenColor *= 1.0 - uStone;
+        #endif
+        #ifdef USE_CLEARCOAT
+          material.clearcoat *= 1.0 - uStone;
+        #endif`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         vec3 q = vObj * uScale;
-        float vein = smoothstep(0.8, 0.95, sRidged(q * 1.6 + vec3(0.0, uTime * 0.06, 0.0)));
-        float pulse = 0.65 + 0.35 * sin(uTime * 4.0 + q.y * 3.0 + q.z * 2.0);
         vec3 veinCol = mix(uCorrupt, uClean, uOpen);
-        totalEmissiveRadiance += veinCol * vein * uVein * pulse;
-        float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.4);
-        totalEmissiveRadiance += mix(vec3(0.32, 0.02, 0.05), vec3(0.04, 0.42, 0.5), uOpen) * rim * 0.55;
+        #ifdef EYE
+          // a coal in each eye, round its pupil
+          float dE = min(distance(vObj, uEyeA), distance(vObj, uEyeB)) / uEyeR;
+          totalEmissiveRadiance += veinCol * ((1.0 - smoothstep(0.1, 0.8, dE)) * 2.4 + 0.06) * uLife;
+        #else
+          // cracks of light running through it, pulsing: thin lines (a warped ridged noise) with a soft glow either side
+          vec3 qw = q * 1.75 + (vec3(sNoise(q * 1.3), sNoise(q * 1.3 + 4.1), sNoise(q * 1.3 + 8.3)) - 0.5) * 1.2;
+          float ridge = sRidged(qw + vec3(0.0, uTime * 0.04, 0.0));
+          float vein = smoothstep(0.955, 0.99, ridge) + 0.22 * smoothstep(0.88, 0.955, ridge);
+          float pulse = 0.65 + 0.35 * sin(uTime * 4.0 + q.y * 3.0 + q.z * 2.0);
+          totalEmissiveRadiance += veinCol * vein * uVein * pulse * uLife;
+          float rim = pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 3.0);
+          totalEmissiveRadiance += mix(vec3(0.14, 0.01, 0.02), vec3(0.03, 0.34, 0.4), uOpen) * rim * 0.5 * uLife * (1.0 - uStone);
+        #endif
         if (uDissolve > 0.0) totalEmissiveRadiance += vec3(1.0, 0.55, 0.2) * (1.0 - smoothstep(uDissolve, uDissolve + 0.07, burnN)) * 6.0;`);
   };
-  m.customProgramCacheKey = () => 'shadow-stag';
+  m.customProgramCacheKey = () => 'shadow-stag-' + p.kind;
   return m;
+}
+
+/** A skinned part's geometry with its facets smoothed away (shared corners welded, normals recomputed). */
+function smoothed(geo) {
+  const g = geo.clone();
+  g.deleteAttribute('normal');
+  const out = mergeVertices(g, 1e-6);
+  out.computeVertexNormals();
+  return out;
 }
 
 /** A soft round dot, for the smoke, the embers and the eyes. */
@@ -175,7 +259,9 @@ export class ShadowStag {
     parent.add(this.root);
 
     this.u = {
-      uTime: { value: 0 }, uVein: { value: 3.2 }, uOpen: { value: 0 }, uDissolve: { value: 0 }, uScale: { value: 1 },
+      uTime: { value: 0 }, uVein: { value: 3.2 }, uOpen: { value: 0 }, uDissolve: { value: 0 }, uScale: { value: 1 }, uLife: { value: 1 },
+      uStone: { value: 0 }, uEyeR: { value: 1 }, uEyeA: { value: new THREE.Vector3() }, uEyeB: { value: new THREE.Vector3() },
+      uLong: { value: new THREE.Vector3(0, 1, 0) },
       uCorrupt: { value: new THREE.Color(0xff3a14) }, uClean: { value: new THREE.Color(0x4fe6f0) },
     };
     const model = cloneSkinned(gltf.scene);
@@ -190,19 +276,54 @@ export class ShadowStag {
     box = new THREE.Box3().setFromObject(inner);
     const c = box.getCenter(new THREE.Vector3());
     inner.position.set(-c.x, -box.min.y, -c.z);
-    this.u.uScale.value = 1.6; // the model's own units are ~5 long: a few veins across it
     this.height = box.max.y - box.min.y;
     this.mats = [];
+    this.geos = [];
+    const parts = {};
     model.traverse((o) => {
       if (!o.isMesh) return;
-      o.material = Array.isArray(o.material) ? o.material.map((m) => shadowMaterial(m, this.u)) : shadowMaterial(o.material, this.u);
-      this.mats.push(...[].concat(o.material));
+      parts[o.name] = o;
+      if (o.isSkinnedMesh && o.name !== 'Stag_5') {
+        o.geometry = smoothed(o.geometry); // no facets: a coat, not a carving
+        this.geos.push(o.geometry);
+      }
+      o.material = stagMaterial(o.name, this.u);
+      this.mats.push(o.material);
       o.castShadow = true;
+      o.receiveShadow = true;
       o.frustumCulled = false; // skinned bounds don't follow the gallop
     });
     this.root.add(inner);
     this.inner = inner;
     this.model = model;
+    inner.updateMatrixWorld(true);
+    // its own (bind-pose) units: the noise scaled so it's ~4 across nose to tail, and which way is its length
+    const body = parts.Stag_2;
+    if (body) {
+      body.geometry.computeBoundingBox();
+      const sz = body.geometry.boundingBox.getSize(new THREE.Vector3());
+      this.u.uScale.value = 4 / Math.max(sz.x, sz.y, sz.z);
+      const long = sz.x > sz.y && sz.x > sz.z ? 'x' : sz.y > sz.z ? 'y' : 'z';
+      this.u.uLong.value.set(long === 'x' ? 1 : 0, long === 'y' ? 1 : 0, long === 'z' ? 1 : 0);
+    }
+    // the antlers: how far out along them each point is (pale tines), from where they leave the head
+    const horns = parts.Stag_Horns;
+    if (horns) {
+      const g = (horns.geometry = horns.geometry.clone());
+      this.geos.push(g);
+      const pos = g.attributes.position;
+      const w = new THREE.Vector3();
+      let lo = Infinity, hi = -Infinity;
+      const ys = new Float32Array(pos.count);
+      for (let i = 0; i < pos.count; i++) {
+        ys[i] = w.fromBufferAttribute(pos, i).applyMatrix4(horns.matrixWorld).y;
+        lo = Math.min(lo, ys[i]);
+        hi = Math.max(hi, ys[i]);
+      }
+      const tip = new Float32Array(pos.count);
+      for (let i = 0; i < pos.count; i++) tip[i] = (ys[i] - lo) / Math.max(hi - lo, 1e-6);
+      g.setAttribute('aTip', new THREE.BufferAttribute(tip, 1));
+    }
 
     // its clips, by name (the glTF has each twice, with and without its armature's prefix)
     this.mixer = new THREE.AnimationMixer(model);
@@ -217,27 +338,66 @@ export class ShadowStag {
     }
     this.current = null;
 
-    // burning eyes on its head
     let head = null;
     model.traverse((o) => { if (o.isBone && /^head$/i.test(o.name)) head = o; });
+    this.head = head;
+    this.neck = model.getObjectByName('Neck2');
+    this._look = 0;
+    // where things are on its head, at rest, in the world: a skinned part's points
+    const restPoints = (mesh, keep = () => true) => {
+      const out = [];
+      if (!mesh) return out;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+        mesh.getVertexPosition(i, v);
+        const w = v.clone().applyMatrix4(mesh.matrixWorld);
+        if (keep(w)) out.push({ w, raw: new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.position, i) });
+      }
+      return out;
+    };
+    const avg = (pts, key) => pts.reduce((a, p) => a.add(p[key]), new THREE.Vector3()).divideScalar(Math.max(1, pts.length));
+    // the eyes: one each side; the coal sits on the outside of each (its pupil)
     this.dot = dotTexture();
     const eyeMat = new THREE.SpriteMaterial({ map: this.dot, color: 0xff4a1a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.eyeMat = eyeMat;
     this.eyes = [];
-    if (head) {
-      inner.updateMatrixWorld(true);
-      const hp = head.getWorldPosition(new THREE.Vector3());
-      for (const side of [-1, 1]) {
+    const eyePts = restPoints(parts.Stag_5);
+    if (eyePts.length && head) {
+      const mid = avg(eyePts, 'w');
+      const midRaw = avg(eyePts, 'raw');
+      const sides = [eyePts.filter((p) => p.w.x < mid.x), eyePts.filter((p) => p.w.x >= mid.x)];
+      sides.forEach((pts, i) => {
+        const c = avg(pts, 'w');
+        const cRaw = avg(pts, 'raw');
+        const rRaw = Math.max(...pts.map((p) => p.raw.distanceTo(cRaw)));
+        const rW = Math.max(...pts.map((p) => p.w.distanceTo(c)));
+        // outward: away from the other eye, and a little forward
+        const outRaw = cRaw.clone().sub(midRaw).normalize();
+        this.u[i ? 'uEyeB' : 'uEyeA'].value.copy(cRaw).addScaledVector(outRaw, rRaw * 0.85);
+        this.u.uEyeR.value = rRaw;
+        const outW = c.clone().sub(mid).normalize();
         const eye = new THREE.Sprite(eyeMat);
-        const w = new THREE.Vector3(hp.x + side * 0.16, hp.y + 0.05, hp.z + 0.32);
-        eye.position.copy(head.worldToLocal(w));
-        eye.scale.setScalar(0.32 / (head.getWorldScale(new THREE.Vector3()).x || 1));
+        eye.position.copy(head.worldToLocal(c.clone().addScaledVector(outW, rW * 1.6)));
+        eye.scale.setScalar(Math.max(0.1, rW * 2.2) / (head.getWorldScale(new THREE.Vector3()).x || 1));
         head.add(eye);
         this.eyes.push(eye);
-      }
+      });
     }
+    // the nose: the front of the dark part up at head height (the rest of it is hooves), for its breath
+    const nosePts = restPoints(parts.Stag_4, (w) => w.y > this.height * 0.55);
+    this.nose = new THREE.Object3D();
+    if (nosePts.length && head) {
+      const front = Math.max(...nosePts.map((p) => p.w.z));
+      const tip = avg(nosePts.filter((p) => p.w.z > front - 0.04), 'w');
+      this.nose.position.copy(head.worldToLocal(tip));
+      head.add(this.nose);
+    }
+    this._breathT = 1;
+    this._breathOut = 0;
+    this._hard = 0; // how hard it's breathing (a charge, a stomp, a ride)
+    this.breath = new Puffs(parent, 60, { color: 0xdfe4ea, size: 0.38, blending: THREE.NormalBlending, opacity: 0.32 });
 
-    this.smoke = new Puffs(parent, 90, { color: 0x0b0a0d, size: 1.3, blending: THREE.NormalBlending, opacity: 0.55 });
+    this.smoke = new Puffs(parent, 70, { color: 0x0b0a0d, size: 1.0, blending: THREE.NormalBlending, opacity: 0.3 });
     this.embers = new Puffs(parent, 60, { color: 0xff5a1a, size: 0.16, blending: THREE.AdditiveBlending, opacity: 1 });
     this._buildThorns(parent);
 
@@ -261,6 +421,10 @@ export class ShadowStag {
     this._move = new THREE.Vector3();
     this._p = new THREE.Vector3();
     this._v = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._q = new THREE.Quaternion();
+    this._q2 = new THREE.Quaternion();
+    this._q3 = new THREE.Quaternion();
     this._before = new THREE.Vector3();
     this._emitT = 0;
     this.dissolve = 0;
@@ -320,7 +484,8 @@ export class ShadowStag {
 
   /** Open to hits: stuck after a charge, skidding, getting over a stomp, or reeling. */
   get vulnerable() {
-    return this.state === 'STUCK' || this.state === 'SKID' || this.state === 'STAGGER' || (this.state === 'RECOVER' && this.openRecover);
+    return this.state === 'STUCK' || this.state === 'SKID' || this.state === 'STAGGER' || this.state === 'RIDDEN'
+      || (this.state === 'RECOVER' && this.openRecover);
   }
 
   /** The attack it's winding up or making, for its ground telegraph. */
@@ -351,6 +516,29 @@ export class ShadowStag {
     this.current = a;
   }
 
+  /** Its head follows Kai while it sizes him up (a turn of the neck on top of whatever it's playing). */
+  _lookAtKai(dt) {
+    const watching = this.state === 'STALK' || this.state === 'READY' || this.state === 'RECOVER' || (this.state === 'TELL' && this.attackName !== 'charge');
+    let want = 0;
+    if (watching && this.root.visible) {
+      const p = this.root.position, k = this.kai.root.position;
+      let d = (Math.atan2(k.x - p.x, k.z - p.z) - this.heading) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      want = THREE.MathUtils.clamp(d, -0.7, 0.7);
+    }
+    this._look += (want - this._look) * (1 - Math.exp(-4 * dt));
+    if (Math.abs(this._look) < 1e-3) return;
+    for (const [bone, share] of [[this.neck, 0.45], [this.head, 0.55]]) {
+      if (!bone?.parent) continue;
+      // a turn about the world's up, in the bone's own frame
+      const pq = bone.parent.getWorldQuaternion(this._q);
+      this._q2.setFromAxisAngle(UP, this._look * share);
+      this._q3.copy(pq).invert().multiply(this._q2).multiply(pq);
+      bone.quaternion.premultiply(this._q3);
+    }
+  }
+
   _enter(state) {
     this.state = state;
     this.t = 0;
@@ -363,12 +551,14 @@ export class ShadowStag {
     this.riseFrom = from.clone();
     this.riseTo = to.clone();
     this.heading = Math.atan2(to.x - from.x, to.z - from.z);
+    this.u.uStone.value = 1; // still the statue as it leaves the plinth
     this._enter('RISE');
     this._play('jump', { fade: 0, once: true, speed: 0.9 });
   }
 
   /** The fight starts: it comes for him (down off the plinth at once, if its leap was skipped). */
   begin() {
+    this.u.uStone.value = 0;
     if (this.state === 'RISE' || this.state === 'OFF') {
       this.root.visible = true;
       this.root.position.copy(this.riseTo || this.root.position);
@@ -408,6 +598,26 @@ export class ShadowStag {
     this._play('hitL', { fade: 0.08, once: true, speed: 0.7 });
   }
 
+  /** Kai is on its back: it bucks to throw him for up to `seconds` (Level03 ends it). */
+  ride(seconds) {
+    this._enter('RIDDEN');
+    this.rideFor = seconds;
+    this.zones.hide();
+    this._play('hitL', { fade: 0.1, once: true, speed: 1.6 });
+  }
+
+  /** Off its back (thrown, or he jumped clear): it reels a moment, then comes for him again. */
+  endRide() {
+    this.buckX = this.buckZ = this.buckY = 0;
+    this.stagger(0.8);
+  }
+
+  /** Where a rider sits on its back, in the world (out). */
+  seat(out) {
+    this.root.updateMatrixWorld(true);
+    return out.set(0, this.height * 0.5, -0.25).applyMatrix4(this.root.matrixWorld);
+  }
+
   _pick(dist, clear) {
     const A = ATTACKS;
     if (this.enraged && dist > 3.8 && dist < A.thorns.radius * 0.95 && Math.random() < 0.45) return 'thorns';
@@ -423,17 +633,18 @@ export class ShadowStag {
     this.u.uOpen.value += ((open ? 1 : 0) - this.u.uOpen.value) * (1 - Math.exp(-10 * dt));
     this.eyeMat.color.setHex(open ? 0x7ff4ff : 0xff4a1a);
     this.mixer.update(dt);
+    this._lookAtKai(dt);
     this._updateThorns(dt);
     this._updateParticles(dt);
     if (this.state === 'OFF') return;
     if (this.state === 'DOWN') {
-      // it goes down, then burns away
-      if (this.t > 0.9) {
-        this.dissolve = Math.min(1, this.dissolve + dt / 2.2);
-        this.u.uDissolve.value = this.dissolve;
-        if (this.dissolve >= 1) this.root.visible = false;
-      }
+      // it goes down and stays down, and the light goes out of it: cold stone where it fell
       this.t += dt;
+      const k = THREE.MathUtils.smoothstep(this.t, 0.6, 3.2);
+      this.u.uLife.value = 1 - k;
+      this.u.uStone.value = k; // back to the stone it was
+      this.eyeMat.opacity = 1 - k;
+      this.root.rotation.set(0, this.heading, 0, 'YXZ');
       return;
     }
     this.t += dt;
@@ -454,8 +665,9 @@ export class ShadowStag {
 
     switch (this.state) {
       case 'RISE': {
-        // off the plinth, down into the courtyard
+        // off the plinth, down into the courtyard, stone turning to flesh as it goes
         const k = THREE.MathUtils.smoothstep(this.t, 0.15, 1.1);
+        this.u.uStone.value = 1 - THREE.MathUtils.smoothstep(this.t, 0.05, 1.0);
         pos.lerpVectors(this.riseFrom, this.riseTo, k);
         pos.y = this.arena.fighterY(pos.x, pos.z) + Math.sin(k * Math.PI) * 1.4 * (1 - k * 0.3) + (1 - k) * (this.riseFrom.y - this.arena.fighterY(this.riseFrom.x, this.riseFrom.z));
         if (this.t > 1.3) {
@@ -558,16 +770,24 @@ export class ShadowStag {
         if (this.t >= 0.7) {
           this._enter('RECOVER');
           this.openRecover = this.attackName === 'stomp';
-          this.recoverFor = this.attackName === 'stomp' ? 1.1 : 0.6;
+          this.recoverFor = this.attackName === 'stomp' ? 1.5 : 0.6;
           this._play('idle', { fade: 0.35 });
         }
         break;
       }
       case 'SKID':
-        if (this.t >= 0.9) this._back(0.3);
+        if (this.t >= 1.3) this._back(0.3);
         break;
       case 'STUCK':
-        if (this.t >= 1.8) this._back(0.2);
+        if (this.t >= 2.4) this._back(0.2);
+        break;
+      case 'RIDDEN':
+        // it bucks: rears, kicks out, twists, trying to get him off
+        this.buckX = Math.sin(this.t * 9) * 0.2;
+        this.buckZ = Math.sin(this.t * 6.3 + 1) * 0.13;
+        this.buckY = Math.abs(Math.sin(this.t * 9)) * 0.22;
+        if (!this.current?.isRunning()) this._play(Math.random() < 0.5 ? 'hitL' : 'hitR', { fade: 0.1, once: true, speed: 1.4 + Math.random() * 0.4 });
+        if (this.t >= this.rideFor + 0.6) this.endRide(); // never stuck bucking
         break;
       case 'STAGGER':
         if (this.t >= this.staggerFor) this._back(0.3);
@@ -576,8 +796,8 @@ export class ShadowStag {
         if (this.t >= this.recoverFor) this._back(0.35);
         break;
     }
-    if (this.state !== 'RISE') pos.y = this.arena.fighterY(pos.x, pos.z);
-    this.root.rotation.y = this.heading;
+    if (this.state !== 'RISE') pos.y = this.arena.fighterY(pos.x, pos.z) + (this.state === 'RIDDEN' ? this.buckY || 0 : 0);
+    this.root.rotation.set(this.state === 'RIDDEN' ? this.buckX || 0 : 0, this.heading, this.state === 'RIDDEN' ? this.buckZ || 0 : 0, 'YXZ');
     this.zones.update(dt, this.threat, pos);
   }
 
@@ -589,8 +809,9 @@ export class ShadowStag {
 
   /** Smoke off its back and flanks, embers rising, more of both when it's enraged or burning away. */
   _updateParticles(dt) {
-    if (this.root.visible && this.state !== 'OFF') {
-      this._emitT += dt * (this.enraged ? 34 : 22) * (this.state === 'DOWN' ? 3 : 1);
+    const smoking = this.root.visible && this.state !== 'OFF' && !(this.state === 'DOWN' && this.t > 1.6);
+    if (smoking) {
+      this._emitT += dt * (this.enraged ? 20 : 11) * (this.state === 'DOWN' ? 2 : 1);
       const p = this.root.position;
       while (this._emitT > 1) {
         this._emitT -= 1;
@@ -605,12 +826,36 @@ export class ShadowStag {
     }
     this.smoke.update(dt, 0.2);
     this.embers.update(dt, 0.5);
+    // its breath: a plume from the nose every few seconds, quicker and bigger when it's been running
+    const breathing = this.root.visible && this.state !== 'OFF' && this.state !== 'DOWN' && this.state !== 'RISE' && this.u.uStone.value < 0.5;
+    this._hard = Math.max(0, this._hard - dt * 0.12);
+    if (this.state === 'CHARGE' || this.state === 'RIDDEN' || this.state === 'STRIKE') this._hard = 1;
+    if (breathing && (this._breathT -= dt) <= 0) {
+      this._breathT = THREE.MathUtils.lerp(2.6, 0.9, this._hard) + Math.random() * 0.4;
+      this._breathOut = 0.42;
+    }
+    if (this._breathOut > 0 && this.nose.parent) {
+      this._breathOut -= dt;
+      this._breathAcc = (this._breathAcc || 0) + dt * (22 + this._hard * 18);
+      const n = this.nose.getWorldPosition(this._p);
+      const f = this._fwd.set(0, 0, 1).applyQuaternion(this.head.getWorldQuaternion(this._q)).normalize();
+      // the nose points down the head's length: blow out along it, and a bit down
+      const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+      const sp = 0.9 + this._hard * 0.8;
+      while (this._breathAcc > 1) {
+        this._breathAcc -= 1;
+        this.breath.emit(n, this._v.set(fx * sp + (Math.random() - 0.5) * 0.3 + f.x * 0.1, -0.2 + Math.random() * 0.25, fz * sp + (Math.random() - 0.5) * 0.3 + f.z * 0.1), 0.8 + Math.random() * 0.5);
+      }
+    }
+    this.breath.update(dt, 0.25);
   }
 
   dispose() {
     this.zones.dispose();
     this.smoke.dispose();
     this.embers.dispose();
+    this.breath.dispose();
+    for (const g of this.geos) g.dispose();
     this.thorns.geometry.dispose();
     this.thornMat.dispose();
     this.eyeMat.dispose();

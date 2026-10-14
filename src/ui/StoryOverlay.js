@@ -11,7 +11,7 @@ const CSS = THEME_CSS + END_CSS + `
 .so * { box-sizing:border-box; }
 .so-bar { position:absolute; left:0; right:0; height:11vh; background:#000; transform:scaleY(0); transition:transform .6s ease; }
 .so-bar.top { top:0; transform-origin:top; } .so-bar.bot { bottom:0; transform-origin:bottom; }
-.so.cine .so-bar { transform:scaleY(1); }
+.so.cine.bars .so-bar { transform:scaleY(1); }
 .so-card { position:absolute; left:0; right:0; bottom:16vh; text-align:center; opacity:0; transition:opacity .8s ease; }
 .so-card.show { opacity:1; }
 .so-card h2 { margin:0; font-family:var(--serif); font-weight:700; font-size:clamp(28px,4.6vw,58px); letter-spacing:.34em; text-indent:.34em;
@@ -62,13 +62,14 @@ const CSS = THEME_CSS + END_CSS + `
 `;
 
 export class StoryOverlay {
-  constructor(host = document.getElementById('hud') || document.body) {
+  /** letterbox: false keeps cutscenes full-frame (no black bars top and bottom). */
+  constructor(host = document.getElementById('hud') || document.body, { letterbox = true } = {}) {
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
 
     this.el = document.createElement('div');
-    this.el.className = 'so';
+    this.el.className = letterbox ? 'so bars' : 'so';
     this.el.innerHTML = `
       <div class="so-flash"></div>
       <div class="so-bar top"></div><div class="so-bar bot"></div>

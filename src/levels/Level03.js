@@ -227,7 +227,6 @@ const ROPE_HANG = 2.15; // the pulley rides this far above his feet
 const ROPE_T = 2.6; // seconds down the line
 // the horn raised to his lips: the base end in his fist up by his mouth, the curl out in front of him
 const HORN_BLOW = { bone: 'PalmR', pos: [0.0, 0.06, 0.04], rot: [0, 0.6, Math.PI / 2 + 0.5] };
-const TALK_AFTER = 1.6; // shot D starts this long after he lands
 // a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
 // the world runs at FOCUS_SCALE, Kai at FOCUS_KAI, and his hits do FOCUS_DAMAGE x (KeyVision draws it)
 const PERFECT_DODGE = 0.2;
@@ -247,8 +246,27 @@ const EASE_PER_LOSS = 0.1;
 const EASE_MIN = 0.7;
 const VS_TIME = 1.75; // the VS splash, then FIGHT
 // act I: he stands off by the arch while his men come in under it (level3/Enforcers.js)
-const BOSS_WATCH = new THREE.Vector3(-3.2, 0, -13.4);
-const MEN_GATE = new THREE.Vector3(-3.0, 0, -19.6);
+const BOSS_WATCH = BOSS_LAND.clone(); // he watches from where he landed off the arch
+// the zip line: he comes down it first, then his men one after another, each dropping off the arch to here
+const MEN_LAND = [new THREE.Vector3(-5.6, 0, -9.4), new THREE.Vector3(-0.6, 0, -9.6), new THREE.Vector3(-3.3, 0, -7.9)];
+const MAN_ROPE_T = 1.8;
+// out of the pool: Kai, to himself, before anyone comes
+const SELF_TALK = [
+  { who: 'kai', text: 'Over the falls\u2026 and still breathing.' },
+  { who: 'kai', text: 'Whoever was on my tail, I lost them up there. Nobody follows you over a waterfall.' },
+  { who: 'kai', text: '\u2026That\u2019s a relief. Now, Baba Zwane.' },
+];
+// the stag down, cold stone again: a few words over it before the end
+const STAG_DOWN_TALK = [
+  { who: 'kai', text: 'Easy\u2026 easy. It\u2019s over.' },
+  { who: 'kai', text: 'You were only ever guarding it. I\u2019ll take it home. I promise.' },
+];
+// on the stag's back: open, and Kai beside it, he can leap on (E). It bucks to throw him: A / D keep his balance
+const RIDE_REACH = 3.4;
+const RIDE_TIME = 3.2;
+const RIDE_HIT = 10; // a blow from its back, before the open x2.2
+const RIDE_HIT_CD = 0.42;
+const RIDE_THROWN = 8;
 const MEN_NAME = 'THE COMPANY\u2019S MEN';
 // act III: the stone stag at the gate comes down off its plinth (level3/ShadowStag.js)
 const STAG_NAME = 'THE SHADOW STAG';
@@ -396,7 +414,7 @@ export class Level03 extends Level {
     });
     this._applyCamMode(true);
     ensureDialogueFont();
-    this.story = new StoryOverlay();
+    this.story = new StoryOverlay(undefined, { letterbox: false }); // full-frame cutscenes, no black bars
     this.story.onSkip = () => this._skip();
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
     this._applyGifts();
@@ -409,7 +427,7 @@ export class Level03 extends Level {
     this._kaiBody = { prev: null, plant: null }; // last position + the tree or bush each fighter is touching
     this._bossBody = { prev: null, plant: null };
 
-    if (introSeen) this._startFight();
+    if (introSeen) this._startArrivalsOnly(); // a retry: no wake-up, but they still come down the line
     else this._startIntro();
   }
 
@@ -449,54 +467,13 @@ export class Level03 extends Level {
     this._pulley.position.copy(this._ropeB);
     this._pulley.lookAt(this._ropeA);
     this.root.add(this._pulley);
-  }
-
-  /** Shot R: down the line from the cliff to the keystone, sparks off the pulley; Kai looks up at the sound. */
-  _updateRope(s, dt) {
-    const b = this.boss, bf = b.fighter;
-    const k = this.combat, kf = k.fighter, kp = k.root.position;
-    if (this._shot !== 'R') {
-      this._shot = 'R';
-      kp.copy(KAI_START);
-      kf.play('idle', { fade: 0.3 });
-      b.root.visible = true;
-      this._ropeMid = this.leap ? (this.leap.off + this.leap.on) / 2 : 0;
-      if (this.leap) bf.hold('jump', this._ropeMid, 0); // mid-leap: arms up, legs tucked, the way you ride a line
-      else bf.play('idle', { fade: 0 });
-      this.sound?.play('whoosh', { volume: 0.6, rate: 0.6 });
-      this._sparkT = 0;
-      this.story.showCard('THE MARSHAL', 'He came over the edge after you.');
-    }
-    const u = Math.min(1, s / ROPE_T);
-    // faster and faster down the line, then the brake at the bottom
-    const e = u < 0.82 ? 0.95 * Math.pow(u / 0.82, 1.7) : 0.95 + 0.05 * smooth(0.82, 1, u);
-    const p = this._tmp.copy(this._ropeA).lerp(this._ropeB, e);
-    this._pulley.position.copy(p);
-    b.root.position.set(p.x, p.y - ROPE_HANG, p.z);
-    b.heading = Math.atan2(this._ropeB.x - this._ropeA.x, this._ropeB.z - this._ropeA.z);
-    b.root.rotation.y = b.heading;
-    this._sparkT -= dt;
-    if (this._sparkT <= 0 && u < 0.97) {
-      this._sparkT = 0.05;
-      this.arena.burst(p.x, p.z, { color: 0xffb347, count: 5, speed: 2.4, size: 0.07, y: p.y, lift: 0.4, additive: true });
-    }
-    if (u >= 1 && !this._ropeBraked) {
-      this._ropeBraked = true;
-      this._addShake(0.25);
-      this.sound?.play('impact', { volume: 0.5, rate: 1.3 });
-    }
-    // Kai hears the line sing and looks up at the arch
-    if (s > 0.5) {
-      const want = Math.atan2(this.arena.anchors.gateTop.x - kp.x, this.arena.anchors.gateTop.z - kp.z);
-      k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-3 * dt));
-    }
-    // from behind Kai, up at the arch and the cliff, following him down
-    this.cine.pos.set(2.6, 2.1, 7.4);
-    this.cine.look.set(b.root.position.x, b.root.position.y + 1.2, b.root.position.z);
-    this.cine.fov = 55;
-    this.cine.rate = 4;
-    bf.update(dt);
-    if (this.leap) bf.visual.position.y = -this.leap.lower(this._ropeMid);
+    // his men ride the same line after him, each on his own
+    this._menPulleys = (this.squad?.men || []).map(() => {
+      const pulley = this._pulley.clone();
+      pulley.visible = false;
+      this.root.add(pulley);
+      return pulley;
+    });
   }
 
   /* ---------------------------------------------------------------- gifts */
@@ -766,9 +743,9 @@ export class Level03 extends Level {
     const input = this.input;
 
     if (input.pressed('skip') && (this.mode === 'INTRO' || (this.mode === 'EPILOGUE' && !this._talk))) {
-      if (this._shot === 'D') this._nextLine(true); // mid-conversation, space or a click moves it on a line
+      if (this._shot === 'D' || this._shot === 'A2') this._nextLine(true); // mid-conversation, space or a click moves it on a line
       else this._skip();
-    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'SNATCH' || this.mode === 'EPILOGUE' || this.mode === 'RISE') && this._talk) {
+    } else if (input.pressed('skip') && (this.mode === 'REVEAL' || this.mode === 'SNATCH' || this.mode === 'EPILOGUE' || this.mode === 'RISE' || this.mode === 'STAGDOWN') && this._talk) {
       this._nextLine(true); // and through the mask-off conversation the same way
     }
 
@@ -856,7 +833,14 @@ export class Level03 extends Level {
     const focus = this._focusT > 0 && this.mode === 'FIGHT';
     const stopped = performance.now() < this._hitStopUntil;
     const kaiDt = focus && !stopped ? real * FOCUS_KAI : dt;
-    this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, steer: this.camMode === 'follow' });
+    // the stag open and Kai beside it: he can leap onto its back (E)
+    const stp = this.stag?.root.position;
+    this._canRide = this.act === 'STAG' && this.mode === 'FIGHT' && !this._ended && !this._ride && !!this.stag?.alive
+      && this.stag.vulnerable && this.stag.state !== 'RIDDEN' && !this.combat.dead && !this.combat.attacking && !this.combat.dodging
+      && Math.hypot(stp.x - cp.x, stp.z - cp.z) < RIDE_REACH;
+    if (this._canRide && controls.pressed('interact')) this._startRide();
+    if (this._ride) this._updateRide(kaiDt, controls, state);
+    else if (this.mode !== 'STAGDOWN') this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, steer: this.camMode === 'follow' });
     this._updateTrail(kaiDt, focus);
     this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
@@ -965,9 +949,11 @@ export class Level03 extends Level {
     else this.zones.hide();
     this._separate();
     // out in the jungle: trees, bushes, statues and walls are solid, and the ground isn't flat
-    this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
+    if (!this._ride) { // on the stag's back he goes where it goes
+      this._collide(this._kaiBody, cp, 0.4, dt, this.combat.dodging);
+      cp.y = this.arena.fighterY(cp.x, cp.z);
+    }
     this._collide(this._bossBody, bp, 0.45, dt, false);
-    cp.y = this.arena.fighterY(cp.x, cp.z);
     bp.y = this.arena.fighterY(bp.x, bp.z);
     if (this.squad) {
       this.squad.men.forEach((m, i) => {
@@ -1011,8 +997,10 @@ export class Level03 extends Level {
     else if (this.mode === 'SNATCH') this._updateSnatch(dt, real);
     else if (this.mode === 'FINAL') this._updateFinal();
     else if (this.mode === 'RISE') this._updateRise(real);
+    else if (this.mode === 'STAGDOWN') this._updateStagDown(real);
     // the killing blow has played out: act III
     if (this._riseIn > 0 && (this._riseIn -= real) <= 0) this._startRise();
+    if (this._stagDownIn > 0 && (this._stagDownIn -= real) <= 0) this._startStagDown();
 
     // time scale: hit-stop beats the reveal's slow-mo beats the Key's slow-mo beats normal
     state.timeScale = stopped ? 0.12
@@ -1039,7 +1027,11 @@ export class Level03 extends Level {
 
     // Strategy gift: call his next move while he lines it up
     const tell = this.strategy && this.mode === 'FIGHT' && !this._ended && this.act === 'BOSS' && TELLS[this.boss.attackName];
-    if (tell && (b.state === 'APPROACH' || b.state === 'TELEGRAPH')) {
+    if (this._ride) {
+      this.hud.setTell(this._rideBar(), 'A / D: lean against it \u00b7 PUNCH / KICK: strike it', '#7ff4ff');
+    } else if (this._canRide) {
+      this.hud.setTell('E \u00b7 LEAP ON ITS BACK', 'it\u2019s open: get on it, and hold on', '#7ff4ff');
+    } else if (tell && (b.state === 'APPROACH' || b.state === 'TELEGRAPH')) {
       this.hud.setTell(b.state === 'TELEGRAPH' ? `${tell.name} \u2014 NOW` : `NEXT \u00b7 ${tell.name}`, tell.advice, tell.color);
     } else this.hud.setTell('');
 
@@ -1085,7 +1077,7 @@ export class Level03 extends Level {
       for (let j = i + 1; j < men.length; j++) apart(men[i].root.position, men[j].root.position, 0.9);
       if (this.boss.state !== 'DOWN') apart(men[i].root.position, this.boss.root.position, 0.95);
     }
-    if (this.stag?.alive && this.stag.state !== 'RISE') apart(k, this.stag.root.position, 1.55, 0.9); // it barely gives
+    if (this.stag?.alive && this.stag.state !== 'RISE' && !this._ride) apart(k, this.stag.root.position, 1.55, 0.9); // it barely gives
   }
 
   /** Who Kai is fighting this moment: the nearest of the company's men, the Marshal, or the Shadow Stag. */
@@ -1155,8 +1147,7 @@ export class Level03 extends Level {
       this.hud.popup('THE HORN IS CLEAN', '#7ff4ff');
       this._taintHorn(false);
       this.storm.clear();
-      this._endTimer = 3.4;
-      this._endKind = 'win';
+      this._stagDownIn = 2.2; // let it fall, then a few words over it (_startStagDown)
     };
   }
 
@@ -1223,7 +1214,7 @@ export class Level03 extends Level {
     this._fightCall = VS_TIME;
     this.stag.begin();
     this.stag.restFor = VS_TIME + 0.4;
-    this._fightToasts = [[STAG_NAME, 'armoured: strike when its veins burn cyan \u00b7 lure its charge into a tree', 6]];
+    this._fightToasts = [[STAG_NAME, 'armoured: strike when its cracks burn cyan \u00b7 open, E leaps onto its back \u00b7 lure its charge into a tree', 7]];
   }
 
   _finish(state) {
@@ -1274,6 +1265,7 @@ export class Level03 extends Level {
     else if (this.mode === 'REVEAL') this._endReveal();
     else if (this.mode === 'SNATCH') this._endSnatch();
     else if (this.mode === 'RISE') this._startStagAct();
+    else if (this.mode === 'STAGDOWN') this._endStagDown();
     else if (this.mode === 'EPILOGUE') this._showEnd();
   }
 
@@ -1295,22 +1287,37 @@ export class Level03 extends Level {
   }
 
   /**
-   * Five shots, ~30 s if you let the talk play out: (A) Kai sits up in the
+   * The shots, ~50 s if you let the talk play out: (A) Kai sits up in the
    * pool, seen from inside the gate, wades out and gets the water off as the
-   * camera backs through the arch; (B) cut to the courtyard as he runs through
-   * the arch toward camera; (C) the Handler leaps off the arch behind him, Kai
-   * turns; (D) face to face, the dialogue (Space moves it on a line); then
-   * the fight camera.
+   * camera backs through the arch; (A2) a few words to himself: he's lost
+   * whoever was after him; (B) cut to the courtyard as he runs through the
+   * arch toward camera; (R) the line sings: the Marshal comes down the zip
+   * line and drops off the arch, then his men, one after another
+   * (_updateArrivals); (D) face to face, the dialogue (Space moves it on a
+   * line); then the fight camera. A retry plays only R, then the fight.
    */
   _updateIntro(dt) {
-    // shot A runs on its own clock; B and C keep their timings, just SHAKE_BEAT later
-    let t = this.beatT < A_END ? this.beatT : this.beatT - SHAKE_BEAT;
     const k = this.combat;
     const kf = k.fighter;
+    // Kai's few words to himself out of the water (A2) and the riders down the line run on their own clocks
+    if (this._arrivals || this._shot === 'A2') {
+      if (this._arrivals) this._updateArrivals(dt);
+      else this._updateSelfTalk(dt);
+      k.root.rotation.y = k.heading;
+      kf.update(dt);
+      return;
+    }
+    const bt = this.beatT - (this._held || 0); // the clock, less the time he spent talking to himself
+    if (bt >= A_END && !this._selfTalked) {
+      this._startSelfTalk();
+      return;
+    }
+    // shot A runs on its own clock; B keeps its timings, just SHAKE_BEAT later
+    let t = bt < A_END ? bt : bt - SHAKE_BEAT;
     const a = this.arena.anchors;
     const kp = k.root.position;
 
-    if (this.beatT < A_END) {
+    if (bt < A_END) {
       // ---- A: the wake-up
       if (this._shot !== 'A') {
         this._shot = 'A';
@@ -1386,81 +1393,364 @@ export class Level03 extends Level {
     } else if (this._shot === 'D') {
       // ---- D: face to face, a few words before it starts
       this._updateTalk(dt);
-    } else if (t < C_AT + ROPE_T) {
-      // ---- R: down the zip line to the keystone
-      this._updateRope(t - C_AT, dt);
-    } else {
-      // ---- C: he lets go of the line, and jumps down off the arch behind Kai
-      t -= ROPE_T;
-      const b = this.boss;
-      const bf = b.fighter;
-      const lp = this.leap;
-      if (this._shot !== 'C') {
-        this._shot = 'C';
-        kp.copy(KAI_START);
-        kf.play('idle', { fade: 0.3 });
-        b.root.visible = true;
-        b.root.position.copy(a.gateTop);
-        b.heading = Math.atan2(KAI_START.x - a.gateTop.x, KAI_START.z - a.gateTop.z);
-        b.root.rotation.y = b.heading;
-        // the leap clip, scrubbed by hand below; no clip to read, the old Handler stands and plays his jump on take-off
-        if (lp) bf.hold('jump', LEAP_FROM, 0);
-        else bf.play('idle', { fade: 0 });
-        this._landed = false;
-        const landY = this.arena.fighterY(BOSS_LAND.x, BOSS_LAND.z);
-        const fall = Math.sqrt((2 * (a.gateTop.y - landY)) / LEAP_G);
-        const takeoff = C_AT + (lp ? lp.off - LEAP_FROM : 0.3);
-        this._leapAt = { takeoff, fall, land: takeoff + fall, landY };
-      }
-      const L = this._leapAt;
-      // in the air: carried forward evenly, falling from a standstill (y = top - g t²/2)
-      const air = Math.min(1, Math.max(0, (t - L.takeoff) / L.fall));
-      b.root.position.lerpVectors(a.gateTop, BOSS_LAND, air);
-      b.root.position.y = a.gateTop.y + (L.landY - a.gateTop.y) * air * air;
-      if (lp) {
-        // the clip's own crouch and spring play at their speed; its time in the air is stretched over the fall
-        const s = t - C_AT;
-        const pre = lp.off - LEAP_FROM;
-        const clipT = s < pre ? LEAP_FROM + s
-          : s < pre + L.fall ? lp.off + ((s - pre) / L.fall) * (lp.on - lp.off)
-          : lp.on + (s - pre - L.fall);
-        const act = bf.actions.jump;
-        act.time = Math.min(clipT, act.getClip().duration);
-        if (clipT > act.getClip().duration - 0.4 && bf.current === act) bf.play('idle', { fade: 0.4 }); // up out of the crouch: into his stance
-      } else if (t >= L.takeoff && !this._jumped) {
-        this._jumped = true;
-        bf.playOnce('jump', { speed: 1.3 });
-        this.sound?.play('whoosh', { volume: 0.3 });
-      }
-      if (air >= 1 && !this._landed) {
-        this._landed = true;
-        if (!lp) bf.play('idle', { fade: 0.2 }); // the real leap rises out of its own landing
-        this._addShake(0.75);
-        this.arena.burst(BOSS_LAND.x, BOSS_LAND.z);
-        this.waves.spawn(BOSS_LAND.x, L.landY, BOSS_LAND.z, { size: 5.5, life: 0.6, color: 0xffe2b0 });
-        this.sound?.play('impact', { volume: 0.9 });
-        this.sound?.duck(0.4, 0.8);
-        this.story.showCard('THE MARSHAL', 'The company\u2019s man. He has not slowed down since the stone.');
-        this._pulley.visible = false; // left hanging at the top of the line
-      }
-      // Kai hears him land and turns round
-      if (t > L.land - 0.25) {
-        const want = Math.atan2(BOSS_LAND.x - kp.x, BOSS_LAND.z - kp.z);
-        k.heading += shortestAngle(k.heading, want) * (1 - Math.exp(-6 * dt));
-        kf.setGuard(t > L.land + 0.15, 0.8);
-      }
-      // the camera, already behind Kai's stop point, re-aims at the gate and follows him down
-      this.cine.pos.set(2.6, 2.1, 7.4);
-      this.cine.look.set(-1.4, 1.6 + (1 - air * air) * 3.5, -6.5);
-      this.cine.fov = 55;
-      this.cine.rate = 2.6;
-      bf.update(dt);
-      // lowered after the pose is applied: the clip's ledge, faded out as it hands over to idle
-      if (lp) bf.visual.position.y = -lp.lower(bf.actions.jump.time) * bf.actions.jump.getEffectiveWeight();
-      if (t > L.land + TALK_AFTER) this._startTalk();
+    } else if (!this._arrivals) {
+      // ---- R: down the zip line, him and then his men (_updateArrivals)
+      this._startArrivals(false);
     }
     k.root.rotation.y = k.heading;
     kf.update(dt);
+  }
+
+  /** Out of the pool, the water shaken off: a few words to himself, the camera in front of him. */
+  _startSelfTalk() {
+    this._shot = 'A2';
+    this._selfTalked = true;
+    this._converse(SELF_TALK, () => {
+      this._held = this.beatT - A_END; // the intro's clock picks up where it stopped
+      this._shot = null;
+      this.story.setSkipLabel();
+    });
+  }
+
+  _updateSelfTalk(dt) {
+    const k = this.combat;
+    const kp = k.root.position;
+    const f = this._tmp.set(Math.sin(k.heading), 0, Math.cos(k.heading));
+    const pos = new THREE.Vector3(kp.x + f.x * 2.3 + f.z * 0.6, kp.y + 1.6, kp.z + f.z * 2.3 - f.x * 0.6);
+    this._setCine(pos, new THREE.Vector3(kp.x, kp.y + 1.5, kp.z), { fov: 38, rate: 3, cut: this._cine2 !== true });
+    this._cine2 = true;
+    this._tickLine(dt);
+  }
+
+  /** A retry: Kai already in the courtyard, and they come down the line again (skippable). */
+  _startArrivalsOnly() {
+    this._enterBeat('INTRO');
+    this.sound?.setVariant('intro');
+    this.story.setCinematic(true, true);
+    this.hud.setVisible(false);
+    this.touch.setVisible(false);
+    this.boss.root.visible = false;
+    const k = this.combat;
+    k.root.position.copy(KAI_START);
+    k.heading = Math.atan2(BOSS_LAND.x - KAI_START.x, BOSS_LAND.z - KAI_START.z);
+    this._setCine(new THREE.Vector3(2.6, 2.1, 7.4), new THREE.Vector3(-1.4, 4.5, -6.5), { fov: 55, cut: true });
+    this._startArrivals(true);
+  }
+
+  /**
+   * Down the zip line, one after another: the Marshal first, then each of
+   * his men on his own pulley, each letting go at the keystone and dropping
+   * off the arch into the courtyard. Then the talk (or, on a retry, the fight).
+   */
+  _startArrivals(short) {
+    const k = this.combat;
+    if (!short) k.root.position.copy(KAI_START);
+    k.fighter.play('idle', { fade: 0.3 });
+    const riders = [{ who: this.boss, ride: ROPE_T, land: BOSS_LAND, pulley: this._pulley, card: [WHO.handler.name, 'He came over the edge after you.'], boss: true }];
+    (this.squad?.men || []).forEach((m, i) => riders.push({
+      who: m, ride: MAN_ROPE_T, land: MEN_LAND[i], pulley: this._menPulleys[i],
+      card: i === 0 ? [MEN_NAME, 'He didn\u2019t come alone.'] : null,
+    }));
+    let at = 0;
+    for (const r of riders) {
+      r.start = at;
+      at += short ? r.ride * 0.6 + 0.15 : r.ride * 0.85 + 0.35; // the next sets off as this one nears the bottom (closer on a retry)
+      r.phase = 'wait';
+      r.who.root.visible = false;
+      r.pulley.position.copy(this._ropeA);
+      r.pulley.visible = true;
+    }
+    this._arrivals = { riders, t: 0, short, doneAt: null };
+    this._shot = 'R';
+  }
+
+  _updateArrivals(dt) {
+    const A = this._arrivals;
+    A.t += dt;
+    const a = this.arena.anchors;
+    const lp = this.leap;
+    const k = this.combat;
+    const kp = k.root.position;
+    let focus = null;
+    for (const r of A.riders) {
+      const t = A.t - r.start;
+      if (t < 0) continue;
+      const w = r.who;
+      const f = w.fighter;
+      const root = w.root;
+      if (r.phase === 'wait') {
+        r.phase = 'ride';
+        root.visible = true;
+        r.mid = lp ? (lp.off + lp.on) / 2 : 0;
+        if (lp) f.hold('jump', r.mid, 0); // mid-leap: arms up, legs tucked, the way you ride a line
+        else f.play('idle', { fade: 0 });
+        this.sound?.play('whoosh', { volume: 0.55, rate: 0.6 + Math.random() * 0.1 });
+        if (r.card) this.story.showCard(...r.card);
+        r.spark = 0;
+      }
+      if (r.phase === 'ride') {
+        const u = Math.min(1, t / r.ride);
+        // faster and faster down the line, then the brake at the bottom
+        const e = u < 0.82 ? 0.95 * Math.pow(u / 0.82, 1.7) : 0.95 + 0.05 * smooth(0.82, 1, u);
+        const p = (this._ropeP ||= new THREE.Vector3()).copy(this._ropeA).lerp(this._ropeB, e);
+        r.pulley.position.copy(p);
+        r.pulley.lookAt(this._ropeA);
+        root.position.set(p.x, p.y - ROPE_HANG, p.z);
+        w.heading = Math.atan2(this._ropeB.x - this._ropeA.x, this._ropeB.z - this._ropeA.z);
+        r.spark -= dt;
+        if (r.spark <= 0 && u < 0.97) {
+          r.spark = 0.05;
+          this.arena.burst(p.x, p.z, { color: 0xffb347, count: 5, speed: 2.4, size: 0.07, y: p.y, lift: 0.4, additive: true });
+        }
+        if (lp) f.visual.position.y = -lp.lower(r.mid);
+        focus = root.position;
+        if (u >= 1) {
+          // the brake; he lets go, and drops off the arch
+          r.phase = 'drop';
+          r.dropT = 0;
+          this._addShake(0.2);
+          this.sound?.play('impact', { volume: 0.45, rate: 1.3 });
+          r.landY = this.arena.fighterY(r.land.x, r.land.z);
+          r.from = root.position.clone();
+          r.fall = Math.sqrt((2 * Math.max(0.5, r.from.y - r.landY)) / LEAP_G);
+          r.takeoff = lp ? lp.off - LEAP_FROM : 0.3;
+          if (lp) f.hold('jump', LEAP_FROM, 0);
+          r.pulley.visible = false;
+        }
+      } else if (r.phase === 'drop') {
+        r.dropT += dt;
+        const air = Math.min(1, Math.max(0, (r.dropT - r.takeoff) / r.fall));
+        root.position.lerpVectors(r.from, r.land, air);
+        root.position.y = r.from.y + (r.landY - r.from.y) * air * air;
+        w.heading += shortestAngle(w.heading, Math.atan2(kp.x - root.position.x, kp.z - root.position.z)) * (1 - Math.exp(-4 * dt));
+        if (lp) {
+          // the clip's own crouch and spring at their speed; its time in the air stretched over the fall
+          const s = r.dropT;
+          const pre = lp.off - LEAP_FROM;
+          const clipT = s < pre ? LEAP_FROM + s : s < pre + r.fall ? lp.off + ((s - pre) / r.fall) * (lp.on - lp.off) : lp.on + (s - pre - r.fall);
+          const act = f.actions.jump;
+          act.time = Math.min(clipT, act.getClip().duration);
+          if (clipT > act.getClip().duration - 0.4 && f.current === act) f.play('idle', { fade: 0.4 });
+        } else if (r.dropT >= r.takeoff && !r.jumped) {
+          r.jumped = true;
+          f.playOnce('jump', { speed: 1.3 });
+        }
+        focus = root.position;
+        if (air >= 1 && !r.landed) {
+          r.landed = true;
+          r.phase = 'down';
+          if (!lp) f.play('idle', { fade: 0.2 });
+          this._addShake(r.boss ? 0.75 : 0.45);
+          this.arena.burst(r.land.x, r.land.z);
+          this.waves.spawn(r.land.x, r.landY, r.land.z, { size: r.boss ? 5.5 : 3.6, life: 0.6, color: 0xffe2b0 });
+          this.sound?.play('impact', { volume: r.boss ? 0.9 : 0.6 });
+          if (r.boss) this.sound?.duck(0.4, 0.8);
+        }
+      } else {
+        // down: turned to Kai, up out of the crouch into his stance
+        w.heading += shortestAngle(w.heading, Math.atan2(kp.x - root.position.x, kp.z - root.position.z)) * (1 - Math.exp(-5 * dt));
+        const act = f.actions.jump;
+        if (lp && act && f.current === act) {
+          act.time = Math.min(act.time + dt, act.getClip().duration);
+          if (act.time > act.getClip().duration - 0.4) f.play('idle', { fade: 0.4 });
+        }
+      }
+      root.rotation.y = w.heading;
+      f.update(dt);
+      // lowered after the pose: the clip's ledge, faded out as it hands over to idle
+      if (lp && r.phase !== 'ride' && f.actions.jump) f.visual.position.y = -lp.lower(f.actions.jump.time) * f.actions.jump.getEffectiveWeight();
+    }
+    // Kai hears the line sing and looks up at the arch; once the first one's down he turns to face them, guard up
+    const firstDown = A.riders[0].landed;
+    const look = firstDown ? BOSS_LAND : a.gateTop;
+    k.heading += shortestAngle(k.heading, Math.atan2(look.x - kp.x, look.z - kp.z)) * (1 - Math.exp(-3 * dt));
+    k.fighter.setGuard(firstDown, 0.8);
+    // from behind Kai, up at whoever's coming down
+    if (!focus) focus = A.riders[A.riders.length - 1].who.root.position;
+    this.cine.pos.set(2.6, 2.1, 7.4);
+    this.cine.look.lerp(this._tmp.set(focus.x, focus.y + 1.2, focus.z), 1 - Math.exp(-4 * dt));
+    this.cine.fov = 40; // close enough to see who's on the line
+    this.cine.rate = 3;
+    // all down: the talk (first time), or straight into it (a retry)
+    if (A.riders.every((r) => r.landed)) {
+      A.doneAt ??= A.t;
+      if (A.t - A.doneAt > (A.short ? 0.9 : 1.4)) {
+        this._arrivals = null;
+        if (A.short) this._startFight();
+        else this._startTalk();
+      }
+    }
+  }
+
+  /** The stag's down and cold stone: a few words over it, then the epilogue. */
+  _startStagDown() {
+    if (this._ride) this._endRide(false);
+    this._enterBeat('STAGDOWN');
+    this._downCut = false;
+    this._downSide = null;
+    this._downPose = null;
+    this._talk = this._talkDone = null;
+    this.story.setCinematic(true, true);
+    this.story.setSkipLabel('SPACE: NEXT LINE \u00b7 CLICK HERE: SKIP');
+    this.hud.setVisible(false);
+    this.hud.setTell('');
+    this.touch.setVisible(false);
+    this.combat.fighter.setGuard(false);
+    this.combat.fighter.visual.rotation.z = 0;
+    this.combat.fighter.play('idle', { fade: 0.4 });
+    this._converse(STAG_DOWN_TALK, () => this._endStagDown());
+  }
+
+  _updateStagDown(real) {
+    const k = this.combat;
+    const kf = k.fighter;
+    const kp = k.root.position;
+    const sp = this.stag.root.position;
+    k.heading += shortestAngle(k.heading, Math.atan2(sp.x - kp.x, sp.z - kp.z)) * (1 - Math.exp(-4 * real));
+    // he walks up to it, slowly, and stands easy over it: the fight's gone out of him too
+    const gap = Math.hypot(sp.x - kp.x, sp.z - kp.z);
+    if (gap > 2.4 && this.beatT > 0.4) {
+      const step = Math.min(gap - 2.4, 1.3 * real);
+      kp.x += ((sp.x - kp.x) / gap) * step;
+      kp.z += ((sp.z - kp.z) / gap) * step;
+      this.arena.collide(kp, 0.4);
+      kp.y = this.arena.fighterY(kp.x, kp.z);
+      kf.play('walk', { fade: 0.3 });
+    } else if (this.beatT > 0.4 && this._downPose !== 'easy') {
+      this._downPose = 'easy';
+      if (kf.actions.relax) kf.hold('relax', kf.clipDuration('relax') - 0.01, 0.6);
+      else kf.play('idle', { fade: 0.4 });
+    }
+    k.root.rotation.y = k.heading;
+    kf.update(real);
+    // side on, low: Kai on one side of the frame, the stone stag on the other
+    const mid = this._tmp.set((kp.x + sp.x) / 2, 0, (kp.z + sp.z) / 2);
+    const span = Math.max(3, Math.hypot(sp.x - kp.x, sp.z - kp.z));
+    if (!this._downSide) {
+      const d = new THREE.Vector3(sp.x - kp.x, 0, sp.z - kp.z).normalize();
+      // the open side: toward the middle of the courtyard, away from the walls
+      this._downSide = new THREE.Vector3(d.z, 0, -d.x);
+      if (this._downSide.dot(new THREE.Vector3(-mid.x, 0, -mid.z)) < 0) this._downSide.negate();
+    }
+    const out = span * 1.15 + 3.4;
+    const pos = new THREE.Vector3(mid.x + this._downSide.x * out, kp.y + 1.6, mid.z + this._downSide.z * out);
+    this._setCine(pos, new THREE.Vector3(mid.x, kp.y + 0.85, mid.z), { fov: 45, rate: 2.5, cut: !this._downCut });
+    this._downCut = true;
+    this._tickLine(real);
+  }
+
+  _endStagDown() {
+    if (this.mode !== 'STAGDOWN') return;
+    this._talk = this._talkDone = null;
+    this.story.hideLine();
+    this.story.setSkipLabel();
+    this._endTimer = 0.5;
+    this._endKind = 'win';
+  }
+
+  /** Up onto the stag's back while it's open. */
+  _startRide() {
+    const k = this.combat;
+    k.blocking = false;
+    k.queued = null;
+    k.fighter.setGuard(false);
+    this._ride = { t: 0, balance: 0, push: 0, pushT: 0.3, hitCD: 0.3, from: k.root.position.clone(), punchT: 0 };
+    this.stag.ride(RIDE_TIME);
+    this.hud.popup('ON ITS BACK!', '#7ff4ff');
+    this.sound?.play('whoosh', { volume: 0.6, rate: 0.8 });
+    this.sound?.play('guardianRoar', { volume: 0.7, rate: 1.15 });
+    this._addShake(0.3);
+  }
+
+  /** On its back: it bucks to throw him one way and the other; he leans against it and lands blows. */
+  _updateRide(dt, input, state) {
+    const R = this._ride;
+    R.t += dt;
+    const k = this.combat;
+    const kf = k.fighter;
+    const kp = k.root.position;
+    const s = this.stag;
+    const seat = s.seat(this._rideSeat ||= new THREE.Vector3());
+    seat.y -= 0.5; // his hips on its back, legs down its flanks
+    if (R.t < 0.35) {
+      // the leap: an arc up onto it
+      const u = R.t / 0.35;
+      kp.lerpVectors(R.from, seat, u);
+      kp.y += Math.sin(u * Math.PI) * 1.1;
+      if (!R.sat) { R.sat = true; kf.play('sitting', { fade: 0.15 }); }
+    } else {
+      kp.copy(seat);
+      // it throws its weight one way, then the other; A / D lean against it
+      R.pushT -= dt;
+      if (R.pushT <= 0) {
+        R.pushT = 0.5 + Math.random() * 0.35;
+        R.push = (Math.random() < 0.5 ? -1 : 1) * (1.0 + Math.random() * 0.7);
+      }
+      const lean = input.axis('left', 'right');
+      R.balance += (R.push + lean * 2.4) * dt * 0.5; // one buck alone won't throw him; two the same way will
+      if (Math.abs(R.balance) >= 1) { this._endRide(true); return; }
+      // blows from its back
+      R.hitCD -= dt;
+      if ((input.pressed('attack') || input.pressed('kick')) && R.hitCD <= 0) {
+        R.hitCD = RIDE_HIT_CD;
+        const dealt = s.takeDamage(RIDE_HIT * (this.power ? 1.4 : 1));
+        this._damageNumber(dealt, 'crit', s.root.position);
+        this._hitStop(0.05);
+        this._addShake(0.25);
+        this.sound?.play('punch', { volume: 0.85, rate: 0.9 + Math.random() * 0.1 });
+        this.style.add('hit');
+        const at = this._tmp.set(0, s.height * 0.62, 0.9).applyMatrix4(s.root.matrixWorld);
+        this.arena.burst(at.x, at.z, { color: 0x7ff4ff, count: 16, speed: 2.6, size: 0.18, y: at.y, lift: 1.2, additive: true });
+        if (kf.actions.cross) kf.playOnce('cross', { from: 0.95, speed: 1.9, fade: 0.05 });
+        R.punchT = 0.32;
+        if (!s.alive) { this._endRide(false); return; }
+      }
+      if (R.punchT > 0 && (R.punchT -= dt) <= 0) kf.play('sitting', { fade: 0.12 });
+      kf.visual.rotation.z = -R.balance * 0.45;
+    }
+    k.heading = s.heading;
+    k.root.rotation.y = k.heading;
+    state.regenStamina(8, dt);
+    if (R.t >= RIDE_TIME) { this._endRide(false); return; }
+    kf.update(dt);
+  }
+
+  /** Off its back: thrown (a fall, and it hurts), or he jumps clear when it tires. */
+  _endRide(thrown) {
+    const R = this._ride;
+    if (!R) return;
+    this._ride = null;
+    const k = this.combat;
+    const kf = k.fighter;
+    const kp = k.root.position;
+    const s = this.stag;
+    const side = thrown ? Math.sign(R.balance) || 1 : 1;
+    // down beside it, on the side he fell (its right is -x in its frame)
+    const h = s.heading;
+    kp.set(s.root.position.x - Math.cos(h) * side * 2.4, 0, s.root.position.z + Math.sin(h) * side * 2.4);
+    this.arena.collide(kp, 0.4);
+    kp.y = this.arena.fighterY(kp.x, kp.z);
+    kf.visual.rotation.z = 0;
+    kf.play('idle', { fade: 0.2 });
+    if (s.alive) s.endRide();
+    if (thrown) {
+      this.state.damage(RIDE_THROWN);
+      this._hurtGrace = HURT_GRACE;
+      k.onHurt();
+      this._addShake(0.4);
+      this.hud.popup('THROWN!', '#ff8a5a');
+      this.sound?.play('bodyFall', { volume: 0.7 });
+      this._checkPlayerDeath(this.state);
+    } else this.hud.popup('JUMPED CLEAR', '#7ff4ff');
+  }
+
+  /** Where his balance is, as a bar for the HUD: the marker drifts as it bucks. */
+  _rideBar() {
+    const n = 15;
+    const i = Math.round(((this._ride.balance + 1) / 2) * (n - 1));
+    let bar = '';
+    for (let j = 0; j < n; j++) bar += j === i ? '\u25c6' : j === (n - 1) / 2 ? '|' : '\u2014';
+    return `HOLD ON  ${bar}`;
   }
 
   /** Shot D: the two of them face to face, a few lines each, typed out on screen as they're said. */
@@ -1470,7 +1760,7 @@ export class Level03 extends Level {
     const b = this.boss;
     b.fighter.visual.position.y = 0; // well off the leap clip by now
     b.root.position.copy(BOSS_LAND);
-    b.root.position.y = this._leapAt.landY;
+    b.root.position.y = this.arena.fighterY(BOSS_LAND.x, BOSS_LAND.z);
     this._converse(TALK, () => this._startFight());
   }
 
@@ -1561,6 +1851,13 @@ export class Level03 extends Level {
     // his mask's eyes smoulder brighter while he talks
     b._glowMask(0xff5a1a, line?.who === 'handler' ? 1.3 : 0.6);
     bf.update(dt);
+    for (const m of this.squad?.men || []) {
+      if (!m.root.visible) continue;
+      const mp = m.root.position;
+      m.heading += shortestAngle(m.heading, Math.atan2(kp.x - mp.x, kp.z - mp.z)) * (1 - Math.exp(-5 * dt));
+      m.root.rotation.y = m.heading;
+      m.fighter.update(dt);
+    }
     if (!line) return;
     // the shot creeps in over the line
     this.cine.fov = 14 - Math.min(1, this._lineT / 4) * 1.6;
@@ -1608,6 +1905,12 @@ export class Level03 extends Level {
   /** Hand control over: everyone on their marks, HUD in, boss off the leash after a beat. */
   _startFight() {
     introSeen = true;
+    // the line: everyone's down it (or the intro was skipped), the pulleys at the bottom
+    this._arrivals = null;
+    for (const pl of [this._pulley, ...(this._menPulleys || [])]) {
+      pl.position.copy(this._ropeB);
+      pl.visible = pl === this._pulley;
+    }
     this._enterBeat('FIGHT');
     this.sound?.setVariant('battle');
     this._muteInput = true;
@@ -1641,7 +1944,7 @@ export class Level03 extends Level {
     if (this.act === 'MEN') {
       b.watching = true;
       b.root.position.copy(BOSS_WATCH);
-      this.squad.start(MEN_GATE);
+      this.squad.arrive(MEN_LAND);
       this.hud.setBossName(MEN_NAME);
       this.hud.versus(WHO.kai.name, MEN_NAME);
       this._barkOnce('menIn');
