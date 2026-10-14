@@ -34,9 +34,6 @@ import { mountFpsCounter } from "./ui/FpsCounter.js";
  * Road, so Level 2 picks up already driving, and Level 2 ends over the falls
  * where Level 3 begins. The levels hand off forward themselves. Any piece can
  * be opened on its own with ?level=<name>, e.g. ?level=level03.
- *
- * (The old server-room story's Level 1 cutscene, TrailIntro, is no longer
- * part of the run: the prologue replaced it.)
  */
 ensureDialogueFont(); // the one serif the dialogue, cards and HUD names share
 const game = new Game();

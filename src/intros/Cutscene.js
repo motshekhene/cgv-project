@@ -8,8 +8,7 @@ import { showEndScreen, hideEndScreen } from '../ui/theme.js';
  *
  * A cutscene is a Level, so it runs inside the same Game as the real levels:
  *
- *   game.registerLevel('level01-intro', () => new TrailIntro({ onDone: () => game.setLevel('level01') }));
- *   game.registerLevel('level01-win', () => new GateWin({ stats, onContinue: () => game.setLevel('level02-intro') }));
+ *   game.registerLevel('level02-intro', () => new DriveOutIntro({ onDone: () => goTo('level02') }));
  *
  * A subclass sets `length`, `ending`, `shots` and (optionally) `slowmo` in its
  * constructor, builds its set in build(assets), and poses everything in

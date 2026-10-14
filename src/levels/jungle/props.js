@@ -167,10 +167,10 @@ export function scatter(parent, prop, spots, { shadow = false, receive = true } 
 
 /**
  * ambientCG texture set from assets/jungle/textures/ as a MeshStandardMaterial.
- * set = 'forest-floor' | 'mud' | 'mossy-rock' | 'cliff-rock' | 'wood-planks' | 'concrete'.
+ * set = 'forest-floor' | 'mud' | 'mossy-rock'.
  * Textures are cloned so two materials can repeat the same set differently.
  */
-const AO_SETS = new Set(['forest-floor', 'mud', 'mossy-rock', 'cliff-rock', 'concrete']); // the sets with an -ao.jpg
+const AO_SETS = new Set(['forest-floor', 'mud', 'mossy-rock']); // the sets with an -ao.jpg
 
 export async function pbr(assets, set, { repeat = 1, tint = 0xffffff, roughness = 1, normalScale = 1 } = {}) {
   const load = async (suffix, srgb) => {

@@ -2066,10 +2066,8 @@ export class Prologue extends Level {
     this._applyDawn(1);      // the fade is dark; the jump in light is free
     if (document.exitPointerLock) document.exitPointerLock();
     // This prologue is the intro of record: it ends on Kai breaking onto the
-    // trail at dawn with the horn, which is level 01's first frame. The old
-    // level-1 cutscene (TrailIntro) is still built around a data-centre door,
-    // so playing it here would break the valley story — go straight into the
-    // run. Reachable on its own via ?level=level01-intro.
+    // trail at dawn with the horn, which is level 01's first frame, so it
+    // goes straight into the run.
     setTimeout(() => this.game.setLevel('level01'), 1250);
   }
 

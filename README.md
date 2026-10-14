@@ -24,7 +24,7 @@ assets/jungle/     every model and texture the game uses (index: assets/jungle/R
 assets/characters/ kai-bryce.glb, handler-monk.glb (+ .json), built by tools/build-character.py; kai.fbx, handler.fbx are the old fallbacks
 public/assets/level2/  Level 2 cars, traffic and drone (served at ./assets/level2/)
 src/               the game (core/, levels/, shaders/, ui/, intros/)
-intros/            the Level 1 intro and the Level 1 → 2 drive-out on their own pages: npm run intro:l1 / intro:l2
+intros/            the Level 1 → 2 drive-out on its own page: npm run intro:l2
 docs/              pitch, plans, implementation guide, concept pages
 tools/concepts/    the script that rendered the concept images (reference only)
 ```
@@ -97,15 +97,6 @@ If you're not sure whether something will break the project for everyone, check 
 
 ## Documentation
 
-### API documentation
-
-Our related Wits-Quest application (backend + frontend) has generated API documentation, deployed here:
-
-- **API docs:** https://nkadimengkgothatso.github.io/-wits-quest/development/api-reference/ (quick-start version: https://nkadimengkgothatso.github.io/-wits-quest/development/api-quickstart/)
-- **Docs source repo:** https://github.com/NkadimengKgothatso/-wits-quest (source on `main`, built site on `gh-pages`)
-
-The docs cover the backend REST and socket API (`backend/src/`) — battle socket handling, matchmaking lobby, ELO/leaderboard services, authentication, and the offline queue. Every new backend feature ships with API tests (supertest) and every UI feature with React Testing Library tests, so the docs and the test suite stay in step.
-
 ### Performance
 
 Performance targets and how to measure them (per-frame, on a mid-range laptop):
@@ -114,7 +105,6 @@ Performance targets and how to measure them (per-frame, on a mid-range laptop):
 - **Draw calls / triangles:** keep the scene under ~300 draw calls. Shared traffic models are cached in the `AssetRegistry` and cloned with `SkeletonUtils.clone`, so all 12 vehicles reuse one set of geometry/materials.
 - **Memory:** nothing is created or destroyed while playing — vehicles, skid marks, and smoke use fixed pools recycled each frame. `Level.teardown()` / `AssetRegistry.dispose()` free GPU resources on level change; check for leaks with DevTools Memory heap snapshots before and after a 5-minute session.
 - **Asset loading:** all models/textures/audio load once through `AssetRegistry` and are cached, so a second lap or a car swap never re-downloads. Verify on the Network tab (first load pulls assets; picking V → DRIVE again should not).
-- **Test coverage as a quality gate:** CI reports coverage for the frontend and backend of our Wits-Quest application and fails below 60% (the rubric's advanced band), rising to 80% for the final submission. Run locally with `npm run test` in each of `frontend/` and `backend/`.
 
 ## Questions?
 

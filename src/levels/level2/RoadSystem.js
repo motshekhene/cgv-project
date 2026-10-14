@@ -11,7 +11,6 @@ import * as THREE from 'three';
  *   - Metal guardrails on both sides
  *   - Mud verges and forest floor, and the jungle itself, added by
  *     decorate() once the shared jungle kit has loaded (JungleRoadside.js).
- *     (The old city blocks in CityEnvironment.js are no longer used.)
  *
  * Chunks recycle behind the car and reappear ahead, and the other way when
  * it reverses, so there is always road both ways.  With `endZ` set the

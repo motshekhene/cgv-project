@@ -8,8 +8,8 @@
  * MERGE NOTE (1A + 3A, 5 Oct): both branches added fields to reset(). Both
  * sets are kept — 1A's pursuit/fail tracking and 3A's awards + helmet flag.
  *
- * These names are what src/core/Hud.js reads. The HUD does not guess and it
- * does not accept alternatives: if a level tracks the player's condition in
+ * These names are what the HUDs read. They do not guess and they
+ * do not accept alternatives: if a level tracks the player's condition in
  * its own `hp`, the shared bar stays at 100 while the player dies.
  */
 export class GameState {

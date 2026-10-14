@@ -23,7 +23,6 @@ export default {
     rollupOptions: {
       input: {
         main: resolve(root, 'index.html'),
-        level2: resolve(root, 'level2.html'),
       },
     },
   },
