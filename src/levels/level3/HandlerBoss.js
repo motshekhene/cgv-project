@@ -34,41 +34,43 @@ import { Fighter } from './Fighter.js';
  * round the trees when something is, and he only starts an attack with a clear
  * line to him. Held up anyway (shoved against something), he finds another way.
  */
-// difficulty lives in these numbers (+ MAX_HEALTH and COUNTER_AFTER below)
+// difficulty lives in these numbers (+ MAX_HEALTH and COUNTER_AFTER below). Hard, but every
+// phase leaves a breath between his attacks (rest, s) to hit back in: in the last two it used to
+// be under a tenth of a second, which made them a matter of luck rather than reading him
 const PHASES = [
   { name: 'PURSUIT', speed: 4.4, attacks: ['lunge'], pace: 1.0, rest: [0.3, 0.7] },
-  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.2, 0.5] },
-  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge', 'spin'], pace: 0.64, rest: [0.1, 0.3] },
-  { name: 'THE HORN', speed: 6.6, attacks: ['blast', 'combo', 'lunge', 'spin', 'blast', 'sweep'], pace: 0.56, rest: [0.08, 0.22] },
+  { name: 'STAND', speed: 5.0, attacks: ['lunge', 'sweep'], pace: 0.82, rest: [0.25, 0.55] },
+  { name: 'DESPERATION', speed: 6.0, attacks: ['sweep', 'combo', 'lunge', 'spin'], pace: 0.66, rest: [0.25, 0.5] },
+  { name: 'THE HORN', speed: 6.6, attacks: ['blast', 'combo', 'lunge', 'spin', 'blast', 'sweep'], pace: 0.6, rest: [0.2, 0.45] },
 ];
 
 const ATTACKS = {
   lunge: {
     tell: 0xff7a1a, telegraph: 0.75, recover: 0.95, engage: 5.2, clip: 'punch', clipSpeed: 2.6,
-    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 17 }],
+    hits: [{ dur: 0.3, move: 14, reach: 1.9, damage: 14 }],
   },
   sweep: {
     tell: 0xff1133, telegraph: 0.9, recover: 1.05, engage: 2.6, clip: 'swordslash', clipSpeed: 2.8, blockMul: 0.65,
-    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 22 }],
+    hits: [{ dur: 0.36, move: 0, radius: 3.4, damage: 18 }],
   },
   // the capoeira cartwheel kick: two kicks that catch anything round him as he comes on
   spin: {
     tell: 0x2fe0b0, telegraph: 0.8, recover: 1.0, engage: 3.0, clip: 'swordslash', clipSpeed: 2.4, blockMul: 0.5,
     hits: [
-      { dur: 0.28, move: 5, radius: 2.6, damage: 12 },
-      { gap: 0.3, dur: 0.28, move: 5, radius: 2.6, damage: 14 },
+      { dur: 0.28, move: 5, radius: 2.6, damage: 10 },
+      { gap: 0.3, dur: 0.28, move: 5, radius: 2.6, damage: 11 },
     ],
   },
   // phase IV: the horn raised over his head, then a ring of force all round him
   blast: {
     tell: 0x4fd6e0, telegraph: 1.05, recover: 1.0, engage: 4.2, clip: 'angry', clipSpeed: 1.6, pose: 'angry', blockMul: 0.45,
-    hits: [{ dur: 0.32, move: 0, radius: 5.4, damage: 22 }],
+    hits: [{ dur: 0.32, move: 0, radius: 5.4, damage: 18 }],
   },
   combo: {
     tell: 0xb04dff, telegraph: 0.62, recover: 0.9, engage: 3.4, clip: 'punch', clipSpeed: 3.2,
     hits: [
-      { dur: 0.26, move: 9, reach: 2.0, damage: 13 },
-      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 13 },
+      { dur: 0.26, move: 9, reach: 2.0, damage: 10 },
+      { gap: 0.22, dur: 0.26, move: 9, reach: 2.0, damage: 11 },
     ],
   },
 };

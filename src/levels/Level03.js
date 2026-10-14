@@ -218,6 +218,9 @@ const TALK_AFTER = 1.6; // shot D starts this long after he lands
 // a perfect dodge: started this close (s) before the blow lands, it bends time round Kai for FOCUS_TIME (real) s:
 // the world runs at FOCUS_SCALE, Kai at FOCUS_KAI, and his hits do FOCUS_DAMAGE x (KeyVision draws it)
 const PERFECT_DODGE = 0.2;
+// hit, Kai can't be hit again for this long (s, real time): the second blow of a combo, a spin's
+// second kick or the forest's splash can't land on top of the first while he's still reeling
+const HURT_GRACE = 0.75;
 const FOCUS_TIME = 1.6;
 const FOCUS_SCALE = 0.25;
 const FOCUS_KAI = 0.9;
@@ -505,6 +508,7 @@ export class Level03 extends Level {
     this.boss.onStrike = (info) => {
       const c = this.combat;
       if (c.dead || this._ended || this.mode !== 'FIGHT') return 'dodged';
+      if (this._hurtGrace > 0) return 'dodged';
       if (c.dodging) {
         if (c.dodgeDuration - c.dodgeT <= PERFECT_DODGE) this._perfectDodge(state);
         else {
@@ -541,6 +545,7 @@ export class Level03 extends Level {
         return 'blocked';
       }
       state.damage(info.damage);
+      this._hurtGrace = HURT_GRACE;
       c.onHurt();
       this.style.hurt();
       this._hitStop(0.035);
@@ -696,6 +701,7 @@ export class Level03 extends Level {
     const real = dt / Math.max(state.timeScale, 0.05);
     this.time += real;
     this.beatT += real;
+    if (this._hurtGrace > 0) this._hurtGrace -= real;
     const input = this.input;
 
     if (input.pressed('skip') && (this.mode === 'INTRO' || (this.mode === 'EPILOGUE' && !this._talk))) {
@@ -1576,8 +1582,9 @@ export class Level03 extends Level {
       b.fighter.flash(0xdfe8ff, 0.3);
       this.hud.popup('THE FOREST STRIKES', '#dfe8ff');
       this._barkOnce('forest');
-      if (Math.hypot(cp.x - bp.x, cp.z - bp.z) < FOREST_SPLASH && !this.combat.dodging) {
+      if (Math.hypot(cp.x - bp.x, cp.z - bp.z) < FOREST_SPLASH && !this.combat.dodging && !(this._hurtGrace > 0)) {
         state.damage(FOREST_SPLASH_DAMAGE);
+        this._hurtGrace = HURT_GRACE;
         this.combat.onHurt();
         this.hud.damageFlash();
         this._checkPlayerDeath(state);
