@@ -73,3 +73,42 @@ export function showEndCard({ kind = 'win', title, sub = '', lines = [], action 
     },
   };
 }
+
+/**
+ * The one losing card, the same in every level: what happened, then TRY AGAIN
+ * (R: the level from the top) and MAIN MENU, the pair the pause menu offers.
+ *
+ *   this._loseCard = showLoseCard(this.game, { title: 'CAUGHT', sub, lines });
+ *   this._loseCard?.destroy();   // in teardown()
+ *
+ * R is Game's own restart key, so the card leaves it to Game (bindKey: false).
+ * onRetry / onMenu run first, for a level with something to set on the way out.
+ */
+export function showLoseCard(game, { title, sub = '', lines = [], onRetry = null, onMenu = null }) {
+  const card = showEndCard({
+    kind: 'lose',
+    title,
+    sub,
+    lines,
+    action: {
+      label: 'TRY AGAIN',
+      key: 'R',
+      bindKey: false,
+      onClick: () => {
+        card.destroy();
+        onRetry?.();
+        game?.restart();
+      },
+    },
+    extra: [{
+      label: 'MAIN MENU',
+      onClick: () => {
+        card.destroy();
+        onMenu?.();
+        game?.setPaused(false, 'switch');
+        game?.setLevel('title');
+      },
+    }],
+  });
+  return card;
+}

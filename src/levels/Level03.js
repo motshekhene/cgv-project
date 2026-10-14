@@ -13,6 +13,7 @@ import { StrikeTrail, Shockwaves } from './level3/Trails.js';
 import { Fireflies } from './level3/Fireflies.js';
 import { Level3Sound } from './level3/sound.js';
 import { FightHUD } from '../ui/FightHUD.js';
+import { showLoseCard } from '../ui/EndCard.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
@@ -942,10 +943,12 @@ export class Level03 extends Level {
     }
     // clear the screen for the defeat card: no bars, no buttons, no lock widget
     this.touch.setVisible(false);
+    this.hud.el.classList.add('ended');
     const who = this.boss.helmetOff ? 'Baba Zwane' : 'The Marshal';
-    this.hud.showBanner('DEFEATED', `${who} stands over you, and the horn slips from your hand.`, null, {
-      kind: 'lose',
-      action: { label: 'TRY AGAIN', key: 'R', onClick: () => this.game.restart() },
+    // the losing card every level shows (ui/EndCard.js)
+    this._loseCard = showLoseCard(this.game, {
+      title: 'DEFEATED',
+      sub: `${who} stands over you, and the horn slips from your hand.`,
     });
   }
 
@@ -1897,6 +1900,7 @@ export class Level03 extends Level {
   }
 
   teardown() {
+    this._loseCard?.destroy();
     if (this.vision) this.vision.dispose();
     if (this.sound) { this.sound.dispose(); this.sound = null; }
     if (this.touch) this.touch.dispose();

@@ -1067,24 +1067,14 @@ export class Level02 extends Level {
     const dist = this.state.distance;
     const time = this._time;
     const topSpeedKmh = this._topSpeed * 3.6;
-    this._gameOverScreen = createGameOverScreen({
-      health: 0,
+    // TRY AGAIN is the River Road from the top, straight back in the same car
+    // (R included, which Game handles itself: hence the flag is set now, not on the click)
+    retryDriving = true;
+    this._gameOverScreen = createGameOverScreen(this.game, {
       topSpeedKmh,
       distance: dist,
       time,
-      // No CONTINUE: it put you back on the road where you wrecked, at full
-      // health, so a wreck cost nothing. RETRY is the River Road from the top.
-      onRestart: () => {
-        this._gameOverScreen?.destroy();
-        this._gameOverScreen = null;
-        retryDriving = true;
-        this.game.restart();
-      },
-      onQuit: () => {
-        this._gameOverScreen?.destroy();
-        this._gameOverScreen = null;
-        this.game.setLevel('level01');
-      },
+      onMenu: () => { retryDriving = false; },
     });
   }
 

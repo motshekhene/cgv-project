@@ -15,7 +15,7 @@ import {
   loadJungleTheme,
   JungleBed,
 } from "../audio/jungleAudio.js";
-import { showEndCard } from "../ui/EndCard.js";
+import { showEndCard, showLoseCard } from "../ui/EndCard.js";
 import { THEME_CSS } from "../ui/theme.js";
 import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
@@ -2692,27 +2692,12 @@ export class Level01 extends Level {
   _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
 
-    // the team's shared end card (ui/theme.js), same as levels 02 and 03
-    this._caughtOverlay = showEndCard({
-      kind: "lose",
+    // the losing card every level shows (ui/EndCard.js). No checkpoints:
+    // caught anywhere, TRY AGAIN starts the run again from the stone
+    this._caughtOverlay = showLoseCard(this.game, {
       title: "CAUGHT",
       sub: title,
       lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
-      action: {
-        // no checkpoints: caught anywhere, the run starts again from the stone
-        label: "TRY AGAIN",
-        key: "SPACE",
-        onClick: async () => {
-          this._removeCaughtOverlay();
-          if (!this.game) return;
-          try {
-            await this.game.restart();
-          } catch (err) {
-            console.error("[level01] restart failed", err);
-          }
-        },
-      },
-      extra: [{ label: "RELOAD GAME", onClick: () => window.location.reload() }],
     });
   }
 
