@@ -472,6 +472,23 @@ const HANDLER_SEALED_GLOW = 0.9; // fraction of full glow held at the bars, so h
 // the total is exactly CLIP_PENALTY regardless of frame rate. Decaying a m/s
 // deficit directly instead would leak ~3.06 m at 60 fps and ~3.17 m at 20 fps.
 const CLIP_PENALTY = 3;
+// --- bumping into things ---
+// Nothing on the trail is a ghost. Run into something and Kai stops dead at
+// it, is knocked back off it and reels (his hit clip) for BUMP_STOP s, and
+// only then gets past it the way a person would:
+//   side   tall things in a lane (crate, barrel, trolley, wall, a dropped
+//          block, the doors): he sidesteps into the nearest free lane first
+//   over   low things in his way (a fallen log or tree, a trap, a log that
+//          rolled into him and stopped): he clambers over, a hop
+//   under  the low arch: he ducks under it, sliding
+//   back   things that hit him on their way past (boulder, beam, rotor,
+//          kudu): knocked back out of their path, and they go by in front
+// then BUMP_RAMP s back up to speed. What it costs against the Marshal is
+// the stumble's CLIP_PENALTY, as it always was: the stop is for the eye.
+const BUMP_STOP = 0.34;
+const BUMP_RAMP = 0.45;
+const KAI_FRONT = 0.38; // m from his middle to his chest
+const BUMP_BACK = { side: 0.55, over: 0.55, under: 0.55, back: 2.2 }; // m knocked back
 const STUMBLE_TAU = 0.45; // seconds; recovery time constant
 
 // --- health / damage ---------------------------------------------------------
@@ -648,6 +665,7 @@ export class Level01 extends Level {
     this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
     this._stumbleDebt = 0; // metres of ground still owed from clipping a barrier
+    this._bump = null; // running into something: see BUMP_*
     // speed the shader/lights follow, smoothed so the streaks ease rather than
     // snapping when Kai stumbles or gets caught
     this._displaySpeed = SPEED_BASE;
@@ -1465,12 +1483,14 @@ export class Level01 extends Level {
     const feet = this._flightLift + this.y + (this.sliding ? SLIDE_FEET_Y : PLAYER_FEET_Y);
     const head = this._flightLift + this.y + (this.sliding ? SLIDE_HEAD_Y : PLAYER_HEAD_Y);
 
-    const registerHit = (h, hitX = x) => {
+    const registerHit = (h, hitX = x, hitZ = h.z) => {
       if (this._flightLift >= JETPACK_SAFE_LIFT) return;
       h.hit = true;
       clipped = true;
       this._specialImpactType = h.type;
       this._specialImpactX = hitX;
+      this._specialImpactH = h;
+      this._specialImpactZ = hitZ;
     };
 
     for (const h of this._specialHazards) {
@@ -1515,13 +1535,17 @@ export class Level01 extends Level {
           a.mesh.rotation.y = dir > 0 ? 0 : Math.PI;
           this._animalGait(a, dt, true);
           if (!a.flee && !h.hit && Math.abs(this.z - a.z) < 0.95 && Math.abs(x - a.x) < a.halfX + 0.35 && feetNow < a.hiY) {
-            registerHit(h, a.x);
+            registerHit(h, a.x, a.z);
           }
           if (Math.abs(a.x) > 19) { a.done = true; a.mesh.visible = false; }
         }
         continue;
       } else if (h.type === "rollingLog") {
         if (h.gone) continue;
+        if (h.stopped) { // it rolled into him and stopped against him
+          if (h.logZ > this.z + 25) { h.gone = true; h.object.visible = false; }
+          continue;
+        }
         h.speed = Math.min(LOG_SPEED, h.speed + 14 * dt);
         const rel0 = prevZ - h.logZ;
         h.logZ += h.speed * dt;
@@ -1530,7 +1554,10 @@ export class Level01 extends Level {
         h.object.rotation.x += (h.speed / LOG_R) * dt;
         // he and it meet (swept: at 35 m/s closing they can pass between frames)
         const met = (rel0 > 0) !== (rel > 0) || Math.abs(rel) < LOG_R + 0.45;
-        if (!h.hit && met && Math.abs(x - h.x) < LOG_LEN / 2 + 0.3 && feet < LOG_R * 2 + 0.06) registerHit(h, h.x);
+        if (!h.hit && met && Math.abs(x - h.x) < LOG_LEN / 2 + 0.3 && feet < LOG_R * 2 + 0.06) {
+          h.stopped = true; // it stops against him: he'll have to get over it
+          registerHit(h, h.x, h.logZ);
+        }
         if (h.logZ > this.z + 25) { h.gone = true; h.object.visible = false; }
         continue;
       }
@@ -3489,7 +3516,8 @@ export class Level01 extends Level {
       const rageBoost = this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0;
       // the roots have him: he stands where they caught him until he tears free
       const handlerSpeed = this._handlerRootedT > 0 ? 0 : this.baseSpeed + HANDLER_CREEP + rageBoost;
-      this.gap = Math.min(HANDLER_MAX_GAP, this.gap + (this.speed - handlerSpeed) * dt);
+      const kaiSpeed = this._bump ? this._gapSpeed : this.speed; // a bump's stop is shown, not charged twice
+      this.gap = Math.min(HANDLER_MAX_GAP, this.gap + (kaiSpeed - handlerSpeed) * dt);
 
       if (this.gap <= 0) {
         this.gap = 0;
@@ -4103,6 +4131,12 @@ export class Level01 extends Level {
       this.boostSpeed = 0;
     }
 
+    // running into something: stopped dead at it, knocked back, then back up to
+    // speed. The gap to the Marshal goes by the stumble as it always did.
+    this._gapSpeed = this.speed;
+    if (this._bump && !this.caught && !this.escaped) this.speed = this._bumpSpeed(dt);
+    else this._bump = null;
+
     // forward motion — barriers are checked against this further down, once
     // this frame's lane and jump state are known
     const prevZ = this.z;
@@ -4212,6 +4246,23 @@ export class Level01 extends Level {
         this._stumbleDir = rel > 0.1 ? 1 : rel < -0.1 ? -1 : (Math.random() > 0.5 ? 1 : -1);
       } else {
         this._stumbleDir = Math.random() > 0.5 ? 1 : -1;
+      }
+
+      // --- the bump: stopped at it, knocked back, then past it properly ---
+      if (clipped) {
+        const way = clipped.kind === "duct" ? "under" : clipped.hiY <= 1.0 ? "over" : "side";
+        this._startBump(way, clipped.z + clipped.halfZ, { obstacle: clipped });
+      } else if (fallingTreeClip) {
+        this._startBump("over", fallingTreeClip.z + FALL_TREE_HALF_Z);
+      } else if (specialClip && this._specialImpactH) {
+        const h = this._specialImpactH;
+        if (h.type === "rollingLog") this._startBump("over", this._specialImpactZ + LOG_R);
+        else if (h.type === "fallingBlock") this._startBump("side", h.z + 0.9, { avoidLane: h.lane });
+        else if (h.type === "doors") this._startBump(this.lane === 1 ? "back" : "side", h.z + 0.5, { wantLane: 1 });
+        else {
+          const band = h.type === "boulder" ? 1.35 : h.type === "swing" ? 0.82 : h.type === "rotor" ? 0.65 : 0.95;
+          this._startBump("back", this._specialImpactZ + band);
+        }
       }
 
       // Health depleted — game over
@@ -4739,6 +4790,12 @@ export class Level01 extends Level {
       if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
     } else if (flying && kai.actions.fly) {
       kai.play("fly", { fade: 0.3 });
+    } else if (this._bump && this._bump.t < BUMP_STOP && !this.airborne && !this.sliding && kai.actions.hit) {
+      // he's run into something: the recoil from his hit clip, from just before it peaks
+      if (!this._bump.anim) {
+        this._bump.anim = true;
+        kai.playOnce("hit", { from: 0.85, speed: 1.9, fade: 0.05 });
+      }
     } else if (this.sliding && kai.actions.slide) {
       kai.play("slide", { fade: 0.08 });
     } else if (this.airborne) {
@@ -4827,6 +4884,76 @@ export class Level01 extends Level {
       halo.material.opacity = this._hornT >= 0 ? 0.95 : full ? 0.55 + 0.35 * pulse : 0.2 + 0.3 * this._hornCharge;
       halo.scale.setScalar(this._hornT >= 0 ? 0.55 : full ? 0.42 + 0.12 * pulse : 0.3);
     }
+  }
+
+  /**
+   * He ran into something whose near face is at faceZ: put him at it (not in
+   * it), and work out how he gets past. opts: obstacle (the thing, for a
+   * last resort), wantLane / avoidLane (the doors, a dropped block).
+   */
+  _startBump(way, faceZ, opts = {}) {
+    this.z = Math.max(this.z, faceZ + KAI_FRONT);
+    this._floorY = jungleCourseHeight(this.z);
+    this._bump = { t: 0, way, back: BUMP_BACK[way], resolved: false, anim: false, ...opts };
+    this.boostSpeed = 0;
+    if (way !== "under") this.sliding = false;
+  }
+
+  /** His speed while bumping: knocked back off it, stopped, then the way past it, and back up to speed. */
+  _bumpSpeed(dt) {
+    const b = this._bump;
+    b.t += dt;
+    const cruise = this.baseSpeed;
+    if (b.t < BUMP_STOP) {
+      // the knock back eases out over the stop: (1 - k)^2 integrates to `back` metres
+      const k = b.t / BUMP_STOP;
+      return -(3 * b.back / BUMP_STOP) * (1 - k) * (1 - k);
+    }
+    if (!b.resolved) {
+      b.resolved = true;
+      if (b.way === "side") {
+        const lane = b.wantLane ?? this._freeLane(this.z - KAI_FRONT - 1, b.avoidLane);
+        if (lane !== null && lane !== this.lane) {
+          this.laneFrom = this.lane;
+          this.lane = lane;
+          this.laneT = 0;
+        } else if (b.obstacle && lane === null) {
+          // nowhere to go round it (the course always leaves one way, so this is rare): he shoulders through
+          b.obstacle.gone = true;
+          this._hornFx?.shards.spawn(this._hornAt.set(b.obstacle.x, jungleCourseHeight(b.obstacle.z), b.obstacle.z), 14, SHARD_COLOUR[b.obstacle.kind] ?? 0x8a8a76);
+        }
+      } else if (b.way === "over" && !this.airborne) {
+        this.airborne = true;
+        this.vy = 7.2; // a clamber: his feet clear a metre and a bit
+      } else if (b.way === "under") {
+        this.sliding = true;
+        this._slideT = SLIDE_TIME;
+      }
+    }
+    // sidestepping: not forward again until he's out from in front of it
+    if (b.way === "side" && this.laneT < 0.85) return 0;
+    const r = Math.min(1, (b.t - BUMP_STOP) / BUMP_RAMP);
+    if (r >= 1) this._bump = null;
+    return cruise * (0.3 + 0.7 * r * r);
+  }
+
+  /** The nearest lane to his with nothing in it around z (null if all three are blocked). */
+  _freeLane(z, avoid = null) {
+    const blocked = [false, false, false];
+    if (avoid !== null && avoid !== undefined) blocked[avoid] = true;
+    for (let i = this._obsCursor; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      if (o.z > z + 3) continue;
+      if (o.z < z - 5) break;
+      if (o.gone) continue;
+      const off = this._routeOffsetAt(o.z);
+      for (let l = 0; l < 3; l++) if (Math.abs(LANE_X[l] + off - o.x) < o.halfX + 0.55) blocked[l] = true;
+    }
+    if (!blocked[this.lane]) return this.lane;
+    const order = [this.lane - 1, this.lane + 1, this.lane - 2, this.lane + 2]
+      .filter((l) => l >= 0 && l <= 2 && !blocked[l])
+      .sort((a, b) => Math.abs(a - this.lane) - Math.abs(b - this.lane) || Math.abs(a - 1) - Math.abs(b - 1));
+    return order.length ? order[0] : null;
   }
 
   /** The horn is full: tell him, once with a thought, every time with the banner. */
