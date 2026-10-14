@@ -3,7 +3,7 @@ import { attachModel as attachVehicleModel } from './attachModel.js';
 import { spinWheels } from './wheels.js';
 
 /** States in which he is actively attacking (lights strobe, HUD goes red). */
-export const ATTACK_STATES = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'SHOOT', 'DRONE'];
+export const ATTACK_STATES = ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM', 'SHOOT', 'DRONE'];
 
 const MOVE_LABEL = {
   SLAM: 'SIDE SLAM',
@@ -11,6 +11,7 @@ const MOVE_LABEL = {
   SHUNT: 'REAR SHUNT',
   PIN: 'WALL PIN',
   BRAKECHECK: 'BRAKE CHECK',
+  RAM: 'RAMMING',
   SHOOT: 'TYRE SHOT',
   DRONE: 'DRONE LAUNCH',
 };
@@ -24,6 +25,15 @@ const STATION_LABEL = {
 };
 
 const _v = new THREE.Vector2();
+
+// Stopping is not a hiding place: slower than SLOW_SPEED for SLOW_AFTER s and he
+// comes for you, a run-up of RAM_RUNUP m and a charge, again every RAM_EVERY s
+// for as long as you sit there. He can reverse (to REVERSE m/s) to get at you.
+const SLOW_SPEED = 7;
+const SLOW_AFTER = 1.0;
+const RAM_RUNUP = 9;
+const RAM_EVERY = 2.2;
+const REVERSE = 14;
 
 /**
  * HandlerAI — Member 2A
@@ -44,6 +54,11 @@ const _v = new THREE.Vector2();
  *   door      door to door, leaning on you (small damage)
  *   ahead     (after ~30 s) past you and into your lane, weaving to block you
  *
+ * Brake hard and he overshoots, but he doesn't sit there: he reverses back
+ * onto you. And stopping (or crawling) is no hiding place: after a second of
+ * it he backs off for a run-up and RAMs you, from behind or reversing in from
+ * in front, again and again until you get moving.
+ *
  * He never drives through you to get from one to another: from behind he
  * swings out to the side first, and level with you he keeps to his own lane.
  *
@@ -56,6 +71,7 @@ const _v = new THREE.Vector2();
  *     SLAM       (door) swings out and rams your side
  *     PIN        (door, you near a rail) shoves you along it
  *     BRAKECHECK (ahead) stamps on his brakes in front of you
+ *     RAM        (you've slowed right down or stopped) a run-up and a charge
  *     SHOOT      (after ~18 s) drops back and shoots at your rear tyre —
  *                see HandlerWeapons.js
  *     DRONE      first at ~25 s, then about every 30 s: a spike-strip or
@@ -69,11 +85,12 @@ const _v = new THREE.Vector2();
  *   SHUNT  change lane while he's lining up behind you, or boost
  *   PIN    brake or boost to break contact; steering alone won't beat his weight
  *   BRAKECHECK  change lane round him (braking only softens it)
+ *   RAM    get moving, or change lane as he comes
  *   SHOOT  keep moving sideways: his laser sight lags behind your wheel
  *   DRONE  spikes: change lane before the strip; kamikaze: change speed or
  *          lane when its light goes solid
  *
- * He gets more aggressive over ~60 s (shorter harass, quicker wind-up,
+ * He gets more aggressive over ~45 s (shorter harass, quicker wind-up,
  * harder hits) and rubber-bands back if you boost far ahead.
  *
  * Fair play:
@@ -153,7 +170,9 @@ export class HandlerAI {
     this.traffic = null;         // Traffic, set by Level02 — he drives round it
 
     // fairness
-    this.nextAttackAt = 10;      // grace period before the first move
+    this.nextAttackAt = 7;       // grace period before the first move
+    this.slowFor = 0;            // how long you've been crawling or stopped
+    this.nextRamAt = 0;
     this.graceUntil = 0;         // giveSpace(): no moves, no damage until then
     this.obstacles = null;       // Obstacles, set by Level02: he won't attack into them
     this.avoiding = null;        // traffic car he's currently steering round
@@ -168,7 +187,7 @@ export class HandlerAI {
    * hurt, so a low health bar is a comeback window, not a death spiral.
    */
   get aggro() {
-    const a = Math.min(1, this.elapsed / 60);
+    const a = Math.min(1, this.elapsed / 45);
     return this._hurt ? a * 0.5 : a;
   }
 
@@ -178,7 +197,7 @@ export class HandlerAI {
 
   /** Called whenever a move finishes (hit or miss): guaranteed breathing room. */
   _cooldown() {
-    const gap = THREE.MathUtils.lerp(7, 4.5, this.aggro) * (this._hurt ? 1.6 : 1);
+    const gap = THREE.MathUtils.lerp(5.5, 3.2, this.aggro) * (this._hurt ? 1.6 : 1);
     this.nextAttackAt = this.elapsed + gap;
   }
 
@@ -216,7 +235,7 @@ export class HandlerAI {
    */
   giveSpace(seconds = 2.5) {
     this.graceUntil = Math.max(this.graceUntil, this.elapsed + seconds);
-    if (['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'HARASS'].includes(this.state) && !this.moveLanded) {
+    if (['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM', 'HARASS'].includes(this.state) && !this.moveLanded) {
       this.state = 'RECOVER';
       this.stateTimer = 0;
       this._cooldown();
@@ -381,6 +400,17 @@ export class HandlerAI {
     // your speed as he sees it: he reacts to a change half a second late, so
     // when you stamp on the brakes he overshoots, and when you floor it you pull away
     this.seenSpeed += (car.speed - this.seenSpeed) * (1 - Math.exp(-dt / 0.45));
+    this.slowFor = Math.abs(car.speed) < SLOW_SPEED ? this.slowFor + dt : 0;
+    // sat still? he comes for you (a ram needs no lane to dodge into: driving off is the dodge)
+    const ramTime = this.slowFor > SLOW_AFTER && this.elapsed >= this.nextRamAt && !this.passive
+      && this.elapsed >= this.graceUntil && !(this.weapons && this.weapons.threatActive);
+    if (ramTime && (this.state === 'APPROACH' || this.state === 'HARASS')) {
+      this.nextMove = 'RAM';
+      this.locked = false;
+      this.moveLanded = false;
+      this.ramFrom = (p.z - m.z) >= 0 ? -1 : 1;           // run up from whichever end of you he's at
+      this._enter('TELEGRAPH');
+    }
 
     // Level with you (you braked, he overshot, or he's come up alongside) he
     // keeps to his own lane, and in front of you he stays out of yours until
@@ -408,7 +438,7 @@ export class HandlerAI {
         const caughtUp = behind && Math.abs(tz - m.z) < 3 && Math.abs(m.x - p.x) < GAP;
         const besideYou = !behind && !ahead && Math.abs(m.x - p.x) > GAP - 0.2 && this.elapsed > 10;
         if (caughtUp || besideYou) {
-          this.harassFor = THREE.MathUtils.lerp(4, 2.2, a) + Math.random() * 1.2;
+          this.harassFor = THREE.MathUtils.lerp(3, 1.6, a) + Math.random() * 1.0;
           this.jabTimer = 0.6 + Math.random() * 0.6;
           if (besideYou) {
             this.station = 'door';                        // you braked and he's come up level: he stays there
@@ -483,6 +513,11 @@ export class HandlerAI {
           tx = p.x;
           tz = p.z + LEN + 6;
           keepClear = false;
+        } else if (move === 'RAM') {
+          // backs off along the road for a run-up, square on to you
+          tx = p.x;
+          tz = p.z + this.ramFrom * (LEN + RAM_RUNUP);
+          keepClear = false;
         } else if (move === 'SHOOT' || move === 'DRONE') {
           // falls back to a firing position behind you, a little to one side
           tx = behind ? p.x + this.side * 1.6 : laneBehind();
@@ -550,6 +585,21 @@ export class HandlerAI {
         else if (this.stateTimer > 1.6 || dz > LEN + 0.5) this._miss();   // you're past him
         break;
 
+      case 'RAM': {
+        // a charge straight at you, steering after you a little; get moving and he's past or short
+        if (this.stateTimer < dt * 1.5) this.ramX = p.x;
+        this.ramX += THREE.MathUtils.clamp(p.x - this.ramX, -2.5 * dt, 2.5 * dt);
+        tx = this.ramX;
+        fixedSpeed = car.speed - this.ramFrom * (15 + 5 * a);
+        accel = decel = 40;
+        maxLat = 3;
+        keepClear = false;
+        const past = this.ramFrom < 0 ? dz < -LEN : dz > LEN;
+        if (this.moveLanded) this._enter('RECOVER');
+        else if (this.stateTimer > 1.6 || (past && Math.abs(p.x - m.x) > GAP * 0.6)) this._miss();
+        break;
+      }
+
       case 'PIN':
         // keep shoving towards the rail; you break free by braking or boosting
         tx = p.x - this.side * 1.2;
@@ -583,7 +633,7 @@ export class HandlerAI {
 
       case 'RECOVER':
         tx = laneBehind();
-        tz = p.z - LEN - 6;
+        tz = this.lastMove === 'RAM' ? p.z + this.ramFrom * (LEN + 6) : p.z - LEN - 6;
         if (this.stateTimer > 1.3 && this.elapsed >= this.graceUntil) this._enter('APPROACH');
         break;
     }
@@ -593,7 +643,7 @@ export class HandlerAI {
 
     // ---------- ease the targets ----------
     // a committed charge aims straight; everything else glides to its new spot
-    const direct = ['SHUNT', 'SLAM', 'BRAKECHECK'].includes(this.state);
+    const direct = ['SHUNT', 'SLAM', 'BRAKECHECK', 'RAM'].includes(this.state);
     if (this._tx === undefined || direct) { this._tx = tx; this._tzOff = tz - p.z; }
     else {
       const k = 1 - Math.exp(-dt * (this.state === 'HARASS' ? 5 : 3.5));
@@ -615,7 +665,7 @@ export class HandlerAI {
       if (avoid.x !== null) { tx = avoid.x; maxLat = Math.max(maxLat, 7); }
       else trafficCap = avoid.speed;                     // both sides shut: tuck in behind it
       // an attack that would have to go through a car is called off
-      if (avoid.close && ['SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK'].includes(this.state) && !this.moveLanded) this._miss();
+      if (avoid.close && ['SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM'].includes(this.state) && !this.moveLanded) this._miss();
     }
 
     // ---------- drive there ----------
@@ -625,13 +675,14 @@ export class HandlerAI {
     const yourTop = car.maxSpeed || 42;
     const baseTop = Math.max(this.maxSpeed, yourTop + 6);
     const topSpeed = Math.min(baseTop + THREE.MathUtils.clamp((dz - 8) * 0.35, 0, 8), yourTop * 1.25 - 2);
+    // below zero is reverse: overshot you, or lining up a ram from in front, he backs up onto you
     const desired = fixedSpeed !== null
-      ? fixedSpeed
-      : THREE.MathUtils.clamp(this.seenSpeed + THREE.MathUtils.clamp((tz - m.z) * 1.2, -12, 12), 0, topSpeed);
+      ? THREE.MathUtils.clamp(fixedSpeed, -REVERSE - 6, topSpeed + 10)
+      : THREE.MathUtils.clamp(this.seenSpeed + THREE.MathUtils.clamp((tz - m.z) * 1.2, -12, 12), -REVERSE, topSpeed);
     this.speed += THREE.MathUtils.clamp(Math.min(desired, trafficCap) - this.speed, -decel * dt, accel * dt);
 
     // a car can only go sideways as fast as its speed lets it turn
-    if (this.state !== 'SLAM') maxLat = Math.min(maxLat, 0.5 * Math.max(6, this.speed));
+    if (this.state !== 'SLAM') maxLat = Math.min(maxLat, 0.5 * Math.max(6, Math.abs(this.speed)));
     const wantLat = THREE.MathUtils.clamp((tx - m.x) * (direct ? 3 : 2.2), -maxLat, maxLat);
     const latAccel = this.state === 'SLAM' ? 60 : direct ? 24 : 16;
     this.latVel += THREE.MathUtils.clamp(wantLat - this.latVel, -latAccel * dt, latAccel * dt);
@@ -641,8 +692,9 @@ export class HandlerAI {
     const lim = this.railX - this.halfW;
     if (Math.abs(m.x) > lim) { m.x = Math.sign(m.x) * lim; this.latVel = 0; }
 
-    // body follows his actual direction of travel
-    const h = THREE.MathUtils.clamp(Math.atan2(this.latVel, Math.max(4, this.speed)), -0.45, 0.45);
+    // body follows his actual direction of travel (backwards in reverse: the tail leads)
+    const back = this.speed < -0.5 ? -1 : 1;
+    const h = THREE.MathUtils.clamp(back * Math.atan2(this.latVel, Math.max(4, Math.abs(this.speed))), -0.45, 0.45);
     this.heading += (h - this.heading) * Math.min(1, 10 * dt);
     this.mesh.rotation.y = this.heading;
     spinWheels(this.model, this.speed, THREE.MathUtils.clamp(this.latVel / 6, -1, 1), dt);
@@ -694,6 +746,7 @@ export class HandlerAI {
 
   _miss() {
     const move = this.state;
+    if (move === 'RAM') this.nextRamAt = this.elapsed + RAM_EVERY * 0.6;
     this.speed *= move === 'SLAM' ? 0.6 : 0.8;
     this.latVel *= 0.3;
     this._enter('DODGED');
@@ -769,7 +822,7 @@ export class HandlerAI {
   _react(car, c) {
     const side = Math.sign(this.mesh.position.x - car.mesh.position.x) || this.side;
     const move = this.state;
-    const attacking = ['SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK'].includes(move);
+    const attacking = ['SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM'].includes(move);
 
     if (attacking && !this.moveLanded) {
       // the move connects. A pin has to hold you against him for a moment
@@ -779,7 +832,7 @@ export class HandlerAI {
         if (this.pinHeld < 0.5) return;
       }
       const rear = c.localZ < -c.half.l * 0.3;
-      const ok = move === 'SLAM' || move === 'PIN'
+      const ok = move === 'SLAM' || move === 'PIN' || move === 'RAM'
         || (move === 'PIT' && rear)
         || (move === 'SHUNT' && c.localZ < 0)
         || (move === 'BRAKECHECK' && c.localZ > c.half.l * 0.3);   // your nose into his tailgate
@@ -804,6 +857,13 @@ export class HandlerAI {
       } else if (move === 'PIN') {
         damage = Math.round(5 + 3 * a);
         impact = 0.5;
+      } else if (move === 'RAM') {
+        // a proper hit: shoved along the road and spun, whichever end he came in at
+        car.speed += -this.ramFrom * (6 + 3 * a);
+        car.yawVel = (car.yawVel || 0) + (Math.random() < 0.5 ? -1 : 1) * (0.8 + 0.5 * a);
+        damage = Math.round(9 + 5 * a + Math.min(3, c.impulse * 0.2));
+        impact = Math.min(1, 0.6 + c.impulse / 14);
+        this.nextRamAt = this.elapsed + RAM_EVERY;
       } else if (move === 'BRAKECHECK') {
         // you ran into the back of him: the nose crumples, and you lose the speed you had
         car.speed *= 0.72;

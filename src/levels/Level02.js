@@ -607,7 +607,7 @@ export class Level02 extends Level {
       handler: {
         dist,
         dx: this.handler.mesh.position.x - p.x,
-        attacking: ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'SHOOT'].includes(handlerState),
+        attacking: ['TELEGRAPH', 'SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM', 'SHOOT'].includes(handlerState),
       },
       drones: this.weapons.drones.filter((d) => d.active).map((d) => ({
         dist: d.holder.position.distanceTo(p),
@@ -955,9 +955,9 @@ export class Level02 extends Level {
     const h = this.handler;
     const show = handlerState === 'TELEGRAPH' && h.nextMove;
     if (!show) { el.style.opacity = '0'; return; }
-    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', BRAKECHECK: 'BRAKE CHECK', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
-    const behind = h.nextMove === 'SHUNT' || h.nextMove === 'DRONE';
-    const inFront = h.nextMove === 'BRAKECHECK';
+    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', BRAKECHECK: 'BRAKE CHECK', RAM: 'RAMMING — MOVE!', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
+    const behind = h.nextMove === 'SHUNT' || h.nextMove === 'DRONE' || (h.nextMove === 'RAM' && h.ramFrom < 0);
+    const inFront = h.nextMove === 'BRAKECHECK' || (h.nextMove === 'RAM' && h.ramFrom > 0);
     // camera looks down +z, so world +x is the LEFT of the screen
     const onLeft = h.mesh.position.x > this.car.mesh.position.x;
     const pulse = 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 120));
