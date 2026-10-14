@@ -229,7 +229,7 @@ export class TouchControls {
   setMode(mode) {
     this.setOrbitEnabled(mode === 'orbit');
     const [icon, title] = {
-      follow: ['➤', 'Follow camera — left/right turn Kai and the view (Tab: lock-on)'],
+      follow: ['➤', 'Follow camera — the mouse looks around (Tab: lock-on)'],
       lock: ['◎', 'Lock-on camera — stays on your opponent (Tab: 360° view)'],
       orbit: ['↻', '360° view — drag to look around (Tab: follow)'],
     }[mode] || ['◎', ''];

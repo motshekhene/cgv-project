@@ -13,7 +13,8 @@ import * as THREE from 'three';
  *     decorate() once the shared jungle kit has loaded (JungleRoadside.js).
  *     (The old city blocks in CityEnvironment.js are no longer used.)
  *
- * Chunks recycle behind the car and reappear ahead.  With `endZ` set the
+ * Chunks recycle behind the car and reappear ahead, and the other way when
+ * it reverses, so there is always road both ways.  With `endZ` set the
  * road is a journey, not a loop (2A): chunks past the end are hidden, and the
  * last chunk drops its forest floor and jungle so the finale (course.js) can
  * put a river and the waterfall there instead.  All geometry lives under one
@@ -429,20 +430,29 @@ export class RoadSystem {
 
   /**
    * Call every frame with the car's world position.
-   * Uses a modulo conveyor-belt so recycled chunks land tightly packed
-   * at the tail of the queue — never beyond the fog line.
+   * A conveyor belt both ways, so the car is never off the end of the road:
+   * keeps 150-500 m of road behind it (the rest, 1 100 m and more, ahead).
+   * Driving on, the rearmost chunk is moved to the front; reversing, the
+   * front one is moved round behind. The two thresholds are a chunk apart,
+   * so a chunk never flips back and forth.
    */
   update(carPosition) {
     const carZ = carPosition.z;
     const L = this.chunkLength;
-    const threshold = carZ - L * 0.5;
-
-    for (const chunk of this.chunks) {
-      if (chunk.position.z < threshold) {
-        const farthest = Math.max(...this.chunks.map(c => c.position.z));
-        chunk.position.z = farthest + L;
-        this._applyEnd(chunk);
+    for (let guard = 0; guard < this.numChunks; guard++) {
+      let rear = this.chunks[0], front = this.chunks[0];
+      for (const c of this.chunks) {
+        if (c.position.z < rear.position.z) rear = c;
+        if (c.position.z > front.position.z) front = c;
       }
+      const rearEdge = rear.position.z - L / 2;
+      if (rearEdge < carZ - 500) {
+        rear.position.z = front.position.z + L;   // left far behind: to the front
+        this._applyEnd(rear);
+      } else if (rearEdge > carZ - 150) {
+        front.position.z = rear.position.z - L;   // reversing: round behind
+        this._applyEnd(front);
+      } else break;
     }
   }
 

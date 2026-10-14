@@ -284,7 +284,7 @@ export class FightHUD {
   /** The round icon (TouchControls) shows the camera mode; this confirms a switch with a short toast. */
   setCamMode(mode) {
     const help = {
-      follow: ['FOLLOW', 'left / right turn Kai and the view · TAB: lock-on'],
+      follow: ['FOLLOW', 'the mouse looks around (click to capture it) · TAB: lock-on'],
       lock: ['LOCK-ON', 'camera stays on your opponent · left / right strafe · TAB: 360° view'],
       orbit: ['360° VIEW', 'drag · hold ◀ ▶ · wheel · TAB: follow'],
     }[mode];

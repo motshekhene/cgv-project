@@ -110,6 +110,8 @@ const LEVEL_CONTROLS = {
   level03: {
     title: 'LEVEL 3 \u2014 THE FALLS',
     rows: [
+      { label: 'LOOK', keys: 'MOUSE' },
+      { label: 'MOVE', keys: 'W A S D' },
       { label: 'ATTACK', action: 'attack' },
       { label: 'KICK', action: 'kick' },
       { label: 'BLOCK', action: 'block' },

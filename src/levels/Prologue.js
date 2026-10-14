@@ -207,6 +207,7 @@ const SCRIPT = [
   { who: 'BABA ZWANE', text: "It's coming either way. This way, you get a year of the company's wages for one morning." },
   { who: 'KAI', text: 'Why me?' },
   { who: 'BABA ZWANE', text: 'Because a guide out on the paths at dawn is a normal thing. Anyone else would be noticed.' },
+  { who: 'KAI', text: "…A year's wages. And they're only stories." },
   { who: 'BABA ZWANE', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
 ];
 const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, KAI: KAI_GREEN };

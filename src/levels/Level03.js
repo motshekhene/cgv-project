@@ -164,6 +164,8 @@ const REVEAL_TALK = [
   { who: 'kai', text: 'You sent me up that ridge knowing what would wake.' },
   { who: 'zwane', text: 'The company paid me to put that horn in their hands. If I had lifted it myself, the forest would have come for me.' },
   { who: 'zwane', text: 'A guide on the paths at dawn \u2014 nobody looks twice. You drew it off. You were the bait.', pose: 'angry' },
+  { who: 'kai', text: 'I was bringing it to you.' },
+  { who: 'zwane', text: 'Bring it to me? There was never going to be a meeting, Kai. You\u2019d lift it, I\u2019d take it off you on the trail, and you\u2019d never know it was me.' },
   { who: 'kai', text: 'The last crew. The ones who went past the stone and never came back.' },
   { who: 'kai', text: 'Did you send them too?' },
   { who: 'zwane', text: '\u2026They didn\u2019t listen.' },
@@ -268,6 +270,7 @@ const RIDE_TIME = 3.2;
 const RIDE_HIT = 10; // a blow from its back, before the open x2.2
 const RIDE_HIT_CD = 0.42;
 const RIDE_THROWN = 8;
+const LOOK = 0.0022; // radians of camera turn per pixel of mouse movement: the prologue's
 const RIDE_LEAP = 0.45; // s up onto its back
 const RIDE_OFF = 0.5; // s down off it
 const MEN_NAME = 'THE COMPANY\u2019S MEN';
@@ -316,6 +319,8 @@ export class Level03 extends Level {
     this.camYaw = 0;
     this.orbitPitch = 0.55;
     this.orbitDist = 11;
+    this.lookPitch = 0; // the follow camera's tilt, from the mouse (up is +)
+    this._mouseIdle = 9; // s since the mouse last moved: left alone, the camera swings back behind Kai
     this.shake = 0;
     this._shakeOff = new THREE.Vector3();
     this._hitStopUntil = 0;
@@ -347,6 +352,19 @@ export class Level03 extends Level {
     this.handlerMeta = handler.meta;
     this.combat = new CombatController(this.root, kai.source, kai.meta);
     this.kaiIK = BodyIK.for(this.combat.fighter); // the poses no clip has: astride the stag, down for the horn
+    // the mouse looks round in the fight, as in the prologue: a click captures the pointer (Esc lets it go)
+    this._onFightClick = () => {
+      const el = this.game.renderer.domElement;
+      if (this.mode !== 'FIGHT' || this._ended || this.camMode !== 'follow') return;
+      if (document.pointerLockElement === el || !el.requestPointerLock) return;
+      try {
+        const req = el.requestPointerLock();
+        if (req && req.catch) req.catch(() => {});
+      } catch {
+        // refused (a sandboxed frame): the mouse still turns the view as it moves over the game
+      }
+    };
+    this.game.renderer.domElement.addEventListener('click', this._onFightClick);
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
     this.boss.nav = new Nav(this.arena, 0.45); // his way round the trees after Kai (his collision radius, _collide below)
@@ -743,6 +761,9 @@ export class Level03 extends Level {
     const real = dt / Math.max(state.timeScale, 0.05);
     this.time += real;
     this.beatT += real;
+    // the pointer is only held while he's fighting in the follow view: cutscenes, cards and menus get it back
+    const canvas = this.game.renderer.domElement;
+    if (document.pointerLockElement === canvas && (this.mode !== 'FIGHT' || this._ended || this.camMode !== 'follow')) document.exitPointerLock();
     if (this._hurtGrace > 0) this._hurtGrace -= real;
     const input = this.input;
 
@@ -819,7 +840,20 @@ export class Level03 extends Level {
     this._foePos = fp;
     const orbit = this.touch.consumeOrbit();
     if (this.camMode === 'follow') {
-      this.camYaw += shortestAngle(this.camYaw, this.combat.heading) * (1 - Math.exp(-7 * dt));
+      // the mouse looks round, as in the prologue: left / right turns the view, up / down tilts it
+      const m = this.input.mouse;
+      if (this.mode === 'FIGHT' && (m.dx || m.dy)) {
+        this.camYaw -= m.dx * LOOK;
+        this.lookPitch = Math.min(0.45, Math.max(-0.3, this.lookPitch - m.dy * LOOK));
+        this._mouseIdle = 0;
+      }
+      this._mouseIdle += real;
+      // and left alone while he moves (or rides), it swings back round behind him (never right round
+      // to his front: walking toward the camera, it stays where it is)
+      const behind = shortestAngle(this.camYaw, this.combat.heading);
+      if (this._mouseIdle > 0.7 && (this.combat.moving || this._ride) && Math.abs(behind) < 2) {
+        this.camYaw += behind * (1 - Math.exp(-2.4 * real));
+      }
     } else if (this.camMode === 'lock') {
       const want = Math.atan2(fp.x - cp.x, fp.z - cp.z);
       this.camYaw += shortestAngle(this.camYaw, want) * (1 - Math.exp(-7 * dt));
@@ -836,7 +870,9 @@ export class Level03 extends Level {
     if (this._focusT > 0) this._focusT -= real;
     const focus = this._focusT > 0 && this.mode === 'FIGHT';
     const stopped = performance.now() < this._hitStopUntil;
-    const kaiDt = focus && !stopped ? real * FOCUS_KAI : dt;
+    // ...and while the horn sounds the world crawls round him but he doesn't: he keeps his own full pace
+    const hornTime = this.combat.abilityActive && this.mode === 'FIGHT';
+    const kaiDt = stopped ? dt : focus ? real * FOCUS_KAI : hornTime ? real : dt;
     // the stag open and Kai beside it: he can leap onto its back (E)
     const stp = this.stag?.root.position;
     this._canRide = this.act === 'STAG' && this.mode === 'FIGHT' && !this._ended && !this._ride && !!this.stag?.alive
@@ -844,7 +880,7 @@ export class Level03 extends Level {
       && Math.hypot(stp.x - cp.x, stp.z - cp.z) < RIDE_REACH;
     if (this._canRide && controls.pressed('interact')) this._startRide();
     if (this._ride) this._updateRide(kaiDt, controls, state);
-    else if (this.mode !== 'STAGDOWN') this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, steer: this.camMode === 'follow' });
+    else if (this.mode !== 'STAGDOWN') this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, aim: this.camMode === 'follow' });
     this._updateTrail(kaiDt, focus);
     this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
@@ -2585,9 +2621,12 @@ export class Level03 extends Level {
       const cp = this.combat.root.position;
       const bp = this._foePos || this.boss.root.position;
       let dist, height, fx, fz, fy;
+      let lookY = 1.4;
       if (this.camMode === 'follow') {
-        // over Kai's back, looking a couple of metres ahead of him: his left is the screen's left
-        dist = 7.4; height = 2.8;
+        // over Kai's back, looking a couple of metres ahead of him: his left is the screen's left.
+        // The mouse tilts it: looking up it drops behind him and lifts its eyes, looking down it rises
+        dist = 7.4; height = 2.8 - this.lookPitch * 2.2;
+        lookY = 1.4 + this.lookPitch * 3;
         fx = cp.x + Math.sin(this.camYaw) * 2.2;
         fz = cp.z + Math.cos(this.camYaw) * 2.2;
         fy = cp.y;
@@ -2613,7 +2652,7 @@ export class Level03 extends Level {
       this._tmp.set(fx - Math.sin(this.camYaw) * dist, height + fy, fz - Math.cos(this.camYaw) * dist);
       this.arena.pullCamera(cp, this._tmp); // a trunk right behind Kai: come in front of it rather than hide it
       cam.position.lerp(this._tmp, 1 - Math.exp(-15 * gameDt));
-      this._tmp.set(fx, 1.4 + fy, fz);
+      this._tmp.set(fx, lookY + fy, fz);
       this._camLook.lerp(this._tmp, 1 - Math.exp(-10 * gameDt));
       if (Math.abs(cam.fov - FIGHT_FOV) > 0.01) {
         cam.fov += (FIGHT_FOV - cam.fov) * (1 - Math.exp(-6 * dt));
@@ -2647,6 +2686,8 @@ export class Level03 extends Level {
     if (this.sound) { this.sound.dispose(); this.sound = null; }
     if (this.touch) this.touch.dispose();
     if (this.input) this.input.ignored.delete('mouse0');
+    this.game?.renderer?.domElement.removeEventListener('click', this._onFightClick);
+    if (document.pointerLockElement && document.pointerLockElement === this.game?.renderer?.domElement) document.exitPointerLock();
     // skinned meshes own a bone texture that disposeObject() does not free
     this.root.traverse((o) => {
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.dispose();

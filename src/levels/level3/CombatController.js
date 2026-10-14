@@ -137,7 +137,9 @@ export class CombatController {
     this.abilityCD = 0;
     this.abilityRecharge = 9; // seconds before the Key can be used again
     this.abilityT = 0;
+    this.abilityDuration = 3; // s of Kai's own time: Level03 keeps him at full pace while the world slows round him
     this.abilityActive = false;
+    this.moving = false;
 
     this._move = new THREE.Vector3();
     this._fwd = new THREE.Vector3();
@@ -152,7 +154,7 @@ export class CombatController {
     return this.blocking && this.blockAge <= this.parryWindow;
   }
 
-  update(dt, input, state, { camYaw, lockOn, targetPos, steer = false }) {
+  update(dt, input, state, { camYaw, lockOn, targetPos, steer = false, aim = false }) {
     const f = this.fighter;
     this.still = false; // standing idle this frame: no move, turn, swing, roll or block
     if (this.dead) {
@@ -180,6 +182,7 @@ export class CombatController {
     }
     const moving = this._move.lengthSq() > 0.0001;
     if (moving) this._move.normalize();
+    this.moving = moving; // Level03's follow camera swings back behind him while he moves
     const backing = steer && iz < -0.05;
     const turning = steer && Math.abs(ix) > 0.05;
 
@@ -223,7 +226,7 @@ export class CombatController {
     }
     const pressed = input.pressed('kick') ? 'kick' : input.pressed('attack') ? 'attack' : null;
     const start = (kind) => {
-      if (steer) this._aimAt(targetPos);
+      if (steer || aim) this._aimAt(targetPos); // aim: a swing turns him onto a foe that's close and nearly in front
       this._startAttack(state, kind);
     };
     if (pressed && !this.dodging && !this.blocking && !staggered) {
@@ -287,7 +290,7 @@ export class CombatController {
     if (this.abilityCD > 0) this.abilityCD -= dt;
     if (input.pressed('ability') && this.abilityCD <= 0) {
       this.abilityCD = this.abilityRecharge;
-      this.abilityT = 1.1;
+      this.abilityT = this.abilityDuration;
     }
     this.abilityActive = this.abilityT > 0;
     if (this.abilityActive) this.abilityT -= dt;
