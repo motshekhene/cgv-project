@@ -535,6 +535,35 @@ const FLY_KNEE = -1.1;
 const FLY_ANKLE = -0.55;
 const _flyE = new THREE.Euler();
 
+// The slide, feet first: hips this high off the trail, leaned back this far
+// (radians), and where each bone points, in Kai's own frame (+x his left, +y
+// up, +z the way he runs). The lead leg goes out straight ahead, toes up; the
+// other folds under it; one hand trails on the ground. Top of his head stays
+// under the 1.05 m a low arch leaves him.
+const SLIDE_HIPS_Y = 0.28;
+const SLIDE_LEAN = 0.95;
+const SLIDE_AIMS = [
+  ["Spine2", "Neck", [0, 0.8, -0.55]],
+  ["Neck", "Head", [0, 0.9, 0.15]],
+  ["RightUpLeg", "RightLeg", [-0.04, -0.18, 1]],
+  ["RightLeg", "RightFoot", [-0.02, -0.12, 1]],
+  ["RightFoot", "RightToeBase", [0, 0.8, 0.6]],
+  ["LeftUpLeg", "LeftLeg", [0.35, -0.42, 0.8]],
+  ["LeftLeg", "LeftFoot", [-0.25, 0.05, -1]],
+  ["LeftFoot", "LeftToeBase", [-0.1, -0.25, -1]],
+  ["LeftArm", "LeftForeArm", [0.5, -0.75, -0.45]],
+  ["LeftForeArm", "LeftHand", [0.35, -0.7, -0.25]],
+  ["RightArm", "RightForeArm", [-0.45, 0.35, 0.8]],
+  ["RightForeArm", "RightHand", [-0.15, 0.7, 0.7]],
+].map(([bone, child, d]) => [bone, child, new THREE.Vector3(...d).normalize()]);
+const _slideA = new THREE.Vector3();
+const _slideB = new THREE.Vector3();
+const _slideD = new THREE.Vector3();
+const _slideQ = new THREE.Quaternion();
+const _slideW = new THREE.Quaternion();
+const _slideR = new THREE.Quaternion();
+const _slideI = new THREE.Quaternion();
+
 export class Level01 extends Level {
   constructor() {
     super("level01");
@@ -4251,6 +4280,8 @@ export class Level01 extends Level {
     this._kaiWasAirborne = false;
     // flying: a still, legs-together frame of his idle, bent into shape in _flightPose()
     this.kai.pose("fly", "idle", 0.4);
+    // sliding: the same still frame, laid out in _slidePose()
+    this.kai.pose("slide", "idle", 0.4);
     if (this._jetpackFx) this._buildKaiJetpack(); // otherwise _buildJetpackFx() calls it once the stand-in exists
   }
 
@@ -4474,6 +4505,8 @@ export class Level01 extends Level {
       if (kai.currentName !== "death") kai.play("death", { loop: false, fade: 0.15 });
     } else if (flying && kai.actions.fly) {
       kai.play("fly", { fade: 0.3 });
+    } else if (this.sliding && kai.actions.slide) {
+      kai.play("slide", { fade: 0.08 });
     } else if (this.airborne) {
       // the rig's running jump (1.25 s), sped up to fit the 0.77 s hop
       if (!this._kaiWasAirborne) kai.playOnce(kai.actions.runningjump ? "runningjump" : "jump", { fade: 0.08, speed: 1.6 });
@@ -4486,12 +4519,13 @@ export class Level01 extends Level {
     }
     this._kaiWasAirborne = this.airborne;
 
-    // the capsule's squash is the slide: lean him back and drop him with it
+    // the capsule's squash is the slide: lean him back here, and _slidePose()
+    // sets him down on the trail once the mixer has posed him
     const slide = THREE.MathUtils.clamp((1 - this._bodySquash) / 0.58, 0, 1);
-    kai.visual.position.y = -0.55 * slide;
+    kai.visual.position.set(0, 0, 0);
     // capsule tilts (jetpack pitch, side-on hits) carry over; Kai's root is
     // turned 180 degrees, so both flip sign in his frame
-    kai.visual.rotation.set(-this.body.rotation.x - 1.1 * slide, 0, -this.body.rotation.z);
+    kai.visual.rotation.set(-this.body.rotation.x - SLIDE_LEAN * slide, 0, -this.body.rotation.z);
 
     // in the air: lean into it, bob on the thrust, bank into the lane changes
     const fk = THREE.MathUtils.clamp(this._flightLift / 2.2, 0, 1);
@@ -4506,7 +4540,43 @@ export class Level01 extends Level {
 
     kai.update(dt);
     if (fk > 0.01 && kai.currentName === "fly") this._flightPose(kai, fk);
+    if (slide > 0.01) this._slidePose(kai, slide);
     this._updateExhaust(dt);
+  }
+
+  /**
+   * The slide on top of the held frame: his hips set down just above the
+   * trail (leaning back drops them, but the lean alone sank his legs into
+   * the ground) and every limb in SLIDE_AIMS turned to point its way. `k`
+   * 0..1 blends it in as he drops and out as he gets up; the limbs get there
+   * first, so the folded leg is up out of the way before his hips come down.
+   */
+  _slidePose(kai, k) {
+    const hips = kai.bones.mixamorigHips;
+    if (!hips) return;
+    // hips over the spot he was running on, SLIDE_HIPS_Y up (eased in late,
+    // so his stride's back foot isn't pushed through the trail as he tips)
+    kai.root.worldToLocal(hips.getWorldPosition(_slideA));
+    kai.visual.position.y += (SLIDE_HIPS_Y - _slideA.y) * k * k;
+    kai.visual.position.z -= _slideA.z * k;
+    kai.root.getWorldQuaternion(_slideR);
+    const limbs = Math.min(1, k * 2);
+    for (const [boneName, childName, dir] of SLIDE_AIMS) {
+      const bone = kai.bones["mixamorig" + boneName];
+      const child = kai.bones["mixamorig" + childName];
+      if (!bone || !child) continue;
+      kai._stash(bone);
+      // the turn that points bone -> child along dir, as a change to its world rotation
+      bone.getWorldPosition(_slideA);
+      child.getWorldPosition(_slideB);
+      _slideD.copy(dir).applyQuaternion(_slideR);
+      _slideQ.setFromUnitVectors(_slideB.sub(_slideA).normalize(), _slideD);
+      _slideQ.slerp(_slideI, 1 - limbs);
+      // world = parent * local, so the new local is parent^-1 * turn * world
+      bone.getWorldQuaternion(_slideW).premultiply(_slideQ);
+      bone.parent.getWorldQuaternion(_slideQ).invert();
+      bone.quaternion.copy(_slideQ.multiply(_slideW));
+    }
   }
 
   teardown() {
