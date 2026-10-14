@@ -34,6 +34,13 @@ const SLOW_AFTER = 1.0;
 const RAM_RUNUP = 9;
 const RAM_EVERY = 2.2;
 const REVERSE = 14;
+// You can fight back: drive into his side or his tail, closing faster than
+// TAKEDOWN_SPEED m/s, and he spins out for SPIN_TIME s and has to catch you
+// up again. Not off the back of one of his own moves, and not again for
+// TAKEDOWN_EVERY s.
+const TAKEDOWN_SPEED = 6;
+const SPIN_TIME = 2.2;
+const TAKEDOWN_EVERY = 12;
 
 /**
  * HandlerAI — Member 2A
@@ -79,6 +86,9 @@ const REVERSE = 14;
  *   RECOVER    backs off after landing a hit
  *   DODGED     you avoided or escaped the move; he falls well back
  *
+ * TAKEDOWN: you can hit back. Drive hard into his side or his tail and he
+ * spins out, loses his speed and has to come after you again from well back.
+ *
  * Counters (each move has its own):
  *   SLAM   swerve away, boost, or brake once he's locked on
  *   PIT    swerve away from him or boost — braking backs you into his nose
@@ -113,6 +123,7 @@ const REVERSE = 14;
  *   onAttackResolved(hit)  a move landed     hit = { move, label, damage, impact, side }
  *   onContact(hit)         a smaller bump    hit = { damage, impact, side }
  *   onDodge(move, label)   a move missed or you broke free
+ *   onTakedown(hit)        you spun him out          hit = { impact, side }
  */
 export class HandlerAI {
   constructor(scene, target) {
@@ -180,6 +191,10 @@ export class HandlerAI {
     this.onAttackResolved = null;
     this.onContact = null;
     this.onDodge = null;
+    this.onTakedown = null;
+    this.spinOut = 0;            // the spin, radians, added to his heading while SPUNOUT
+    this.spinRate = 0;
+    this.lastTakedownAt = -Infinity;
   }
 
   /**
@@ -252,6 +267,7 @@ export class HandlerAI {
   get label() {
     if (this.state === 'TELEGRAPH' && this.nextMove) return MOVE_LABEL[this.nextMove] + ' !';
     if (this.passive && this.state === 'APPROACH') return 'FALLING BACK';
+    if (this.state === 'SPUNOUT') return 'SPUN OUT';
     if (this.state === 'HARASS') {
       // on his way past you, not yet in front
       if (this.station === 'ahead' && this.target.mesh.position.z - this.mesh.position.z > -this.halfL) return 'OVERTAKING';
@@ -631,6 +647,22 @@ export class HandlerAI {
         if (this.stateTimer > 1.5) this._enter('APPROACH');
         break;
 
+      case 'SPUNOUT':
+        // sliding round, off the gas, wherever the hit sent him: then he has to come after you
+        tx = m.x;
+        fixedSpeed = Math.max(this.seenSpeed * 0.45, this.speed * Math.exp(-1.2 * dt)); // off the gas, but still rolling
+        decel = 40;
+        maxLat = 6;
+        keepClear = false;
+        if (this.stateTimer > SPIN_TIME) {
+          // he straightens up from wherever the spin left him pointing
+          this.heading = THREE.MathUtils.euclideanModulo(this.heading + this.spinOut + Math.PI, Math.PI * 2) - Math.PI;
+          this.spinOut = 0;
+          this.nextAttackAt = Math.max(this.nextAttackAt, this.elapsed + 4);
+          this._enter('APPROACH');
+        }
+        break;
+
       case 'RECOVER':
         tx = laneBehind();
         tz = this.lastMove === 'RAM' ? p.z + this.ramFrom * (LEN + 6) : p.z - LEN - 6;
@@ -696,7 +728,11 @@ export class HandlerAI {
     const back = this.speed < -0.5 ? -1 : 1;
     const h = THREE.MathUtils.clamp(back * Math.atan2(this.latVel, Math.max(4, Math.abs(this.speed))), -0.45, 0.45);
     this.heading += (h - this.heading) * Math.min(1, 10 * dt);
-    this.mesh.rotation.y = this.heading;
+    if (this.state === 'SPUNOUT') {
+      this.spinRate *= Math.exp(-1.4 * dt);
+      this.spinOut += this.spinRate * dt;
+    }
+    this.mesh.rotation.y = this.heading + this.spinOut;
     spinWheels(this.model, this.speed, THREE.MathUtils.clamp(this.latVel / 6, -1, 1), dt);
 
     // ---------- solid contact ----------
@@ -798,6 +834,7 @@ export class HandlerAI {
     const vAz = Math.cos(hA) * car.speed;
     const vBx = this.latVel, vBz = this.speed;
     const vn = (vBx - vAx) * nx + (vBz - vAz) * nz;   // < 0: closing
+    const vAn = vAx * nx + vAz * nz;                  // how hard you were driving into him
     let j = 0;
     if (vn < 0) {
       const e = 0.25;                                  // a little bounce
@@ -815,7 +852,7 @@ export class HandlerAI {
     }
 
     _v.set(dx * Math.cos(hA) - dz * Math.sin(hA), dx * Math.sin(hA) + dz * Math.cos(hA));
-    return { depth, nx, nz, impulse: j, localX: _v.x, localZ: _v.y, half };
+    return { depth, nx, nz, impulse: j, localX: _v.x, localZ: _v.y, half, closing: -vn, vAn, hB };
   }
 
   /** Turns a contact into gameplay: damage, move resolution, callbacks. */
@@ -823,6 +860,25 @@ export class HandlerAI {
     const side = Math.sign(this.mesh.position.x - car.mesh.position.x) || this.side;
     const move = this.state;
     const attacking = ['SLAM', 'PIT', 'SHUNT', 'PIN', 'BRAKECHECK', 'RAM'].includes(move);
+
+    // you hit him: in the side or the tail, hard, and you're the one doing the driving
+    if (!attacking && move !== 'SPUNOUT' && !this.passive && c.closing > TAKEDOWN_SPEED && c.vAn > 4
+        && this.elapsed - this.lastTakedownAt > TAKEDOWN_EVERY) {
+      const fwd = -(c.nx * Math.sin(c.hB) + c.nz * Math.cos(c.hB));   // where you came from, in his frame
+      const right = -(c.nx * Math.cos(c.hB) - c.nz * Math.sin(c.hB));
+      if (Math.abs(right) > 0.55 || fwd < -0.5) {
+        this.lastTakedownAt = this.elapsed;
+        this.moveLanded = false;
+        this.speed *= 0.6;
+        this.latVel += c.nx * Math.min(8, c.closing * 0.6);
+        // a hit on his right swings his nose left, and the other way round; the tail spins him either way
+        this.spinRate = (Math.abs(right) > 0.55 ? -Math.sign(right) : (Math.random() < 0.5 ? -1 : 1)) * (4 + c.closing * 0.25);
+        this.spinOut = 0;
+        this._enter('SPUNOUT');
+        this.onTakedown?.({ impact: Math.min(1, c.closing / 14), side });
+        return;
+      }
+    }
 
     if (attacking && !this.moveLanded) {
       // the move connects. A pin has to hold you against him for a moment

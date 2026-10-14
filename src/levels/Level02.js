@@ -151,6 +151,16 @@ export class Level02 extends Level {
       this.shake = Math.max(this.shake, hit.impact);
     };
     this.handler.onDodge = (move, label) => { this._flash(label, '#bcd96a'); this.sound.dodge(); };
+    // you hit back and spun him out: a moment's breathing room, and a little nitro for it
+    this.handler.onTakedown = (hit) => {
+      this._takedowns = (this._takedowns || 0) + 1;
+      this._impact(0.5 + hit.impact * 0.4, between());
+      this.sound.crash(0.5 + hit.impact * 0.4, hit.side * -0.5);
+      this.shake = Math.max(this.shake, 0.45 + hit.impact * 0.5);
+      this.car.freeBoost = Math.max(this.car.freeBoost || 0, 2.5);
+      this._flash('TAKEDOWN!  \u00b7  NITRO', '#ffd36a');
+      this._punch = Math.max(this._punch || 0, 0.35);
+    };
 
     // tyre shots, spike-strip drones, kamikaze drones
     this.weapons = new HandlerWeapons(this.root, assets);
@@ -1034,7 +1044,7 @@ export class Level02 extends Level {
       kind: 'win',
       title: 'SURVIVED',
       sub: 'You went over the falls. He stopped at the edge.',
-      lines: [{ text: `${Math.round(this.state.distance)} M  ·  INTEGRITY ${integrity}%  ·  RAMS TAKEN ${this._rams || 0}` }],
+      lines: [{ text: `${Math.round(this.state.distance)} M  ·  INTEGRITY ${integrity}%  ·  RAMS TAKEN ${this._rams || 0}  ·  TAKEDOWNS ${this._takedowns || 0}` }],
       action: { label: 'CONTINUE', key: 'SPACE', onClick: () => this._handOff() },
     });
   }
