@@ -10,12 +10,19 @@
  * connects "to the speakers" goes through it. Media elements are muted as
  * they start playing.
  *
+ * The same master volume carries the OPTIONS volume (core/settings.js:
+ * `master`), and musicVolumeNode(ctx) is the music's own volume, for each
+ * level to put on its music bus.
+ *
  * Import this before anything makes an AudioContext (main.js does it first).
  *
  *   toggleMuted();              // Game does this on M
  *   isMuted();
  *   onMuteChange((muted) => …); // returns an unsubscribe
+ *   music.connect(musicVolumeNode(ctx)).connect(master);
  */
+import { settings, onSettings } from "../core/settings.js";
+
 const contexts = new Set();
 const media = new Set();
 const listeners = new Set();
@@ -28,7 +35,7 @@ function patchContext(name) {
     constructor(...args) {
       super(...args);
       const master = this.createGain();
-      master.gain.value = muted ? 0 : 1;
+      master.gain.value = muted ? 0 : settings.master;
       master.connect(super.destination);
       Object.defineProperty(this, "destination", { value: master, configurable: true });
       this.__master = master;
@@ -62,13 +69,34 @@ export function setMuted(value) {
   value = !!value;
   if (value === muted) return;
   muted = value;
-  for (const ctx of contexts) {
-    if (ctx.state === "closed") contexts.delete(ctx);
-    else ctx.__master.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.03);
-  }
+  applyMaster();
   for (const el of media) el.muted = muted;
   for (const f of listeners) f(muted);
   showToast(muted ? "SOUND OFF" : "SOUND ON");
+}
+
+/** Every context's master volume to where M and the OPTIONS volume say. */
+function applyMaster() {
+  for (const ctx of contexts) {
+    if (ctx.state === "closed") contexts.delete(ctx);
+    else ctx.__master.gain.setTargetAtTime(muted ? 0 : settings.master, ctx.currentTime, 0.03);
+  }
+}
+if (typeof window !== "undefined") onSettings((s, key) => key === "master" && applyMaster());
+
+/**
+ * A gain node that follows the OPTIONS music volume: a level puts it on its
+ * music bus (music -> this -> master), so the slider moves the music alone.
+ */
+export function musicVolumeNode(ctx) {
+  const node = ctx.createGain();
+  node.gain.value = settings.music;
+  const off = onSettings((s, key) => {
+    if (key !== "music") return;
+    if (ctx.state === "closed") off();
+    else node.gain.setTargetAtTime(s.music, ctx.currentTime, 0.05);
+  });
+  return node;
 }
 
 export function toggleMuted() {

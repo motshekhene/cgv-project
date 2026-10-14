@@ -23,6 +23,7 @@ import {
   createJungleMusicBuffer,
   loadJungleTheme,
 } from '../../audio/jungleAudio.js';
+import { musicVolumeNode } from '../../audio/masterMute.js';
 
 export class Level3Sound {
   constructor() {
@@ -60,7 +61,7 @@ export class Level3Sound {
     this._musicBase = AUDIO_LEVELS.music * norm;
     this.music = ctx.createGain();
     this.music.gain.value = 0;
-    this.music.connect(this.master);
+    this.music.connect(musicVolumeNode(ctx)).connect(this.master); // through the OPTIONS music volume
     this._variant = '';
   }
 

@@ -2,6 +2,7 @@ import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT, ensureDialogueFont } from './dialogue.js';
 import { CHAPTERS } from './LoadingScreen.js';
 import { GAME_TITLE, GAME_SUBTITLE, TAGLINE } from './brand.js';
+import { settings, onSettings } from '../core/settings.js';
 
 /**
  * TitleScreen — the words and the menu over the title level (levels/
@@ -14,10 +15,11 @@ import { GAME_TITLE, GAME_SUBTITLE, TAGLINE } from './brand.js';
  *
  *   NEW GAME   the prologue, from the fire
  *   CHAPTERS   jump to any part of the story
+ *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   the same H panel every level has
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
- * main.js passes onStart(levelName) and onControls.
+ * main.js passes onStart(levelName), onOptions and onControls.
  */
 
 const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
@@ -25,9 +27,12 @@ const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background
 const MENU = [
   { id: 'new', label: 'NEW GAME' },
   { id: 'chapters', label: 'CHAPTERS' },
+  { id: 'options', label: 'OPTIONS' },
   { id: 'controls', label: 'CONTROLS' },
 ];
 const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
+const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
+const themeVolume = () => THEME_LEVEL * settings.music * settings.master;
 
 const CSS = THEME_CSS + `
 .ts { position:fixed; inset:0; z-index:9500; overflow:hidden; user-select:none; font-family:${DIALOGUE_FONT}; color:#f2e8d5;
@@ -71,10 +76,18 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onControls, skipPress = false }) {
+  constructor({ onStart, onOptions, onControls, skipPress = false }) {
     ensureDialogueFont();
     this.onStart = onStart;
+    this.onOptions = onOptions;
     this.onControls = onControls;
+    // the theme follows the OPTIONS volumes as they're changed
+    this._offSettings = onSettings((s, key) => {
+      if ((key === 'music' || key === 'master') && this.music && !this._leaving) {
+        clearInterval(this._fadeTimer);
+        this.music.volume = themeVolume();
+      }
+    });
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
@@ -185,6 +198,7 @@ export class TitleScreen {
     if (!it || this._leaving) return;
     if (it.id === 'new') this._start('prologue');
     else if (it.id === 'chapters') this._showChapters();
+    else if (it.id === 'options') this.onOptions?.();
     else if (it.id === 'controls') this.onControls?.();
     else if (it.id === 'back') this._showMain();
     else if (it.id === 'chapter') this._start(it.name);
@@ -198,7 +212,7 @@ export class TitleScreen {
     a.loop = true;
     a.volume = 0;
     this.music = a;
-    a.play().then(() => this._fadeMusic(0.4, 2.5)).catch(() => {});
+    a.play().then(() => this._fadeMusic(themeVolume(), 2.5)).catch(() => {});
   }
 
   _fadeMusic(to, secs, done) {
@@ -228,6 +242,7 @@ export class TitleScreen {
 
   dispose() {
     window.removeEventListener('keydown', this._onKey);
+    this._offSettings();
     clearInterval(this._fadeTimer);
     if (this.music && !this._leaving) this.music.pause();
     this.el.remove();

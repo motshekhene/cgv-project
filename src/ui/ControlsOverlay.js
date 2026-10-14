@@ -103,6 +103,7 @@ const LEVEL_CONTROLS = {
       { label: 'BOOST', action: 'boost' },
       { label: 'HANDBRAKE', keys: 'SPACE' },
       { label: 'CAR PICKER', action: 'changeCar' },
+      { label: 'VIEW · FIRST PERSON', action: 'view' },
       { label: 'PICKER: PAINT', keys: 'Q / E' },
       { label: 'MUSIC ON / OFF', keys: 'N' },
     ],

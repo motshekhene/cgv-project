@@ -3,6 +3,7 @@ import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import { GAME_TITLE } from '../ui/brand.js';
+import { lookScale } from '../core/settings.js';
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -1928,8 +1929,9 @@ export class Prologue extends Level {
   _look() {
     const m = this.input.mouse;
     if (m.dx || m.dy) this._mouseIdle = 0;
-    this.yaw -= m.dx * LOOK;
-    this.pitch -= m.dy * LOOK;
+    const k = lookScale(); // OPTIONS: mouse sensitivity, invert Y
+    this.yaw -= m.dx * LOOK * k.x;
+    this.pitch -= m.dy * LOOK * k.y;
     this.pitch = THREE.MathUtils.clamp(this.pitch, -0.35, 0.5);
     // on the log he can glance around, but he cannot spin on the spot
     if (this.seated) this.yaw = THREE.MathUtils.clamp(this.yaw, -1.0, 1.0);

@@ -217,7 +217,7 @@ export class DriveOutIntro extends Cutscene {
   _buildGround(mats) {
     const tile = (mat, rx, ry) => {
       const m = mat.clone();
-      for (const k of ['map', 'normalMap', 'roughnessMap']) {
+      for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
         if (!m[k]) continue;
         m[k] = m[k].clone();
         m[k].wrapS = m[k].wrapT = THREE.RepeatWrapping;

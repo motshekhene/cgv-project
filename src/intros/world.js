@@ -197,7 +197,7 @@ export function pathStrip(root, material, { x = 0, z0, z1, width, y = 0.012, sof
   g.fillRect(0, 0, 128, 4);
   const alpha = new THREE.CanvasTexture(c);
   const mat = material.clone();
-  for (const k of ['map', 'normalMap', 'roughnessMap']) {
+  for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
     if (!mat[k]) continue;
     mat[k] = mat[k].clone();
     mat[k].repeat.set(repeat[0], repeat[1]);

@@ -3,6 +3,7 @@ import { Input } from "./Input.js";
 import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
+import { settings, onSettings } from "./settings.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -43,7 +44,7 @@ export class Game {
       antialias: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this._pixelRatio()); // OPTIONS > GRAPHICS (applyQuality)
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -81,6 +82,54 @@ export class Game {
     // key: name string, value: { scene, camera } — each rendered on top of everything.
     // used for screen-space effects like rain, HUD overlays, etc.
     this.overlays = new Map();
+
+    // OPTIONS > GRAPHICS: applied now, on every level load, and once a second (lights a level adds later)
+    this._qualityT = 0;
+    onSettings((s, key) => key === "quality" && this.applyQuality());
+  }
+
+  /** Render resolution for the GRAPHICS setting: full (up to 2x on sharp screens), 1x, or 70%. */
+  _pixelRatio() {
+    const dpr = window.devicePixelRatio || 1;
+    if (settings.quality === "low") return Math.min(dpr, 1) * 0.7;
+    if (settings.quality === "medium") return Math.min(dpr, 1);
+    return Math.min(dpr, 2);
+  }
+
+  /**
+   * OPTIONS > GRAPHICS. LOW: no shadows at all (the shadow-casting lights stop
+   * casting, so no shadow pass is drawn) and 70% resolution. MEDIUM: shadow
+   * maps capped at 1024 and 1x resolution. HIGH: as each level made them.
+   * Lights are put back exactly as they were when the setting goes up again.
+   */
+  applyQuality() {
+    const q = settings.quality;
+    const pr = this._pixelRatio();
+    if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) {
+      this.renderer.setPixelRatio(pr);
+      this._onResize();
+    }
+    this.scene.traverse((o) => {
+      if (!o.isLight || !o.shadow) return;
+      const u = o.userData;
+      // shadows off for LOW, back on above it (only the ones this switched off)
+      if (q === "low" && o.castShadow) {
+        o.castShadow = false;
+        u.qShadowOff = true;
+      } else if (q !== "low" && u.qShadowOff) {
+        o.castShadow = true;
+        delete u.qShadowOff;
+      }
+      // shadow map detail: capped for MEDIUM, the level's own for HIGH
+      const want = q === "medium" ? Math.min(u.qMapSize ?? o.shadow.mapSize.x, 1024) : u.qMapSize ?? o.shadow.mapSize.x;
+      if (q === "medium" && u.qMapSize === undefined && o.shadow.mapSize.x > 1024) u.qMapSize = o.shadow.mapSize.x;
+      if (o.shadow.mapSize.x !== want) {
+        o.shadow.mapSize.set(want, want);
+        o.shadow.map?.dispose(); // rebuilt at the new size on the next frame
+        o.shadow.map = null;
+      }
+      if (q === "high") delete u.qMapSize;
+    });
   }
 
   registerLevel(name, factory) {
@@ -113,6 +162,7 @@ export class Game {
     } finally {
       this.loading = false;
     }
+    this.applyQuality();
     if (this.onLevelChanged) this.onLevelChanged(name);
     return level;
   }
@@ -172,6 +222,10 @@ export class Game {
 
     if (!this.paused && this.level) this.level.update(dt, this.state);
     this.input.endFrame();
+    if ((this._qualityT += raw) > 1) {
+      this._qualityT = 0;
+      this.applyQuality();
+    }
 
     // a level can take over drawing (e.g. a post-processing pass); most just let Game render
     if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
@@ -179,8 +233,11 @@ export class Game {
 
     // secondary cameras — rendered as small overlays on top of the main view
     if (this.secondaryCameras.size > 0) {
-      const pw = this.renderer.domElement.width;
-      const ph = this.renderer.domElement.height;
+      // in CSS pixels: setViewport / setScissor scale by the pixel ratio themselves, so the canvas's
+      // own width (already scaled) would shrink or blow up the main view whenever the ratio isn't 1
+      const size = this.renderer.getSize(this._cssSize || (this._cssSize = new THREE.Vector2()));
+      const pw = size.x;
+      const ph = size.y;
       this.renderer.setScissorTest(true);
       for (const { camera: cam, viewport: vp } of this.secondaryCameras.values()) {
         const vx = vp.x * pw;

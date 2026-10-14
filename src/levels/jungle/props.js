@@ -170,6 +170,8 @@ export function scatter(parent, prop, spots, { shadow = false, receive = true } 
  * set = 'forest-floor' | 'mud' | 'mossy-rock' | 'cliff-rock' | 'wood-planks' | 'concrete'.
  * Textures are cloned so two materials can repeat the same set differently.
  */
+const AO_SETS = new Set(['forest-floor', 'mud', 'mossy-rock', 'cliff-rock', 'concrete']); // the sets with an -ao.jpg
+
 export async function pbr(assets, set, { repeat = 1, tint = 0xffffff, roughness = 1, normalScale = 1 } = {}) {
   const load = async (suffix, srgb) => {
     const t = (await assets.texture(`jungle/textures/${set}-${suffix}.jpg`, { srgb })).clone();
@@ -179,15 +181,17 @@ export async function pbr(assets, set, { repeat = 1, tint = 0xffffff, roughness 
     t.needsUpdate = true;
     return t;
   };
-  const [map, normalMap, roughnessMap] = await Promise.all([
+  const [map, normalMap, roughnessMap, aoMap] = await Promise.all([
     load('color', true),
     load('normal', false),
     load('roughness', false),
+    AO_SETS.has(set) ? load('ao', false) : null, // ambient occlusion, where the set has one
   ]);
   return new THREE.MeshStandardMaterial({
     map,
     normalMap,
     roughnessMap,
+    aoMap,
     normalScale: new THREE.Vector2(normalScale, normalScale),
     color: tint,
     roughness,

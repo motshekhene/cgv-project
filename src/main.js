@@ -15,6 +15,8 @@ import { ensureDialogueFont } from "./ui/dialogue.js";
 import { LoadingScreen } from "./ui/LoadingScreen.js";
 import { TitleScreen } from "./ui/TitleScreen.js";
 import { TitleScene } from "./levels/TitleScene.js";
+import { OptionsMenu } from "./ui/OptionsMenu.js";
+import { mountFpsCounter } from "./ui/FpsCounter.js";
 
 /**
  * The full run, in order:
@@ -82,6 +84,9 @@ const loading = new LoadingScreen();
 
 // the "H · CONTROLS" pill — what every input does, per level, one press away
 const controlsOverlay = mountControlsOverlay(game);
+// OPTIONS (volume, mouse, graphics, FPS), from the title menu and the pause menu
+const options = new OptionsMenu();
+mountFpsCounter();
 
 game.onLevelLoading = (name) => loading.show(name);
 game.onLoadProgress = (p) => {
@@ -104,6 +109,7 @@ game.onLevelChanged = (name) => {
         titleScreen = null;
         begin(next);
       },
+      onOptions: () => options.open(),
       onControls: () => controlsOverlay.show(),
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
@@ -114,6 +120,7 @@ game.onLevelChanged = (name) => {
 const pauseMenu = new PauseMenu({
   onResume: () => game.setPaused(false),
   onRestart: () => game.restart(),
+  onOptions: () => options.open(),
   onMenu: () => goTo("title"),
 });
 game.onPaused = (v, reason) => {

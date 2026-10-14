@@ -264,8 +264,10 @@ export class Level02 extends Level {
     await this._jungleReady;
     await this.weapons.init();
     this._hud = createLevel2Hud();
+    this.input.bindings.view ??= ['c']; // C: chase camera <-> the driver's seat
     this._controls = new DriveControls({
       onCar: () => { if (!this._finale && !this._gameOver) this._openCarPicker(); },
+      onView: () => this._toggleView(),
       onMusic: () => this.sound.setMusic(!this.sound.musicOn),
       onMute: () => toggleMuted(), // the game's one mute (M does the same)
     });
@@ -318,7 +320,7 @@ export class Level02 extends Level {
     this._kit = kit;
     const tile = (mat, rx, ry) => {
       const m = mat.clone();
-      for (const k of ['map', 'normalMap', 'roughnessMap']) {
+      for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
         if (!m[k]) continue;
         m[k] = m[k].clone();
         m[k].wrapS = m[k].wrapT = THREE.RepeatWrapping;
@@ -489,6 +491,8 @@ export class Level02 extends Level {
     if (this._wreck) i.forward = i.backward = i.left = i.right = i.boost = i.handbrake = false;
     this._controls?.reflect(i);
     this._controls?.setFlags({ music: this.sound.musicOn, muted: isMuted() });
+
+    if (this.input.pressed('view')) this._toggleView();
 
     // open car picker
     if (this.input.pressed('changeCar')) {
@@ -670,6 +674,7 @@ export class Level02 extends Level {
     // game over: it blows up, rolls to a stop burning, and then the card
     if (this.car.health <= 0 && !this._wreck && !this._gameOver && !this._finale) {
       this._wreck = { t: 0 };
+      if (this._view === 'driver') this._toggleView(); // out of the car, to see it go up
       this.damage.explode(this.car);
       this.sound.crash(1);
       this.sound.explosion(0);
@@ -908,6 +913,10 @@ export class Level02 extends Level {
    *   - smooth (not random-per-frame) shake, plus an FOV "punch" on big hits
    */
   _updateCamera(dt) {
+    if (this._view === 'driver') {
+      this._updateDriverCamera(dt);
+      return;
+    }
     const cam = this.game.camera;
     const car = this.car;
     const v = Math.min(1.3, Math.abs(car.speed) / car.maxSpeed);
@@ -949,6 +958,98 @@ export class Level02 extends Level {
     if (this._baseFov === undefined) this._baseFov = cam.fov;
     this._punch = (this._punch || 0) * Math.exp(-dt * 7);
     const fov = this._baseFov + v * 9 + (car.boosting ? 6 : 0) + this._punch * 7;
+    cam.fov += (fov - cam.fov) * (1 - Math.exp(-dt * 4));
+    cam.updateProjectionMatrix();
+  }
+
+  /** C / VIEW: the chase camera, or first person from the car (over its bonnet). */
+  _toggleView() {
+    if (this._finale || this._gameOver || this._selectingCar) return;
+    this._view = this._view === 'driver' ? 'chase' : 'driver';
+    this._viewFrom = { pos: this.game.camera.position.clone(), q: this.game.camera.quaternion.clone(), t: 0 };
+    this._flash(this._view === 'driver' ? 'FIRST PERSON  ·  C' : 'CHASE CAMERA  ·  C', '#e3bb62');
+  }
+
+  /**
+   * Where first person sits in this car, in the car's own frame (it faces +z):
+   * low over the back of the bonnet, just short of the windscreen, so the
+   * bonnet runs out ahead at the bottom of the view and nothing of the cabin
+   * is in the way. Every car is shaped differently, so it's found by feeling
+   * down the car's top along its middle with rays, front to back, for where
+   * the bonnet ends and the windscreen rises. Worked out once per car model.
+   */
+  _bonnetEye() {
+    const model = this._carModel;
+    const b = model?.userData.bounds;
+    if (!model || !b) return new THREE.Vector3(0, 1.1, 0.4);
+    if (model.userData.bonnetEye) return model.userData.bonnetEye;
+    const car = this.car.mesh;
+    car.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(car.matrixWorld);
+    const from = new THREE.Vector3();
+    const len = b.max.z - b.min.z, h = b.max.y - b.min.y;
+    // the height of the car's top at z, down its middle (and either side of it, the highest of the three)
+    const top = (z) => {
+      let y = b.min.y;
+      for (const x of [-0.12, 0, 0.12]) {
+        from.set((b.min.x + b.max.x) / 2 + x * (b.max.x - b.min.x), b.max.y + 1, z);
+        ray.set(car.localToWorld(from), down);
+        const hit = ray.intersectObject(model, true)[0];
+        if (hit) y = Math.max(y, car.worldToLocal(hit.point.clone()).y);
+      }
+      return y;
+    };
+    const hood = top(b.max.z - len * 0.2); // well onto the bonnet
+    let ws = null;
+    for (let z = b.max.z - len * 0.2; z > b.min.z + len * 0.35; z -= len * 0.02) {
+      if (top(z) > hood + h * 0.15) { ws = z; break; } // the windscreen rising out of it
+    }
+    const eye = ws === null
+      ? new THREE.Vector3((b.min.x + b.max.x) / 2, b.min.y + h * 0.75, b.min.z + len * 0.6) // no clear bonnet: up in the cabin
+      : new THREE.Vector3((b.min.x + b.max.x) / 2, top(ws + len * 0.06) + 0.38, ws + len * 0.06);
+    model.userData.bonnetEye = eye;
+    return eye;
+  }
+
+  /**
+   * First person: from the car, looking down the road over its own bonnet.
+   * It rides the car's heading and lean, opens its field of view with speed,
+   * and shakes on hits. The mirror and the map stay up. Switching swings it
+   * in over 0.35 s.
+   */
+  _updateDriverCamera(dt) {
+    const cam = this.game.camera;
+    const car = this.car;
+    const eye = this._bonnetEye();
+    car.mesh.updateMatrixWorld(true);
+    const pos = car.mesh.localToWorld((this._eyeW ||= new THREE.Vector3()).copy(eye));
+    // looking where the car points (a camera looks down its -z, so turned half round), a little down
+    const q = car.mesh.getWorldQuaternion(this._eyeQ ||= new THREE.Quaternion());
+    q.multiply(this._eyeTurn ||= new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.05, Math.PI, 0, 'YXZ')));
+    // hits shake it
+    const s = this.shake;
+    if (s > 0.005) {
+      this._time2 = (this._time2 || 0) + dt;
+      pos.x += Math.sin(this._time2 * 41) * 0.05 * s;
+      pos.y += Math.sin(this._time2 * 37.7) * 0.04 * s;
+      this.shake *= Math.exp(-6 * dt);
+    }
+    // swung in from wherever the camera was, then held exactly
+    const F = this._viewFrom;
+    if (F && F.t < 1) {
+      F.t = Math.min(1, F.t + dt / 0.35);
+      const e = F.t * F.t * (3 - 2 * F.t);
+      cam.position.lerpVectors(F.pos, pos, e);
+      cam.quaternion.slerpQuaternions(F.q, q, e);
+    } else {
+      cam.position.copy(pos);
+      cam.quaternion.copy(q);
+    }
+    // wider than the chase camera, and wider still with speed and nitro
+    const v = Math.min(1.3, Math.abs(car.speed) / car.maxSpeed);
+    this._punch = (this._punch || 0) * Math.exp(-dt * 7);
+    const fov = 72 + v * 8 + (car.boosting ? 5 : 0) + this._punch * 6;
     cam.fov += (fov - cam.fov) * (1 - Math.exp(-dt * 4));
     cam.updateProjectionMatrix();
   }

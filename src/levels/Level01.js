@@ -38,11 +38,13 @@ import {
   createPollen,
   cloneProp,
   makeJungleObstacle,
+  buildCausewaySupports,
+  tiledBox,
 } from "./level1/jungleWorld.js";
 import { LightPool } from "./level1/lightPool.js";
 import { hornBlowPose, Shockwave, RootBurst, Shards, hornBuffer } from "./level1/hornCall.js";
 import { loadAnimalModels, makeAnimalFromModel, makeKudu } from "./level2/obstacles.js";
-import { isMuted, toggleMuted, onMuteChange } from "../audio/masterMute.js";
+import { isMuted, toggleMuted, onMuteChange, musicVolumeNode } from "../audio/masterMute.js";
 
 /**
  * Level 01 — The Trail (Jungle Shrine theme).
@@ -842,6 +844,7 @@ export class Level01 extends Level {
     this._jungleKit = await loadJungleKit(assets);
     const mats = await createJungleMaterials(assets, TUNNEL_LENGTH);
     this._jungleMats = mats;
+    this._sideProps = []; // { x, z, halfX, halfZ }: what stands beside the raised deck (a ledge goes under each)
     this._buildTunnel(mats);
     this._backdrop = buildJungleBackdrop(this.root, this._jungleKit, mats);
     this._wildlife = createJungleWildlife(this.root);
@@ -863,6 +866,9 @@ export class Level01 extends Level {
     this._buildServiceArea(mats);
     this._buildHandler();
     this._buildShrineGuardian();
+    // the raised trail's piers, and a ledge under everything beside it (nothing hangs in the air)
+    this._supports = buildCausewaySupports(this.root, mats.stone,
+      [...(this._elevatedCourse.userData.sideProps || []), ...this._sideProps], { endZ: GATE_Z + 200 });
 
     // Preload Level 02's cars in the background. This is intentionally not
     // awaited, so Level 01 starts normally but the eventual car picker is
@@ -949,6 +955,7 @@ export class Level01 extends Level {
       [-5.4, -2240, "THE CAMP →"],
     ];
     for (const [x, z, text] of signs) {
+      this._sideProps.push({ x, z, halfX: 1.2, halfZ: 0.5 });
       const sign = createSign(text);
       sign.position.set(x, jungleCourseHeight(z), z);
       sign.rotation.y = x < 0 ? 0.12 : -0.12;
@@ -1068,6 +1075,7 @@ export class Level01 extends Level {
 
     const left = createSign("LEFT: RELIC", { width: 2.5, height: 0.72 });
     left.position.set(-5.3, jungleCourseHeight(-686), -686);
+    this._sideProps.push({ x: -5.3, z: -686, halfX: 1.3, halfZ: 0.5 }, { x: 5.3, z: -686, halfX: 1.3, halfZ: 0.5 });
     left.rotation.y = 0.12;
     group.add(left);
     const right = createSign("RIGHT: TRIAL", { width: 2.6, height: 0.72 });
@@ -1333,15 +1341,50 @@ export class Level01 extends Level {
       const rock = cloneProp(this._jungleKit.rock2);
       rock.scale.setScalar(0.026);
       rock.position.set(-7.6, jungleCourseHeight(z) + 0.75, z);
+      this._sideProps.push({ x: -7.6, z, halfX: 1.0, halfZ: 1.2 }, { x: 7.6, z, halfX: 1.0, halfZ: 1.2 });
       this.root.add(rock);
       add({ type: "boulder", object: rock, z, triggerZ: z + 52 });
     };
 
     // 2) Ancient pendulum. The beam is intentionally bright stone against the
-    // greenery and has a full 55 m warning window.
+    // greenery and has a full 55 m warning window. It hangs on rods from an
+    // axle, and the axle from a frame over the trail (it used to hang from nothing).
     const swing = (z) => {
+      const floor = jungleCourseHeight(z);
+      const frame = new THREE.Group(); // the part that doesn't swing
+      frame.position.set(0, floor, z);
+      for (const sx of [-1, 1]) {
+        // a pillar beyond each edge of the trail, clear of the beam at full swing (|x| < 3.7)
+        const pillar = new THREE.Mesh(tiledBox(0.9, 4.8 + floor + 0.4, 2.1), mats.stone); // down to the jungle floor
+        pillar.position.set(sx * 5.6, (4.8 - floor - 0.4) / 2, 0);
+        pillar.castShadow = pillar.receiveShadow = true;
+        frame.add(pillar);
+      }
+      for (const sz of [-1, 1]) {
+        // a crossbeam either side of the beam's path (it swings at z 0), up out of a jump's way
+        const cross = new THREE.Mesh(new THREE.BoxGeometry(12.1, 0.42, 0.42), mats.stone);
+        cross.position.set(0, 4.6, sz * 0.8);
+        cross.castShadow = true;
+        frame.add(cross);
+        const hanger = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.0, 0.22), mats.stone);
+        hanger.position.set(0, 4.1, sz * 0.8);
+        frame.add(hanger);
+      }
+      const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 1.82, 10), mats.stone);
+      axle.rotation.x = Math.PI / 2; // along the trail, through the pivot
+      axle.position.y = 3.6;
+      frame.add(axle);
+      this.root.add(frame);
       const g = new THREE.Group();
-      g.position.set(0, jungleCourseHeight(z) + 3.6, z);
+      g.position.set(0, floor + 3.6, z);
+      for (const sx of [-1, 1]) {
+        // the two rods from the axle down to the beam: they swing with it
+        const dx = sx * 1.6, dy = -1.87;
+        const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, Math.hypot(dx, dy), 8), mats.stone);
+        rod.position.set(dx / 2, dy / 2, 0);
+        rod.rotation.z = Math.atan2(-dx, dy); // its length from the axle to the beam
+        g.add(rod);
+      }
       const swingBeam = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.55, 0.62), mats.stone);
       swingBeam.position.y = -2.15;
       swingBeam.castShadow = true;
@@ -1354,12 +1397,34 @@ export class Level01 extends Level {
       add({ type: "swing", object: g, z, triggerZ: z + 58, swingT: z * 0.37 }); // each out of step with the last
     };
 
-    // 3) A telegraphed falling block. Dust/rumble begins before the stone
-    // drops into its lane, so the answer is simply "move".
+    // 3) A telegraphed falling block: the loose keystone of an old gateway over
+    // the trail (it used to hang in the air). Dust/rumble begins before it drops
+    // out of the lintel into its lane, so the answer is simply "move".
     const fallingBlock = (z, lane = 2) => {
-      const block = new THREE.Mesh(new THREE.BoxGeometry(1.75, 1.75, 1.75), mats.stone);
+      const floor = jungleCourseHeight(z);
+      const S = 1.75, H = 8.2; // the block's size, and the height of its middle (the drop starts there)
+      const bx = LANE_X[lane];
+      const gate = new THREE.Group();
+      gate.position.set(0, floor, z);
+      for (const sx of [-1, 1]) {
+        // a pillar beyond each edge of the trail, up to the top of the lintel
+        const pillar = new THREE.Mesh(tiledBox(1.1, H + S / 2 + floor + 0.4, S), mats.stone); // down to the jungle floor
+        pillar.position.set(sx * 5.4, (H + S / 2 - floor - 0.4) / 2, 0);
+        pillar.castShadow = pillar.receiveShadow = true;
+        gate.add(pillar);
+      }
+      // the lintel across them, in two pieces either side of the gap the block sits in
+      for (const [x0, x1] of [[-5.95, bx - S / 2 - 0.02], [bx + S / 2 + 0.02, 5.95]]) {
+        if (x1 - x0 < 0.05) continue;
+        const piece = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, S, S), mats.stone);
+        piece.position.set((x0 + x1) / 2, H, 0);
+        piece.castShadow = piece.receiveShadow = true;
+        gate.add(piece);
+      }
+      this.root.add(gate);
+      const block = new THREE.Mesh(new THREE.BoxGeometry(S, S, S), mats.stone);
       block.castShadow = true;
-      block.position.set(LANE_X[lane], jungleCourseHeight(z) + 8.2, z);
+      block.position.set(bx, floor + H, z);
       this.root.add(block);
       add({ type: "fallingBlock", object: block, z, lane, triggerZ: z + 48 });
     };
@@ -1688,6 +1753,7 @@ export class Level01 extends Level {
     for (const def of defs) {
       const pivot = new THREE.Group();
       pivot.position.set(def.side * 4.7, jungleCourseHeight(def.z), def.z);
+      this._sideProps.push({ x: def.side * 4.7, z: def.z, halfX: 0.8, halfZ: 0.8 });
       const column = cloneProp(this._jungleKit.column);
       column.scale.setScalar(0.018);
       column.position.y = 0;
@@ -1719,6 +1785,7 @@ export class Level01 extends Level {
     for (const def of FALLING_TREE_EVENTS) {
       const pivot = new THREE.Group();
       pivot.position.set(def.side * 4.8, jungleCourseHeight(def.z), def.z);
+      this._sideProps.push({ x: def.side * 4.8, z: def.z, halfX: 1.0, halfZ: 1.0 });
 
       const tree = cloneProp(this._jungleKit.deadTree || this._jungleKit.tree4);
       tree.scale.setScalar(0.034);
@@ -1805,6 +1872,7 @@ export class Level01 extends Level {
     ];
 
     for (const def of defs) {
+      this._sideProps.push({ x: def.x, z: def.z, halfX: 1.6, halfZ: 1.6 });
       const group = new THREE.Group();
       group.position.set(def.x, jungleCourseHeight(def.z), def.z);
       const beast = cloneProp(this._jungleKit.stag);
@@ -4004,6 +4072,7 @@ export class Level01 extends Level {
     // replacement. Music starts at the volume contract's music level so
     // Level 1 and Level 2 sit at the same loudness (see jungleAudio.js).
     this._musicTrack = new THREE.Audio(this._audio.listener);
+    this._musicTrack.setFilter(musicVolumeNode(this._audio.listener.context)); // the OPTIONS music volume
     this._musicTrack.setBuffer(music);
     this._musicTrack.setLoop(true);
     this._musicTrack.setVolume(0.3);

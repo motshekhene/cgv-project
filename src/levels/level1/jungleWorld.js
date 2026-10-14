@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const MOSS_TINT = {
   Main: 0x7a7c66,
@@ -178,6 +179,9 @@ export async function createJungleMaterials(assets, length = 3600) {
     mossColor,
     mossNormal,
     mossRough,
+    mudAo,
+    forestAo,
+    mossAo,
   ] = await Promise.all([
     assets.texture("jungle/textures/mud-color.jpg"),
     assets.texture("jungle/textures/mud-normal.jpg", { srgb: false }),
@@ -188,6 +192,10 @@ export async function createJungleMaterials(assets, length = 3600) {
     assets.texture("jungle/textures/mossy-rock-color.jpg"),
     assets.texture("jungle/textures/mossy-rock-normal.jpg", { srgb: false }),
     assets.texture("jungle/textures/mossy-rock-roughness.jpg", { srgb: false }),
+    // ambient occlusion: darkens the cracks and hollows where ambient light can't reach
+    assets.texture("jungle/textures/mud-ao.jpg", { srgb: false }),
+    assets.texture("jungle/textures/forest-floor-ao.jpg", { srgb: false }),
+    assets.texture("jungle/textures/mossy-rock-ao.jpg", { srgb: false }),
   ]);
 
   const mudRepeat = [2.4, Math.max(1, length / 3)];
@@ -197,6 +205,7 @@ export async function createJungleMaterials(assets, length = 3600) {
     map: cloneTexture(mudColor, { repeat: mudRepeat, srgb: true }),
     normalMap: cloneTexture(mudNormal, { repeat: mudRepeat, srgb: false }),
     roughnessMap: cloneTexture(mudRough, { repeat: mudRepeat, srgb: false }),
+    aoMap: cloneTexture(mudAo, { repeat: mudRepeat, srgb: false }),
     color: 0xc8a27a,
     roughness: 0.9,
     metalness: 0,
@@ -207,6 +216,7 @@ export async function createJungleMaterials(assets, length = 3600) {
     map: cloneTexture(forestColor, { repeat: forestRepeat, srgb: true }),
     normalMap: cloneTexture(forestNormal, { repeat: forestRepeat, srgb: false }),
     roughnessMap: cloneTexture(forestRough, { repeat: forestRepeat, srgb: false }),
+    aoMap: cloneTexture(forestAo, { repeat: forestRepeat, srgb: false }),
     color: 0x9fb07a,
     roughness: 1,
     metalness: 0,
@@ -217,6 +227,7 @@ export async function createJungleMaterials(assets, length = 3600) {
     map: cloneTexture(mossColor, { repeat: [2.5, 2.5], srgb: true }),
     normalMap: cloneTexture(mossNormal, { repeat: [2.5, 2.5], srgb: false }),
     roughnessMap: cloneTexture(mossRough, { repeat: [2.5, 2.5], srgb: false }),
+    aoMap: cloneTexture(mossAo, { repeat: [2.5, 2.5], srgb: false }),
     color: 0x87906d,
     roughness: 0.95,
     metalness: 0,
@@ -563,8 +574,11 @@ export function buildElevatedTrail(root, kit, mats, {
     group.add(arch);
   }
 
+  // what stands beside the deck rather than on it: Level01 puts a ledge on a pier under each (buildCausewaySupports)
+  group.userData.sideProps = [];
   for (const z of [-1305, -1460, -1550]) {
     for (const x of [-6.2, 6.2]) {
+      group.userData.sideProps.push({ x, z, halfX: 1.8, halfZ: 1.0 });
       const wall = cloneProp(kit.wall);
       wall.position.set(x, jungleCourseHeight(z) - 0.15, z);
       wall.scale.setScalar(0.017);
@@ -574,6 +588,7 @@ export function buildElevatedTrail(root, kit, mats, {
   }
 
   for (const [x, z, ry] of [[-5.2, -1310, 0.55], [5.2, -1540, -0.55]]) {
+    group.userData.sideProps.push({ x, z, halfX: 1.5, halfZ: 1.5 });
     const statue = cloneProp(kit.stag);
     statue.position.set(x, jungleCourseHeight(z), z);
     statue.scale.setScalar(0.0105);
@@ -585,6 +600,85 @@ export function buildElevatedTrail(root, kit, mats, {
   return group;
 }
 
+
+/**
+ * A box whose texture is tiled by its size (one repeat every `tile` m on every
+ * face) instead of stretched once over each face, so a 30 m pier and a 1 m
+ * block show the same stone. For the stone material's 2.5 repeats, tile 8 is
+ * a texture every 3.2 m, about what the deck shows.
+ */
+export function tiledBox(w, h, d, tile = 8) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  // BoxGeometry's faces, 4 vertices each: +x, -x (depth x height), +y, -y (width x depth), +z, -z (width x height)
+  const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  faces.forEach(([su, sv], f) => {
+    for (let i = f * 4; i < f * 4 + 4; i++) uv.setXY(i, (uv.getX(i) * su) / tile, (uv.getY(i) * sv) / tile);
+  });
+  return g;
+}
+
+const DECK_HALF = 3.9; // half the causeway deck's width (buildElevatedTrail: 7.8 m)
+const PIER_STEP = 16; // m between piers along the trail
+const BRIDGE_Z = [-1450, -1318]; // the collapsing bridge: its piers stay clear of the lanes Kai falls through
+
+/**
+ * The raised trail's stonework. Under the deck, a pier at each side every
+ * PIER_STEP m wherever the trail is up off the jungle floor, so it reads as an
+ * old viaduct and not a ribbon in the air. Under each of `sideProps` ({ x, z,
+ * halfX, halfZ }: things that stand beside the deck rather than on it), a
+ * ledge out from the deck's edge on a pier of its own. All of it one merged
+ * mesh in `mat`: one draw call.
+ */
+export function buildCausewaySupports(root, mat, sideProps = [], { startZ = -260, endZ = -2860 } = {}) {
+  const parts = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const add = (geo, x, y, z, rx = 0) => {
+    m.compose(new THREE.Vector3(x, y, z), q.setFromEuler(e.set(rx, 0, 0)), new THREE.Vector3(1, 1, 1));
+    parts.push(geo.applyMatrix4(m));
+  };
+  // a pier from the jungle floor up to `top`: a plinth, the shaft, and a cap block under what it carries
+  const pier = (x, z, top, w, d) => {
+    if (top < 1) return;
+    add(tiledBox(w + 0.7, 0.8, d + 0.7), x, 0, z);
+    add(tiledBox(w, top + 0.4, d), x, (top - 0.4) / 2, z);
+    add(tiledBox(w + 0.4, 0.36, d + 0.4), x, top - 0.18, z);
+  };
+  const slope = (z) => Math.atan2(jungleCourseHeight(z - 1) - jungleCourseHeight(z + 1), 2); // the deck's tilt there
+
+  // under the deck
+  for (let z = startZ; z >= endZ; z -= PIER_STEP) {
+    const h = jungleCourseHeight(z);
+    if (h < 1.5) continue;
+    const onBridge = z <= BRIDGE_Z[1] && z >= BRIDGE_Z[0];
+    const x = onBridge ? 4.05 : 3.25; // the bridge's lanes go all the way out to 3.54
+    const w = onBridge ? 0.9 : 1.3;
+    for (const s of [-1, 1]) pier(s * x, z, h - 0.34, w, 1.6);
+  }
+
+  // a ledge under each thing beside the deck, and a pier under the ledge
+  for (const p of sideProps) {
+    const h = jungleCourseHeight(p.z);
+    if (h < 0.5) continue; // the trail's on the ground there: so is it
+    const s = Math.sign(p.x) || 1;
+    const inner = DECK_HALF - 0.3; // into the deck's edge, so it's part of it
+    const outer = Math.abs(p.x) + p.halfX + 0.4;
+    const len = p.halfZ * 2 + 1.0;
+    add(tiledBox(outer - inner, 0.34, len), s * (inner + outer) / 2, h - 0.19, p.z, slope(p.z));
+    pier(s * Math.abs(p.x), p.z, h - 0.36, Math.min(p.halfX * 2, 1.8) + 0.2, Math.min(p.halfZ * 2, 1.8));
+  }
+
+  if (!parts.length) return null;
+  const mesh = new THREE.Mesh(mergeGeometries(parts), mat);
+  for (const g of parts) g.dispose();
+  mesh.name = "jungle-causeway-supports";
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  root.add(mesh);
+  return mesh;
+}
 
 /**
  * Bigger jungle silhouettes that stay well outside the play corridor.
@@ -662,6 +756,7 @@ export function buildJungleBackdrop(root, kit, mats) {
   ruins.position.set(21.5, 24, -3370);
   ruins.rotation.y = Math.PI;
   group.add(ruins);
+  addCliff(21.5, -3370, 13, 24.8, 9); // the rock it stands on: from the jungle floor to the path's height
 
   // Huge exposed roots curl through the deep background, selling an old jungle
   // that has swallowed the ruins rather than a flat forest floor with props.

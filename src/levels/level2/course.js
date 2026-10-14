@@ -114,7 +114,7 @@ export class Course {
     // mossy rock at a sane texel size on 100 m walls (the shared material tiles for a 2 m block)
     const tiled = (mat, rx, ry, shade = 1) => {
       const m = mat.clone();
-      for (const k of ['map', 'normalMap', 'roughnessMap']) {
+      for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
         if (!m[k]) continue;
         m[k] = m[k].clone();
         m[k].wrapS = m[k].wrapT = THREE.RepeatWrapping;

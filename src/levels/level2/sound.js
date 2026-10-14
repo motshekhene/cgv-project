@@ -45,6 +45,7 @@ import {
   loadAudioFileBuffer,
   loadJungleTheme,
 } from "../../audio/jungleAudio.js";
+import { musicVolumeNode } from "../../audio/masterMute.js";
 
 export class Level2Sound {
   constructor({ volume = 0.75 } = {}) {
@@ -216,7 +217,7 @@ export class Level2Sound {
     this.music = ctx.createGain();
     this.music.gain.value = 0;
     this.music.gain.setTargetAtTime(this.musicOn ? this._musicBase : 0, ctx.currentTime + 0.5, 1.5);   // fade in
-    this.music.connect(this.master);
+    this.music.connect(musicVolumeNode(ctx)).connect(this.master); // through the OPTIONS music volume
     this._musicSrc = ctx.createBufferSource();
     this._musicSrc.buffer = createJungleMusicBuffer(ctx, 'drive');
     this._musicSrc.loop = true;

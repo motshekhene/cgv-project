@@ -8,9 +8,9 @@ import { DIALOGUE_FONT } from './dialogue.js';
  *
  *   PAUSED, the chapter you are in, that level's controls (the same rows the
  *   H panel shows, from ui/ControlsOverlay.js), an optional tip the level
- *   offers (level.pauseTip), and RESUME · RESTART · MAIN MENU.
+ *   offers (level.pauseTip), and RESUME · RESTART · OPTIONS · MAIN MENU.
  *
- *   const menu = new PauseMenu({ onResume, onRestart, onMenu });
+ *   const menu = new PauseMenu({ onResume, onRestart, onOptions, onMenu });
  *   menu.show(true, { kicker: 'LEVEL 1', title: 'THE OLD TRAIL', rows, tip });
  */
 const CSS = THEME_CSS + `
@@ -19,7 +19,7 @@ const CSS = THEME_CSS + `
 .pm.show { visibility:visible; opacity:1; pointer-events:auto; transition:opacity .22s ease; }
 .pm::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(10,12,8,.62), rgba(4,5,3,.92));
   backdrop-filter:blur(3px) saturate(.7); }
-.pm-in { position:relative; width:min(560px, 92vw); max-height:92vh; overflow:auto; padding:24px 30px 26px; text-align:center;
+.pm-in { position:relative; width:min(600px, 94vw); max-height:92vh; overflow-x:hidden; overflow-y:auto; padding:24px 30px 26px; text-align:center;
   transform:translateY(10px) scale(.98); transition:transform .25s cubic-bezier(.2,.8,.2,1); }
 .pm.show .pm-in { transform:none; }
 .pm-kicker { font-family:${DIALOGUE_FONT}; font-size:12px; letter-spacing:.5em; text-indent:.5em; color:var(--ink-dim); }
@@ -34,8 +34,8 @@ const CSS = THEME_CSS + `
   border:1px solid var(--line); border-radius:3px; background:rgba(0,0,0,.35); }
 .pm-tip { margin:2px auto 18px; max-width:440px; font-family:${DIALOGUE_FONT}; font-style:italic; font-size:15px; line-height:1.45; color:var(--key); }
 .pm-btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-.pm-btns button { display:inline-flex; align-items:center; gap:12px; padding:10px 16px 10px 24px; cursor:pointer; font:600 13px ${DIALOGUE_FONT};
-  letter-spacing:.3em; color:var(--ink); border:1px solid var(--line); border-radius:2px;
+.pm-btns button { display:inline-flex; align-items:center; gap:10px; padding:10px 14px 10px 18px; cursor:pointer; font:600 13px ${DIALOGUE_FONT};
+  letter-spacing:.22em; color:var(--ink); border:1px solid var(--line); border-radius:2px;
   background:linear-gradient(180deg, rgba(64,56,32,.92), rgba(20,19,11,.95)); box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 8px 22px rgba(0,0,0,.45); }
 .pm-btns button:hover { border-color:var(--gold); box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 0 20px rgba(227,187,98,.32); }
 @media (max-height: 540px) {
@@ -48,7 +48,7 @@ const CSS = THEME_CSS + `
 `;
 
 export class PauseMenu {
-  constructor({ onResume = null, onRestart = null, onMenu = null } = {}) {
+  constructor({ onResume = null, onRestart = null, onOptions = null, onMenu = null } = {}) {
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
@@ -84,6 +84,7 @@ export class PauseMenu {
     };
     button('RESUME', 'ESC', onResume);
     button('RESTART', 'R', onRestart);
+    button('OPTIONS', '', onOptions);
     button('MAIN MENU', '', onMenu);
     this.el.addEventListener('mousedown', (e) => e.stopPropagation());
     document.body.appendChild(this.el);

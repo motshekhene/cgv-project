@@ -48,7 +48,7 @@ export class Gorge {
 
     const stoneMat = stone.clone();
     stoneMat.vertexColors = true;
-    for (const k of ['map', 'normalMap', 'roughnessMap']) {
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
       if (!stoneMat[k]) continue;
       stoneMat[k] = stoneMat[k].clone();
       stoneMat[k].wrapS = stoneMat[k].wrapT = THREE.RepeatWrapping;
@@ -56,7 +56,7 @@ export class Gorge {
       stoneMat[k].needsUpdate = true;
     }
     const groundMat = forest.clone();
-    for (const k of ['map', 'normalMap', 'roughnessMap']) {
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
       if (!groundMat[k]) continue;
       groundMat[k] = groundMat[k].clone();
       groundMat[k].wrapS = groundMat[k].wrapT = THREE.RepeatWrapping;

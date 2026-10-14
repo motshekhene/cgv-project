@@ -51,7 +51,7 @@ const CSS = THEME_CSS + `
 const ACTIONS = ['left', 'right', 'forward', 'backward', 'boost', 'handbrake'];
 
 export class DriveControls {
-  constructor({ onCar, onMusic, onMute } = {}) {
+  constructor({ onCar, onView, onMusic, onMute } = {}) {
     this.state = Object.fromEntries(ACTIONS.map((a) => [a, false]));
     this.style = document.createElement('style');
     this.style.textContent = CSS;
@@ -72,6 +72,7 @@ export class DriveControls {
       </div>
       <div class="dc-menu">
         <button class="dc-m" data-m="car">CAR</button>
+        <button class="dc-m" data-m="view">VIEW</button>
         <button class="dc-m" data-m="music">MUSIC</button>
         <button class="dc-m" data-m="mute">SOUND</button>
       </div>`;
@@ -99,6 +100,7 @@ export class DriveControls {
       m.addEventListener('click', (e) => {
         e.currentTarget.blur();              // keep the keyboard on the game
         if (m.dataset.m === 'car') onCar?.();
+        if (m.dataset.m === 'view') onView?.();
         if (m.dataset.m === 'music') onMusic?.();
         if (m.dataset.m === 'mute') onMute?.();
       });

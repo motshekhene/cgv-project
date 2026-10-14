@@ -8,6 +8,7 @@ import { Telegraphs } from './level3/Telegraphs.js';
 import { EnforcerSquad } from './level3/Enforcers.js';
 import { ShadowStag } from './level3/ShadowStag.js';
 import { BodyIK, HIP_UP } from './level3/BodyIK.js';
+import { lookScale } from '../core/settings.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
@@ -843,8 +844,9 @@ export class Level03 extends Level {
       // the mouse looks round, as in the prologue: left / right turns the view, up / down tilts it
       const m = this.input.mouse;
       if (this.mode === 'FIGHT' && (m.dx || m.dy)) {
-        this.camYaw -= m.dx * LOOK;
-        this.lookPitch = Math.min(0.45, Math.max(-0.3, this.lookPitch - m.dy * LOOK));
+        const k = lookScale(); // OPTIONS: mouse sensitivity, invert Y
+        this.camYaw -= m.dx * LOOK * k.x;
+        this.lookPitch = Math.min(0.45, Math.max(-0.3, this.lookPitch - m.dy * LOOK * k.y));
         this._mouseIdle = 0;
       }
       this._mouseIdle += real;
@@ -858,8 +860,9 @@ export class Level03 extends Level {
       const want = Math.atan2(fp.x - cp.x, fp.z - cp.z);
       this.camYaw += shortestAngle(this.camYaw, want) * (1 - Math.exp(-7 * dt));
     } else {
-      this.camYaw += orbit.dx * 0.006 + orbit.strip * 1.7 * real;
-      this.orbitPitch = Math.min(1.2, Math.max(0.12, this.orbitPitch + orbit.dy * 0.004));
+      const sens = lookScale().x; // OPTIONS: mouse sensitivity
+      this.camYaw += orbit.dx * 0.006 * sens + orbit.strip * 1.7 * real;
+      this.orbitPitch = Math.min(1.2, Math.max(0.12, this.orbitPitch + orbit.dy * 0.004 * sens));
       this.orbitDist = Math.min(24, Math.max(6, this.orbitDist + orbit.zoom * 1.2));
     }
 

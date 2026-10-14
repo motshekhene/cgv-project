@@ -203,7 +203,7 @@ export class River {
     geo.computeVertexNormals();
     const groundMat = forest.clone();
     groundMat.vertexColors = true;
-    for (const k of ['map', 'normalMap', 'roughnessMap']) {
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
       if (!groundMat[k]) continue;
       groundMat[k] = groundMat[k].clone();
       groundMat[k].wrapS = groundMat[k].wrapT = THREE.RepeatWrapping;

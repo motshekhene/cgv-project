@@ -1,5 +1,5 @@
 /**
- * The Jungle Shrine look for the DOM UI (FightHUD, StoryOverlay, TouchControls, PauseMenu):
+ * The Jungle Shrine look for the DOM UI (FightHUD, StoryOverlay, TouchControls, PauseMenu, OptionsMenu):
  * dark moss-stone plaques with an aged-gold hairline, parchment text, a carved
  * serif for titles (the prologue's Crimson Pro, ui/dialogue.js, so the HUD and the
  * dialogue share one face), ember for harm, moss for stamina, cyan for the horn.
@@ -9,7 +9,7 @@
  * to Palatino / Georgia if the font cannot download on the lab machines.
  */
 export const THEME_CSS = `
-.fh, .so, .tc, .pm {
+.fh, .so, .tc, .pm, .om {
   --ink: #efe4c8; --ink-dim: #b8aa8a; --gold: #e3bb62; --gold-dim: #9c7d3c;
   --stone: rgba(13, 17, 11, .78); --stone-hi: rgba(38, 44, 28, .82); --line: rgba(227, 187, 98, .45);
   --ember: #c9442b; --ember-hi: #f2934f; --blood: #7c1610; --moss: #5f8a2e; --moss-hi: #bcd96a;
