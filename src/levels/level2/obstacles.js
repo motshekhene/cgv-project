@@ -767,12 +767,50 @@ export class Obstacles {
     }
   }
 
-  /** Is the stretch of `x` lane between z0 and z1 blocked? Traffic uses it to change lanes. */
-  blocks(x, halfW, z0, z1) {
+  /**
+   * The near edge of the first solid thing in the `x` lane between z0 and z1,
+   * or Infinity if it's clear. Traffic uses it to change lanes, and to brake
+   * short of a lane it can't get out of.
+   */
+  blockAt(x, halfW, z0, z1) {
+    let near = Infinity;
     for (const it of this.pool) {
-      if (it.state === 'gone' || it.z < z0 || it.z > z1) continue;
-      if (Math.abs(it.x - x) < it.halfW + halfW + 0.6) return true;
+      if (it.state === 'gone' || it.state === 'knocked') continue;
+      if (it.z + it.halfL < z0 || it.z - it.halfL > z1) continue;
+      if (Math.abs(it.x - x) < it.halfW + halfW + 0.6) near = Math.min(near, it.z - it.halfL);
     }
-    return false;
+    return near;
+  }
+
+  /** Is the stretch of `x` lane between z0 and z1 blocked? */
+  blocks(x, halfW, z0, z1) {
+    return this.blockAt(x, halfW, z0, z1) < Infinity;
+  }
+
+  /**
+   * Keeps a traffic car (traffic.js: { x, z, yaw, halfW, halfL, speed, vx })
+   * out of the solid things, whether anyone's watching or not: run into one
+   * and it's pushed back out and stopped dead; slid into one sideways and it's
+   * pushed back out to the side. True if it ran into one nose first.
+   */
+  collideTraffic(v) {
+    let hit = false;
+    const cy = Math.abs(Math.cos(v.yaw)), sy = Math.abs(Math.sin(v.yaw));
+    const ex = v.halfW * cy + v.halfL * sy, ez = v.halfL * cy + v.halfW * sy;
+    for (const it of this.pool) {
+      if (it.state === 'gone' || it.state === 'knocked') continue;
+      const dx = it.x - v.x, dz = it.z - v.z;
+      const ox = ex + it.halfW - Math.abs(dx);
+      const oz = ez + it.halfL - Math.abs(dz);
+      if (ox <= 0 || oz <= 0) continue;
+      if (oz < ox) {
+        v.z -= Math.sign(dz) * oz;
+        if (dz > 0) { v.speed = 0; hit = true; }
+      } else {
+        v.x -= Math.sign(dx) * ox;
+        v.vx = 0;
+      }
+    }
+    return hit;
   }
 }

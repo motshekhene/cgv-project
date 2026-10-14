@@ -17,6 +17,9 @@ import { spinWheels } from './wheels.js';
  *   const hits = traffic.update(dt, car);   // [{ damage, impact }]
  */
 export const LANES = [-9, -3, 3, 9];     // road is 24 wide, rails at ±12
+const LOOK = 110;                         // m: how far ahead a driver watches its lane
+const LANE_SPEED = 4.6;                   // m/s sideways, changing lane
+const BRAKE = 7;                          // m/s²: stopping short of a lane it can't leave
 
 // weight = how often it appears; speed = m/s range; mass = how hard it hits
 // (damage multiplier) and how hard it is to shove; paint = random colours
@@ -168,23 +171,28 @@ export class Traffic {
         if (g > -1 && g < gap) { gap = g; leader = w; }
       }
       const blocked = leader && gap < 10;
-      // a tree or an animal in its lane ahead: pull into the nearest clear lane,
-      // or stop short of it if there isn't one
+      // a tree, rocks, an animal or a roadblock in its lane ahead: pull into the
+      // nearest lane it can actually get to (every lane on the way clear for as
+      // long as it takes to cross it), or brake to a stop short of it
       let stopFor = Infinity;
-      if (this.obstacles && !v.vx && this.obstacles.blocks(v.laneX, v.halfW, v.z, v.z + 45)) {
-        const free = LANES.filter((x) => !this.obstacles.blocks(x, v.halfW, v.z - 8, v.z + 45))
-          .sort((a, b) => Math.abs(a - v.x) - Math.abs(b - v.x));
-        if (free.length) v.laneX = free[0];
-        else stopFor = 0;
+      if (this.obstacles && !v.vx) {
+        const ahead = this.obstacles.blockAt(v.laneX, v.halfW, v.z - v.halfL, v.z + v.halfL + LOOK);
+        if (ahead < Infinity) {
+          const free = LANES.filter((x) => x !== v.laneX && this._reachable(v, x))
+            .sort((a, b) => Math.abs(a - v.x) - Math.abs(b - v.x));
+          if (free.length) v.laneX = free[0];
+          else stopFor = Math.sqrt(2 * BRAKE * Math.max(0, ahead - (v.z + v.halfL) - 3));
+        }
       }
       if (!v.vx && v.laneX !== undefined && v.x !== v.laneX) {
-        const step = 3.2 * dt;
+        const step = LANE_SPEED * dt;
         v.x = Math.abs(v.laneX - v.x) < step ? v.laneX : v.x + Math.sign(v.laneX - v.x) * step;
-        v.yaw = THREE.MathUtils.lerp(v.yaw, Math.sign(v.laneX - v.x) * 0.12, Math.min(1, dt * 4));
+        v.yaw = THREE.MathUtils.lerp(v.yaw, Math.sign(v.laneX - v.x) * 0.16, Math.min(1, dt * 4));
       } else if (!v.spin) v.yaw *= Math.exp(-4 * dt);
       const want = Math.min(v.baseSpeed, stopFor);
       v.speed = blocked ? Math.min(v.speed, leader.speed)
-                        : THREE.MathUtils.lerp(v.speed, want, Math.min(1, dt * (stopFor === 0 ? 2 : 1)));
+        : want < v.speed - 0.5 && stopFor < Infinity ? Math.max(want, v.speed - BRAKE * 1.6 * dt)   // braking for it
+        : THREE.MathUtils.lerp(v.speed, want, Math.min(1, dt));
 
       v.z += v.speed * dt;
       spinWheels(v.model, v.speed, 0, dt);
@@ -197,6 +205,8 @@ export class Traffic {
         if (Math.abs(v.spin) < 0.02) v.spin = 0;
       }
       v.hitT = Math.max(0, v.hitT - dt);
+      // and whatever it's doing (shoved, or a driver who didn't look), it never drives through one
+      this.obstacles?.collideTraffic(v);
 
       if (v.z < pz - despawnBehind || v.z > pz + despawnAhead) this._spawn(v, pz);
       else this._place(v);
@@ -206,6 +216,22 @@ export class Traffic {
       if (hit) hits.push(hit);
     }
     return hits;
+  }
+
+  /**
+   * Can `v` get over to the lane at `x` from where it is? The lane itself
+   * clear for a good way ahead, and every lane it crosses on the way clear
+   * until it's past it (the further across, the further ahead it'll be).
+   */
+  _reachable(v, x) {
+    const from = v.x;
+    for (const l of LANES) {
+      if (Math.abs(l - v.laneX) < 0.5) continue;                                   // the lane it's in: clear up to the block
+      if ((l - from) * (x - from) < 0 || Math.abs(l - from) > Math.abs(x - from) + 0.1) continue; // not on the way
+      const until = l === x ? LOOK : (v.speed * (Math.abs(l - from) + 3)) / LANE_SPEED + 6;
+      if (this.obstacles.blocks(l, v.halfW, v.z - v.halfL - 6, v.z + v.halfL + until)) return false;
+    }
+    return true;
   }
 
   /**

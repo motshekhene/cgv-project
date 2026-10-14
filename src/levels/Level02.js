@@ -7,6 +7,7 @@ import { RoadSystem } from './level2/RoadSystem.js';
 import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
 import { Skids, Smoke, TyreTracks } from './level2/skids.js';
+import { CarDamage } from './level2/CarDamage.js';
 import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
@@ -192,6 +193,7 @@ export class Level02 extends Level {
     this.skids = new Skids(this.root);
     this.tracks = new TyreTracks(this.root);       // tread prints in the mud from every wheel
     this.smoke = new Smoke(this.root);
+    this.damage = new CarDamage(this.root);       // bits off it, smoke, fire, the explosion
     this.mudSplash = new MudSplash(this.root);
     // only a few cars here and there: it's a gravel road, not a motorway
     this.traffic = new Traffic(this.root, assets, { endZ: COURSE_END, count: 5, spawnMin: 200, spawnMax: 550, despawnAhead: 900 });
@@ -399,6 +401,12 @@ export class Level02 extends Level {
     const info = this._paintInfo.get(car.path);
     const color = car.paintable === false ? null : PAINTS[this._paintIndex].color;
     applyPaint(this._carModel, color, info);
+    // the bits that come off it are in its colours
+    let body = null;
+    this._carModel.traverse((o) => {
+      if (o.isMesh) for (const m of [].concat(o.material)) if (!body && info?.bodyMaterials?.get(m.name) === 1) body = m;
+    });
+    this.damage?.fit(this._carModel, body?.color);
   }
 
   _openCarPicker() {
@@ -459,8 +467,8 @@ export class Level02 extends Level {
       return;
     }
 
-    // game over — freeze gameplay
-    if (this._gameOver) return;
+    // game over — freeze gameplay (the wreck still burns)
+    if (this._gameOver) { this.damage.update(dt, this.car, 0); return; }
 
     // over the edge: the fall and the splash — the end of Level 2
     if (this._finale) { this._updateFinale(dt); return; }
@@ -477,6 +485,8 @@ export class Level02 extends Level {
     // its own binding: the shared 'jump' action also includes W and ↑
     this.input.bindings.handbrake ??= [' '];
     i.handbrake = this.input.isDown('handbrake') || !!c.handbrake;
+    // blown up: nobody's driving it any more
+    if (this._wreck) i.forward = i.backward = i.left = i.right = i.boost = i.handbrake = false;
     this._controls?.reflect(i);
     this._controls?.setFlags({ music: this.sound.musicOn, muted: isMuted() });
 
@@ -488,6 +498,7 @@ export class Level02 extends Level {
 
     const previousHeading = this.car.heading;
     this.car.update(dt, i);
+    if (this._wreck) this.car.speed *= Math.exp(-2.4 * dt); // it rolls to a stop, burning
     // the last stretch: the Handler knows what's ahead and lets you go
     this.handler.passive = this.car.mesh.position.z > COURSE_END - 450;
     const { dist, state: handlerState } = this.handler.update(dt);
@@ -513,6 +524,8 @@ export class Level02 extends Level {
       if (this.car.wallHit > 0.35 && this._wallCooldown <= 0) {
         this.car.takeDamage(Math.round(3 + this.car.wallHit * 6));
         this._wallCooldown = 0.6;
+        const p = this.car.mesh.position;
+        this.damage.crash(this.car, 0.25 + this.car.wallHit * 0.45, this._mid.set(Math.sign(p.x) * (this.car.railX - 0.4), 0.6, p.z));
       }
     }
     this._wallCooldown = Math.max(0, (this._wallCooldown || 0) - dt);
@@ -520,6 +533,13 @@ export class Level02 extends Level {
     this.skids.update(dt, this.car, skidding);
     this._updateTracks(dt);
     this.smoke.update(dt, this.skids.wheels(this.car), skidding);
+    // the engine: smoking, then black smoke, then on fire, as the car gets worse
+    const stageWas = this.damage.stage;
+    this.damage.update(dt, this.car, this.car.maxHealth ? this.car.health / this.car.maxHealth : 1);
+    if (this.damage.stage > stageWas && this.damage.stage < 4) {
+      this._flash(['', 'ENGINE SMOKING', 'ENGINE DAMAGED', 'ENGINE ON FIRE!'][this.damage.stage], this.damage.stage === 3 ? '#ff6a3a' : '#e3bb62');
+    }
+    if (this.damage.stage === 3) this.sound.fire?.(dt);
     // Mud splash from wheels — always when moving, not just when skidding
     this.mudSplash.update(dt, this.car, this.car.speed);
 
@@ -647,11 +667,19 @@ export class Level02 extends Level {
     // drove off the end of the road: over the falls
     if (this.car.mesh.position.z > COURSE_END + 0.3 && !this._finale) this._startFall();
 
-    // game over
-    if (this.car.health <= 0 && !this._gameOver && !this._finale) {
-      this._gameOver = true;
+    // game over: it blows up, rolls to a stop burning, and then the card
+    if (this.car.health <= 0 && !this._wreck && !this._gameOver && !this._finale) {
+      this._wreck = { t: 0 };
+      this.damage.explode(this.car);
       this.sound.crash(1);
+      this.sound.explosion(0);
       this.sound.silenceEngine();
+      this.shake = Math.max(this.shake, 1.4);
+      this._impact(1, null);
+      this.handler.giveSpace(10);
+    }
+    if (this._wreck && (this._wreck.t += dt) > 2.4 && !this._gameOver) {
+      this._gameOver = true;
       this._showGameOver();
     }
   }
@@ -931,6 +959,7 @@ export class Level02 extends Level {
    */
   _impact(strength, at = null) {
     if (at) this.weapons._burst(at, Math.round(6 + strength * 12));
+    if (!this._finale) this.damage?.crash(this.car, strength, at);
     this._punch = Math.max(this._punch || 0, strength);
     if (!this._vignette) {
       const el = document.createElement('div');
@@ -1117,6 +1146,7 @@ export class Level02 extends Level {
     this._flashEl = null;
     if (this.road) this.road.dispose();
     if (this.mudSplash) this.mudSplash.dispose();
+    this.damage?.dispose();
     super.teardown();
   }
 }

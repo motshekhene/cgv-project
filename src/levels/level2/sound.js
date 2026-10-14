@@ -457,6 +457,15 @@ export class Level2Sound {
     this._duck(0.45, 0.5);
   }
 
+  /** A car on fire: called every frame while it burns, it crackles and pops now and then. */
+  fire(dt) {
+    this._fireT = (this._fireT || 0) - dt;
+    if (this._fireT > 0) return;
+    this._fireT = 0.04 + Math.random() * 0.16;
+    this._burst({ type: 'bandpass', freq: 1800 + Math.random() * 2600, q: 1.4, peak: 0.035 + Math.random() * 0.05, attack: 0.002, decay: 0.03 + Math.random() * 0.05 });
+    if (Math.random() < 0.12) this._tone({ freq: 70 + Math.random() * 40, to: 40, peak: 0.05, decay: 0.18 }); // a whump
+  }
+
   /** Spike strip hitting the tarmac. */
   clatter() {
     for (let i = 0; i < 5; i++) this._tone({ type: 'square', freq: 1400 + Math.random() * 1600, peak: 0.03, decay: 0.06, delay: i * 0.05 });
