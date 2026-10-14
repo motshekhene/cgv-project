@@ -28,6 +28,11 @@ import { Fighter } from './Fighter.js';
  *
  * He never touches the player: when a strike connects he calls onStrike() and
  * Level03 answers 'hit' | 'blocked' | 'parried' | 'dodged'.
+ *
+ * Out in the jungle ring he finds his way round things (`nav`, level3/Nav.js,
+ * set by Level03): straight at Kai while nothing's in the way, along a path
+ * round the trees when something is, and he only starts an attack with a clear
+ * line to him. Held up anyway (shoved against something), he finds another way.
  */
 // difficulty lives in these numbers (+ MAX_HEALTH and COUNTER_AFTER below)
 const PHASES = [
@@ -460,6 +465,10 @@ export class HandlerBoss {
     this.staggered = false;
     this.flying = null; // the helmet, once it comes off
     this.arenaLimit = 13.4; // he follows Kai anywhere inside this radius
+    this.nav = null; // level3/Nav.js, set by Level03: his way round the trees
+    this._moveDir = new THREE.Vector3();
+    this._checkFrom = new THREE.Vector3();
+    this._checkT = 0;
 
     this.onStrike = null;
     this.onCounter = null;
@@ -647,8 +656,8 @@ export class HandlerBoss {
     this.t += dt;
 
     const atk = ATTACKS[this.attackName];
-    const face = (rate) => {
-      const want = Math.atan2(dir.x, dir.z);
+    const face = (rate, towards = dir) => {
+      const want = Math.atan2(towards.x, towards.z);
       let d = (want - this.heading) % (Math.PI * 2);
       if (d > Math.PI) d -= Math.PI * 2;
       if (d < -Math.PI) d += Math.PI * 2;
@@ -657,7 +666,11 @@ export class HandlerBoss {
 
     switch (this.state) {
       case 'APPROACH': {
-        face(9);
+        // the way to Kai: straight at him, or round whatever is between them
+        const pos = this.root.position;
+        const move = this.nav ? this.nav.steer(pos, tp, this._moveDir) : dir;
+        const inSight = !this.nav || this.nav.clear(pos, tp);
+        face(9, this.restFor > 0 ? dir : move);
         f.setLean(0);
         f.setGlow(0, 0);
         this._glowMask(0xff5a1a, 0.5 + Math.sin(this.t * 3) * 0.2);
@@ -665,12 +678,20 @@ export class HandlerBoss {
         if (this.restFor > 0) {
           this.restFor -= dt;
           if (anim) f.play('idle');
-        } else if (dist > atk.engage) {
-          this.root.position.addScaledVector(dir, p.speed * dt);
+        } else if (dist > atk.engage || !inSight) {
+          this.root.position.addScaledVector(move, p.speed * dt);
+          // not getting anywhere (shoved against something, or Kai in the way of his path)? another way
+          this._checkT += dt;
+          if (this._checkT > 0.7) {
+            if (this._checkFrom.distanceTo(pos) < p.speed * 0.7 * 0.35) this.nav?.stuck();
+            this._checkFrom.copy(pos);
+            this._checkT = 0;
+          }
           // the Mixamo run is paced to his speed so his feet don't skate
           const run = this.meta?.clips.run?.speed;
           if (anim) f.play('run', { speed: run ? p.speed / run : 0.9 + p.speed * 0.05 });
         } else {
+          this._checkT = 0;
           this._enter('TELEGRAPH');
           this.clipStarted = false;
         }

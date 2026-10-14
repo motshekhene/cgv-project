@@ -3,6 +3,7 @@ import { Level } from '../core/Level.js';
 import { CombatController } from './level3/CombatController.js';
 import { HandlerBoss } from './level3/HandlerBoss.js';
 import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
+import { Nav } from './level3/Nav.js';
 import { LetterDrops } from './level3/Letters.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
@@ -290,6 +291,7 @@ export class Level03 extends Level {
     this.combat = new CombatController(this.root, kai.source, kai.meta);
     this.boss = new HandlerBoss(this.root, this.combat, handler.source, handler.meta);
     this.combat.arenaLimit = this.boss.arenaLimit = WALK_R; // ShrineArena.collide() does the real fencing
+    this.boss.nav = new Nav(this.arena, 0.45); // his way round the trees after Kai (his collision radius, _collide below)
     // each loss so far takes a slice off his health for the next attempt (the phases scale with it)
     this._eased = Math.max(EASE_MIN, 1 - EASE_PER_LOSS * Math.max(0, losses - 1));
     this.boss.maxHealth = this.boss.health = Math.round(this.boss.maxHealth * this._eased);
