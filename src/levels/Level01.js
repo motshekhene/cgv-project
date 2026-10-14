@@ -375,14 +375,6 @@ function scriptedSetPieceZone(z) {
   );
 }
 
-// The one checkpoint, about halfway. Caught before it, the run starts again
-// from the stone; caught after it, from here (the Marshal back on his
-// starting gap). It used to carry on from wherever Kai fell, so losing cost
-// nothing.
-const WAYPOINTS = [{ z: -2080, name: "THE SHRINE STEPS" }];
-// set by CONTINUE just before it restarts the level; the new run picks it up in init()
-let resumeAt = null;
-
 // --- cursed shrine guardian ---
 // A one-off head-on set piece on the high temple section. It wakes in Kai's
 // current lane, charges straight at him and cannot be jumped or tanked: the
@@ -440,8 +432,8 @@ const STUMBLE_TAU = 0.45; // seconds; recovery time constant
 
 // --- health / damage ---------------------------------------------------------
 // Kai now has a visible life bar. Each obstacle hit drains a fixed amount;
-// hitting 0 HP triggers the caught overlay with a CONTINUE button (which
-// refills health and resumes from the current position instead of reloading).
+// hitting 0 HP triggers the caught overlay, whose TRY AGAIN restarts the run
+// from the stone with full health. There are no checkpoints.
 const MAX_HEALTH = 100;
 const OBSTACLE_DAMAGE = 18;      // HP lost per standard obstacle clip
 const SPECIAL_HAZARD_DAMAGE = 25; // HP lost per moving shrine hazard hit
@@ -576,7 +568,6 @@ export class Level01 extends Level {
     this._handlerSealed = false;
     this._handlerBarZ = 0; // latched when the bars fire, so he never pops backwards
     this._obsCursor = 0; // index of the nearest obstacle not yet behind Kai
-    this._waypointIdx = -1; // the last of WAYPOINTS he has passed
     this._stumbleDebt = 0; // metres of ground still owed from clipping a barrier
     // speed the shader/lights follow, smoothed so the streaks ease rather than
     // snapping when Kai stumbles or gets caught
@@ -662,7 +653,7 @@ export class Level01 extends Level {
 
     // --- health ---
     // Separate from GameState.health so the level is self-contained. The HUD
-    // reads this._health directly; the continue button resets it.
+    // reads this._health directly; TRY AGAIN restarts the level, resetting it.
     this._health = MAX_HEALTH;
     this._healthFlashT = 0; // brief red pulse when damage lands
 
@@ -805,8 +796,6 @@ export class Level01 extends Level {
     this._buildJetpackFx();
     this._buildTempleRunHUD();
     this._ensureAudio();
-    if (resumeAt) this._resumeFrom(resumeAt);
-    resumeAt = null;
 
     // The shared readout, so the chase shows its numbers like every other
     // level. Level 1 has no damage model — the comment in GameState holds:
@@ -2652,7 +2641,6 @@ export class Level01 extends Level {
 
   _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
-    const wp = WAYPOINTS[this._waypointIdx];
 
     // the team's shared end card (ui/theme.js), same as levels 02 and 03
     this._caughtOverlay = showEndCard({
@@ -2661,13 +2649,12 @@ export class Level01 extends Level {
       sub: title,
       lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
       action: {
-        // the run again from the last waypoint he passed (or from the stone, before the first)
-        label: wp ? `BACK TO ${wp.name}` : "TRY AGAIN",
+        // no checkpoints: caught anywhere, the run starts again from the stone
+        label: "TRY AGAIN",
         key: "SPACE",
         onClick: async () => {
           this._removeCaughtOverlay();
           if (!this.game) return;
-          resumeAt = wp ? { z: wp.z, name: wp.name, rewardCount: this.rewardCount, rewardScore: this.rewardScore } : null;
           try {
             await this.game.restart();
           } catch (err) {
@@ -2675,25 +2662,7 @@ export class Level01 extends Level {
           }
         },
       },
-      extra: [
-        {
-          label: "RESTART LEVEL",
-          key: "R",
-          bindKey: false,
-          onClick: async () => {
-            this._removeCaughtOverlay();
-            if (!this.game) return;
-            this.game.setPaused(false);
-            resumeAt = null;
-            try {
-              await this.game.restart();
-            } catch (err) {
-              console.error("[level01] restart failed", err);
-            }
-          },
-        },
-        { label: "RELOAD GAME", onClick: () => window.location.reload() },
-      ],
+      extra: [{ label: "RELOAD GAME", onClick: () => window.location.reload() }],
     });
   }
 
@@ -3794,40 +3763,6 @@ export class Level01 extends Level {
    * Kai's thoughts on the run, in the prologue's style (ui/dialogue.js): the
    * silence he left behind him, and the masked man he has never seen before.
    */
-  /**
-   * Caught past a waypoint: this run starts from just before it, the Marshal
-   * back on his starting gap, with everything the trail did behind that point
-   * already done (the traps sprung, the trees down, the guardian gone) and the
-   * tokens he had picked up still his.
-   */
-  _resumeFrom(r) {
-    this.z = r.z;
-    this._resumedAt = r.name;
-    this._waypointIdx = WAYPOINTS.findIndex((w) => w.name === r.name);
-    this.gap = HANDLER_START_GAP;
-    this.baseSpeed = this.speed = speedForDistance(-this.z);
-    this.rewardCount = r.rewardCount || 0;
-    this.rewardScore = r.rewardScore || 0;
-    for (const h of this._specialHazards) {
-      if (h.z > this.z) Object.assign(h, { active: true, t: 99, hit: true });
-    }
-    for (const ev of this._fallingTrees) {
-      if (ev.z <= this.z - FALL_TREE_TRIGGER_AHEAD - 5) continue;
-      Object.assign(ev, { phase: "landed", t: 1, clipped: true, landedSound: true });
-      ev.pivot.rotation.z = ev.side * (Math.PI / 2);
-    }
-    for (const ev of this._handlerPressureEvents) {
-      if (ev.z > this.z) Object.assign(ev, { active: true, t: 1 });
-    }
-    if (this.z < GUARDIAN_TRIGGER_Z) this._guardianResolved = true;
-    for (const r2 of this._rewardItems) if (r2.z > this.z) r2.collected = true;
-    // the opening thoughts were the first time; this is the next try
-    this._saidStart = this._saidMarshal = true;
-    this._saidRuins = this.z <= HIGH_RUINS_Z + 20;
-    this._saidDownhill = this.z <= -3720;
-    this._showTransientBanner(`FROM ${r.name}`, 2.2);
-  }
-
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
     if (!this._saidStart && this._storyT > 1.4) {
@@ -3838,12 +3773,6 @@ export class Level01 extends Level {
     if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 8) {
       this._saidMarshal = true;
       kaiThinks("A company coat. A mask. Who sent him after me?");
-    }
-    // past a waypoint: a caught run goes back to here, not to the stone
-    const next = WAYPOINTS[this._waypointIdx + 1];
-    if (next && this.z <= next.z) {
-      this._waypointIdx++;
-      if (this._resumedAt !== next.name) this._showTransientBanner(`CHECKPOINT — ${next.name}`, 1.8);
     }
     if (!this._saidRuins && this.z <= HIGH_RUINS_Z + 20) {
       this._saidRuins = true;
