@@ -103,6 +103,7 @@ const LEVEL_CONTROLS = {
       { label: 'HANDBRAKE', keys: 'SPACE' },
       { label: 'CAR PICKER', action: 'changeCar' },
       { label: 'PICKER: PAINT', keys: 'Q / E' },
+      { label: 'MUSIC ON / OFF', keys: 'N' },
     ],
   },
   level03: {
@@ -115,7 +116,7 @@ const LEVEL_CONTROLS = {
       { label: 'THE HORN \u00b7 SLOW TIME', action: 'ability' },
       { label: 'CAMERA \u00b7 LOCK ON', action: 'lockOn' },
       { label: 'NEXT LINE', action: 'skip' },
-      { label: 'INTERACT', action: 'interact' },
+      { label: 'SHRINES · PAGES', keys: 'WALK INTO THEM' },
       { label: 'RESTART', action: 'restart' },
     ],
   },
