@@ -911,11 +911,15 @@ export class Prologue extends Level {
   /** One line from Google Fonts; Georgia carries it if the network is gone. */
   _ensureSerif() {
     ensureDialogueFont();
-    // the click-hint pulse is one tiny stylesheet, shared by every visit
+    // the click-hint pulse and the skip plaque's glow are one tiny
+    // stylesheet, shared by every visit
     if (!document.getElementById('prologue-pulse')) {
       const st = document.createElement('style');
       st.id = 'prologue-pulse';
-      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}';
+      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}' +
+        '@keyframes prologueSkipGlow{0%,100%{box-shadow:0 4px 16px rgba(0,0,0,.5)}' +
+        '50%{box-shadow:0 4px 16px rgba(0,0,0,.5),0 0 24px rgba(227,187,98,.6);border-color:rgba(255,226,150,.95)}}' +
+        '.prologue-skip:hover{border-color:#ffe29a!important;background:rgba(40,34,14,.8)!important}';
       document.head.appendChild(st);
     }
   }
@@ -1756,9 +1760,30 @@ export class Prologue extends Level {
       'CLICK TO LOOK AROUND',
     );
 
+    // X skips the whole prologue. It sits top right, clear of the subtitles
+    // and of the H · CONTROLS pill in the bottom corner: a lit plaque with
+    // the key drawn as a key, glowing three times as the scene opens so it
+    // is seen, and it can be clicked as well as pressed.
+    const KEYCAP = 'display:inline-block;min-width:24px;padding:2px 7px;margin-right:10px;border:1px solid rgba(227,187,98,.85);' +
+      "border-radius:3px;background:rgba(0,0,0,.5);color:#e3bb62;font:700 13px 'Segoe UI',system-ui,sans-serif;" +
+      'letter-spacing:0;text-align:center;box-shadow:0 2px 0 rgba(0,0,0,.6)';
     this.hud.skip = mk(
-      base + ';right:26px;bottom:20px;color:#5b6379;font-size:12px;letter-spacing:.24em;' + SERIF,
-      'X — SKIP &nbsp;·&nbsp; M — MUTE',
+      'position:absolute;top:18px;right:18px;padding:9px 16px 9px 12px;pointer-events:auto;cursor:pointer;user-select:none;' +
+      'background:rgba(8,11,7,.66);border:1px solid rgba(227,187,98,.6);border-radius:4px;backdrop-filter:blur(3px);' +
+      `color:${CREAM};font-size:16px;font-weight:600;letter-spacing:.22em;${SERIF};text-shadow:0 1px 6px rgba(0,0,0,.9);` +
+      'animation:prologueSkipGlow 2.4s ease-in-out .8s 3;transition:opacity .4s',
+      `<span style="${KEYCAP}">X</span>SKIP INTRO`,
+    );
+    this.hud.skip.className = 'prologue-skip';
+    this.hud.skip.title = 'Skip the prologue and start Level 1';
+    this.hud.skip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._skipAsked = true;   // update() takes it, the same as X
+    });
+    this.hud.mute = mk(
+      base + ';top:62px;right:20px;color:#cfd6c4;font-size:12px;letter-spacing:.24em;opacity:.8;' +
+      `text-shadow:0 1px 6px rgba(0,0,0,.95);${SERIF}`,
+      'M — MUTE',
     );
 
     // Kai's own head — italic, no speaker colour, a shade above the subs
@@ -2064,6 +2089,8 @@ export class Prologue extends Level {
     this.hud.thought.style.opacity = '0';
     this.hud.sub.style.opacity = '0';
     this.hud.shade.style.opacity = '0';
+    this.hud.skip.style.opacity = this.hud.mute.style.opacity = '0';
+    this.hud.skip.style.pointerEvents = 'none';
     this.hud.fade.style.opacity = '1';
     this._applyDawn(1);      // the fade is dark; the jump in light is free
     if (document.exitPointerLock) document.exitPointerLock();
@@ -2175,7 +2202,7 @@ export class Prologue extends Level {
     this.t += dt;
     if (this._inFireShot()) this._shotT += dt;
 
-    if (this.input.pressed('skipScene') && !this.leaving) { this._exit(state); return; }
+    if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving) { this._exit(state); return; }
 
     if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
     this._mouseIdle += dt;
