@@ -288,7 +288,7 @@ export class HandlerWeapons {
 
   _rearWheel(car, side, out) {
     const b = car.bounds || { halfW: 0.75, halfL: 1.5 };
-    const p = car.mesh.position, h = car.heading;
+    const p = car.mesh.position, h = car.yaw ?? car.heading; // the body's yaw: in a drift the tail is out
     const lx = side * b.halfW / 0.9, lz = -b.halfL / 0.92 * 0.6;
     return out.set(p.x + lx * Math.cos(h) + lz * Math.sin(h), 0.35, p.z - lx * Math.sin(h) + lz * Math.cos(h));
   }

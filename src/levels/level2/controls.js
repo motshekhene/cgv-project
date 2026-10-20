@@ -48,7 +48,7 @@ const CSS = THEME_CSS + `
 @media (max-width: 760px) { .dc-menu { top:118px; } }
 `;
 
-const ACTIONS = ['left', 'right', 'forward', 'backward', 'boost', 'handbrake'];
+const ACTIONS = ['left', 'right', 'forward', 'backward', 'boost', 'drift'];
 
 export class DriveControls {
   constructor({ onCar, onView, onMusic, onMute } = {}) {
@@ -68,7 +68,7 @@ export class DriveControls {
         <button class="dc-b dc-gas" data-a="forward"><i>▲</i>GAS</button>
         <button class="dc-b dc-brake" data-a="backward"><i>▼</i>BRAKE</button>
         <button class="dc-b dc-boost" data-a="boost">BOOST<small>SHIFT</small></button>
-        <button class="dc-b dc-drift" data-a="handbrake">DRIFT<small>SPACE</small></button>
+        <button class="dc-b dc-drift" data-a="drift">DRIFT<small>Q</small></button>
       </div>
       <div class="dc-menu">
         <button class="dc-m" data-m="car">CAR</button>

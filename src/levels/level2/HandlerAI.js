@@ -796,7 +796,7 @@ export class HandlerAI {
    */
   _solve(car, half) {
     const p = car.mesh.position, m = this.mesh.position;
-    const hA = car.heading, hB = this.heading;
+    const hA = car.yaw ?? car.heading, hB = this.heading; // the player's body, slid round in a drift
     const axes = [
       [Math.cos(hA), -Math.sin(hA)], [Math.sin(hA), Math.cos(hA)],   // A right, A forward
       [Math.cos(hB), -Math.sin(hB)], [Math.sin(hB), Math.cos(hB)],   // B right, B forward

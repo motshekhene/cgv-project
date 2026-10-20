@@ -707,7 +707,8 @@ export class Obstacles {
     if (it.state === 'knocked' || it.state === 'gone' || it.broken) return null;
     const b = car.bounds || { halfW: 0.9, halfL: 1.8 };
     const p = car.mesh.position;
-    const ch = Math.abs(Math.cos(car.heading)), sh = Math.abs(Math.sin(car.heading));
+    const yaw = car.yaw ?? car.heading; // the body's footprint: wider across the road in a drift
+    const ch = Math.abs(Math.cos(yaw)), sh = Math.abs(Math.sin(yaw));
     const ex = b.halfW * ch + b.halfL * sh, ez = b.halfL * ch + b.halfW * sh;
     const dx = it.x - p.x, dz = it.z - p.z;
     const ox = ex + it.halfW - Math.abs(dx);

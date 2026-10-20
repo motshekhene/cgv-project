@@ -97,7 +97,7 @@ export function createLevel2Hud() {
         <div class="l2h-state" data-k="state">APPROACH</div>
       </div>
     </div>
-    <div class="l2h-keys plaque"><b>W/S</b> drive · <b>A/D</b> steer · <b>SPACE</b> drift · <b>SHIFT</b> boost · <b>V</b> car · <b>C</b> view · <b>M</b> mute · <b>N</b> music</div>`;
+    <div class="l2h-keys plaque"><b>W/S</b> drive · <b>A/D</b> steer · <b>Q</b> drift · <b>SPACE</b> brake · <b>SHIFT</b> boost · <b>V</b> car · <b>C</b> view</div>`;
   parent.appendChild(root);
 
   const q = (k) => root.querySelector(`[data-k="${k}"]`);
@@ -139,10 +139,11 @@ export function createLevel2Hud() {
       handlerBox.classList.toggle('attack', attacking);
       handlerBox.classList.toggle('calm', /DODGED|FALLING BACK/.test(handlerState));
 
-      const key = buffs.map((b) => b.label + Math.ceil(b.t)).join('|');
+      // b.text, if given, is shown instead of the whole seconds left (the drift's own count)
+      const key = buffs.map((b) => b.label + (b.text ?? Math.ceil(b.t))).join('|');
       if (key !== lastBuffs) {
         lastBuffs = key;
-        els.buffs.innerHTML = buffs.map((b) => `<span style="--c:${b.color}">${b.label} ${Math.ceil(b.t)}</span>`).join('');
+        els.buffs.innerHTML = buffs.map((b) => `<span style="--c:${b.color}">${b.label} ${b.text ?? Math.ceil(b.t)}</span>`).join('');
       }
     },
     destroy() { root.remove(); style.remove(); },

@@ -52,7 +52,7 @@ export class Skids {
   }
 
   _wheelWorld(car, side) {
-    const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
+    const h = car.yaw ?? car.heading, cos = Math.cos(h), sin = Math.sin(h); // the body's yaw: in a drift the tail is out
     const lx = side * this.wheelX, lz = this.wheelZ;
     return new THREE.Vector3(
       car.mesh.position.x + lx * cos + lz * sin, 0.03, car.mesh.position.z - lx * sin + lz * cos

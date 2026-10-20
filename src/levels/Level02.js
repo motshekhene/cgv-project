@@ -59,7 +59,7 @@ export class Level02 extends Level {
     super('level02');
     this.fromIntro = fromIntro;
     // the shape VehicleController already expects — filled from shared Input each frame
-    this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false };
+    this._input = { forward: false, backward: false, left: false, right: false, boost: false, handbrake: false, drift: false };
 
     this._announced = false; // the level's title and Kai's first thought, once
   }
@@ -132,6 +132,12 @@ export class Level02 extends Level {
     const railX = this.road.roadWidth / 2 - 0.3;
     this.car.railX = railX;
     this.handler.railX = railX;
+    // a drift let go cleanly pays out nitro (VehicleController._endDrift): call it out
+    this.car.onDriftEnd = (held, nitro) => {
+      this._flash(`DRIFT BOOST  +${nitro.toFixed(1)}s`, '#ffd36a');
+      this.sound.pickup('NITRO');
+      this._punch = Math.max(this._punch || 0, 0.3);
+    };
 
     // the Handler's hits: a ram that connects hurts and shakes, a scrape
     // alongside nicks you, a dodged ram is called out on the HUD
@@ -423,6 +429,8 @@ export class Level02 extends Level {
     this._selectingCar = true;
     this._orbit = 0;
     this.car.speed = 0;
+    this.car.cancelDrift();                         // V mid-slide: the car sits straight in the picker
+    this.car.mesh.rotation.y = this.car.heading;
     Object.keys(this._input).forEach((k) => { this._input[k] = false; });
     this._hud?.setVisible(false);
     this._controls?.setVisible(false);
@@ -491,11 +499,11 @@ export class Level02 extends Level {
     i.left     = this.input.isDown('left') || !!c.left;
     i.right    = this.input.isDown('right') || !!c.right;
     i.boost    = this.input.isDown('boost') || !!c.boost;
-    // its own binding: the shared 'jump' action also includes W and ↑
-    this.input.bindings.handbrake ??= [' '];
+    // their own bindings (core/Input.js): Space is the handbrake, Q the drift
     i.handbrake = this.input.isDown('handbrake') || !!c.handbrake;
+    i.drift     = this.input.isDown('drift') || !!c.drift;
     // blown up: nobody's driving it any more
-    if (this._wreck) i.forward = i.backward = i.left = i.right = i.boost = i.handbrake = false;
+    if (this._wreck) i.forward = i.backward = i.left = i.right = i.boost = i.handbrake = i.drift = false;
     this._controls?.reflect(i);
     this._controls?.setFlags({ music: this.sound.musicOn, muted: isMuted() });
 
@@ -554,7 +562,7 @@ export class Level02 extends Level {
     // Mud splash from wheels — always when moving, not just when skidding
     this.mudSplash.update(dt, this.car, this.car.speed);
 
-    this.carLights.update(dt, { braking: i.backward && this.car.speed > 1 });
+    this.carLights.update(dt, { braking: (i.backward || i.handbrake) && this.car.speed > 1 });
     this.policeLights.update(dt, handlerState);
 
     this._roadUsers.pool.length = 0;
@@ -608,6 +616,8 @@ export class Level02 extends Level {
       toEnd: route.left,
       progress: route.t,
       buffs: [
+        // a drift counts up while it's held; let go, it turns into NITRO
+        { label: 'DRIFT', t: this.car.driftDir ? this.car.driftTime : 0, text: `${this.car.driftTime.toFixed(1)}s`, color: '#ffd36a' },
         { label: 'SHIELD', t: this.car.shield, color: '#6fe3ff' },
         { label: 'NITRO', t: this.car.freeBoost, color: '#ff8a2a' },
       ].filter((b) => b.t > 0),
@@ -699,7 +709,7 @@ export class Level02 extends Level {
   /** Tyre tracks in the mud: yours, the Handler's and the few cars'. */
   _updateTracks(dt) {
     const t = this.tracks;
-    t.follow('player', this.car.mesh, this.car.heading, this._carModel?.userData.bounds);
+    t.follow('player', this.car.mesh, this.car.yaw, this._carModel?.userData.bounds);
     t.follow('handler', this.handler.mesh, this.handler.heading, this._handlerBounds);
     this.traffic.pool.forEach((v, i) => {
       if (v.parked) { t.reset(`traffic${i}`); return; }
@@ -832,7 +842,7 @@ export class Level02 extends Level {
       f.vx *= drag; f.vz *= drag;
       p.x += f.vx * dt; p.y += f.vy * dt; p.z += f.vz * dt;
       f.pitch = Math.min(1.15, f.pitch + dt * 0.6);          // nose drops as it goes over
-      car.mesh.rotation.set(f.pitch, car.heading, Math.sin(f.t * 1.8) * 0.08);
+      car.mesh.rotation.set(f.pitch, car.yaw, Math.sin(f.t * 1.8) * 0.08);
       spinWheels(car.model, car.speed, 0, dt);
       if (p.y <= -DROP + 0.3) {
         f.phase = 'splash'; f.t = 0;
@@ -1034,6 +1044,8 @@ export class Level02 extends Level {
     // looking where the car points (a camera looks down its -z, so turned half round), a little down
     const q = car.mesh.getWorldQuaternion(this._eyeQ ||= new THREE.Quaternion());
     q.multiply(this._eyeTurn ||= new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.05, Math.PI, 0, 'YXZ')));
+    // in a drift the body is slid round: look most of the way back down the road
+    if (car.slip) q.premultiply((this._slipQ ||= new THREE.Quaternion()).setFromAxisAngle(THREE.Object3D.DEFAULT_UP, -car.slip * 0.7));
     // hits shake it
     const s = this.shake;
     if (s > 0.005) {

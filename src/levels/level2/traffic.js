@@ -278,7 +278,7 @@ export class Traffic {
   }
 
   _collide(v, car, px, pz, pushOnly = false) {
-    const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
+    const h = car.yaw ?? car.heading, cos = Math.cos(h), sin = Math.sin(h); // the body's yaw: slid round in a drift
     const dx = v.x - px, dz = v.z - pz;
     const lx = dx * cos - dz * sin;                 // traffic centre in the player's frame
     const lz = dx * sin + dz * cos;

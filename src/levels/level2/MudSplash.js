@@ -130,7 +130,7 @@ export class MudSplash {
 
   /** World position of a rear wheel (side: -1 = left, +1 = right). */
   _wheelWorld(car, side) {
-    const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
+    const h = car.yaw ?? car.heading, cos = Math.cos(h), sin = Math.sin(h); // the body's yaw: in a drift the tail is out
     const lx = side * this.wheelX, lz = this.wheelZ;
     return new THREE.Vector3(
       car.mesh.position.x + lx * cos + lz * sin,

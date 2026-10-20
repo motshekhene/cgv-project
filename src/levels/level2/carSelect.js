@@ -24,7 +24,7 @@ export const CARS = [
     // "Toyota AE86" by IvOfficial, CC BY 3.0
     // white body painted into its texture: no separate paint colour to target, factory only
     id: 'drifter', name: 'Drifter', path: 'level2/cars/drifter.glb', length: 4.2, paintable: false,
-    blurb: 'Light, nimble, born to slide — Space to drift', stats: { speed: 40, accel: 26, handling: 1.3, strength: 0.8 },
+    blurb: 'Light, nimble, born to slide — hold Q to drift', stats: { speed: 40, accel: 26, handling: 1.3, strength: 0.8 },
     door: { z: [-0.48, 0.55], y: [0.33, 1.22], depth: 0.32 },
   },
   {

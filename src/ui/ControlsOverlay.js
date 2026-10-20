@@ -12,6 +12,11 @@
  * generated from the live Input bindings at open time, so if a binding moves,
  * this panel cannot lie about it.
  *
+ * A level with something of its own in that corner docks the pill elsewhere
+ * (`dock: 'top'` in LEVEL_CONTROLS): Level 2's minimap is down there, so on
+ * the River Road the pill sits top right, under the CAR · VIEW row, and the
+ * panel opens downward from it.
+ *
  *   import { mountControlsOverlay } from './ui/ControlsOverlay.js';
  *   const controls = mountControlsOverlay(game);          // in main.js
  *   game.onControlsToggle = () => controls.toggle();      // H (Game polls it)
@@ -97,11 +102,13 @@ const LEVEL_CONTROLS = {
   },
   level02: {
     title: 'LEVEL 2 \u2014 THE RIVER ROAD',
+    dock: 'top', // the minimap has the bottom-right corner
     rows: [
       { label: 'DRIVE / REVERSE', keys: 'W / S' },
       { label: 'STEER', keys: 'A / D \u00b7 \u2190 / \u2192' },
+      { label: 'DRIFT (HOLD + STEER)', action: 'drift' },
+      { label: 'HANDBRAKE', action: 'handbrake' },
       { label: 'BOOST', action: 'boost' },
-      { label: 'HANDBRAKE', keys: 'SPACE' },
       { label: 'CAR PICKER', action: 'changeCar' },
       { label: 'VIEW · FIRST PERSON', action: 'view' },
       { label: 'PICKER: PAINT', keys: 'Q / E' },
@@ -144,7 +151,7 @@ export function mountControlsOverlay(game) {
   const root = document.createElement('div');
   root.style.cssText =
     // above the title screen (9500) and the pause menu (9300), below the loading screen
-    'position:fixed;right:18px;bottom:18px;z-index:9700;pointer-events:none;' +
+    'position:fixed;z-index:9700;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;' +
     "font-family:ui-monospace,'JetBrains Mono',Menlo,monospace";
   document.body.appendChild(root);
 
@@ -169,11 +176,27 @@ export function mountControlsOverlay(game) {
 
   const panel = document.createElement('div');
   panel.style.cssText =
-    'pointer-events:auto;display:none;width:270px;margin-bottom:8px;' +
+    'pointer-events:auto;display:none;width:270px;' +
     `color:#eef2fb;background:${PANEL_BG};border:1px solid rgba(143,155,176,.3);` +
     'border-radius:4px;padding:14px 16px 10px;font-size:11px;letter-spacing:.08em;' +
     'max-height:min(70vh,520px);overflow-y:auto;user-select:none';
   root.appendChild(panel);
+
+  /**
+   * Bottom right, the panel opening upward above the pill; or, for a level
+   * docked 'top', top right under Level 2's CAR · VIEW row (which drops a
+   * row on narrow screens, levels/level2/controls.js), the panel opening downward.
+   */
+  function place() {
+    const top = (LEVEL_CONTROLS[state.levelName] || {}).dock === 'top';
+    root.style.right = top ? '12px' : '14px';
+    root.style.top = top ? `${window.innerWidth <= 760 ? 152 : 116}px` : 'auto';
+    root.style.bottom = top ? 'auto' : '6px'; // under Level 3's PUNCH button, not on it
+    root.style.flexDirection = top ? 'column' : 'column-reverse';
+    panel.style.margin = top ? '6px 0 0' : '0 0 6px';
+  }
+  place();
+  window.addEventListener('resize', place);
 
   function render() {
     const spec = LEVEL_CONTROLS[state.levelName] || { title: 'CONTROLS', rows: [] };
@@ -221,6 +244,7 @@ export function mountControlsOverlay(game) {
     /** Called on level change — the panel re-renders next time it opens. */
     setLevel(name) {
       state.levelName = name;
+      place();
       if (state.visible) render();
     },
   };

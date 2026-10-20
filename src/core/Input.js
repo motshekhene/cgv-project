@@ -43,6 +43,8 @@ export const DEFAULT_BINDINGS = {
   mute: ["m"],
   controls: ["h"], // the controls overlay — what everything else does
   changeCar: ["v"], // level 02: open the car picker
+  drift: ["q"], // level 02: hold with a steer to throw the car sideways (Q still cycles paint in the picker)
+  handbrake: [" "], // level 02: a hard stop that never goes into reverse
 };
 
 export class Input {
