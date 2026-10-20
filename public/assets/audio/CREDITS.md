@@ -1,6 +1,6 @@
 # Game audio credits
 
-Everything here that the team did not make. Copy these into the in-game credits screen.
+Everything here that the team did not make. The in-game credits (CREDITS on the main menu) list them too, with links: `src/ui/credits.js` — add a new asset there as well as here.
 
 All three are used under the Pixabay Content License — free to use, no attribution required
 (https://pixabay.com/service/license-summary/). They are credited anyway: the ID in each

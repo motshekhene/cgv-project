@@ -300,11 +300,6 @@ const TELLS = {
   spin: { name: 'SPIN KICK', advice: 'two kicks all round him: back off, or dodge both', color: '#3fe0b4' },
   blast: { name: 'HORN BLAST', advice: 'a ring all round him: dodge through it, or be well clear', color: '#4fd6e0' },
 };
-const CREDITS =
-  'Ruins, nature and characters: Quaternius (CC0) · Textures: ambientCG (CC0) · ' +
-  'Props: Poly by Google (CC0) · Car parts: Kenney (CC0) · ' +
-  'Steering wheel: Poly by Google (CC-BY 3.0, via Poly Pizza) · Built with three.js';
-
 let introSeen = false; // restarts skip straight to the fight
 let revealSeen = false; // the whole mask-off conversation plays once; a retry gets the short version
 let losses = 0; // fights lost to him this session: each one starts the next with him weaker
@@ -2599,7 +2594,6 @@ export class Level03 extends Level {
     this.story.showEnd({
       title: 'VICTORY',
       sub: 'Baba Zwane is down, and the horn is Kai’s to carry home.',
-      credits: CREDITS,
       // on to the epilogue: Kai takes it back up the mountain to its stone
       action: { label: 'CONTINUE', key: 'ENTER', onClick: () => this.game.setLevel('epilogue') },
     });

@@ -40,10 +40,6 @@ const T = {
   arrive: 6.6, unsling: 6.9, reach: 8.4, placed: 9.9, rise: 10.3, wake: 10.6, leave: 16.8, card: 21.5,
 };
 const HORN_REST = { pos: new THREE.Vector3(-0.22, 0, -0.02), rotY: 0.25 }; // y from the horn's own height (the title scene's)
-const CREDITS =
-  'Ruins, nature and characters: Quaternius (CC0) · Characters animated with Mixamo · Textures: ambientCG (CC0) · ' +
-  'Props: Poly by Google (CC0 / CC-BY 3.0) · Cars: Quaternius, Poly by Google, IvOfficial, theking1322 (CC-BY 3.0) · ' +
-  'Built with three.js';
 
 const smooth = (a, b, x) => THREE.MathUtils.smoothstep(x, a, b);
 
@@ -474,7 +470,7 @@ export class Epilogue extends Level {
       kind: 'win',
       title: 'THE END',
       sub: 'The horn is back on its stone, and the forest is awake.',
-      lines: [{ text: CREDITS }],
+      // the credits are on the main menu now (CREDITS), with links
       action: { label: 'MAIN MENU', key: 'ENTER', onClick: () => this.game.setLevel('title') },
       extra: [{ label: 'PLAY AGAIN', onClick: () => this.game.setLevel('prologue') }],
     });

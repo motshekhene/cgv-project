@@ -17,9 +17,10 @@ import { settings, onSettings } from '../core/settings.js';
  *   CHAPTERS   jump to any part of the story
  *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   the same H panel every level has
+ *   CREDITS    every asset the team didn't make, with links (ui/CreditsMenu.js)
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
- * main.js passes onStart(levelName), onOptions and onControls.
+ * main.js passes onStart(levelName), onOptions, onControls and onCredits.
  */
 
 const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
@@ -29,6 +30,7 @@ const MENU = [
   { id: 'chapters', label: 'CHAPTERS' },
   { id: 'options', label: 'OPTIONS' },
   { id: 'controls', label: 'CONTROLS' },
+  { id: 'credits', label: 'CREDITS' },
 ];
 const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
 const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
@@ -76,11 +78,12 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onOptions, onControls, skipPress = false }) {
+  constructor({ onStart, onOptions, onControls, onCredits, skipPress = false }) {
     ensureDialogueFont();
     this.onStart = onStart;
     this.onOptions = onOptions;
     this.onControls = onControls;
+    this.onCredits = onCredits;
     // the theme follows the OPTIONS volumes as they're changed
     this._offSettings = onSettings((s, key) => {
       if ((key === 'music' || key === 'master') && this.music && !this._leaving) {
@@ -200,6 +203,7 @@ export class TitleScreen {
     else if (it.id === 'chapters') this._showChapters();
     else if (it.id === 'options') this.onOptions?.();
     else if (it.id === 'controls') this.onControls?.();
+    else if (it.id === 'credits') this.onCredits?.();
     else if (it.id === 'back') this._showMain();
     else if (it.id === 'chapter') this._start(it.name);
   }

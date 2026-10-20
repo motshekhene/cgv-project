@@ -1,6 +1,6 @@
 # Level 2 asset credits
 
-Everything here that the team did not make. Copy these into the in-game credits screen.
+Everything here that the team did not make. The in-game credits (CREDITS on the main menu) list them too, with links: `src/ui/credits.js` — add a new asset there as well as here.
 
 | Asset | File(s) | Author | Source | Licence |
 |---|---|---|---|---|

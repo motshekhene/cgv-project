@@ -16,6 +16,7 @@ import { LoadingScreen } from "./ui/LoadingScreen.js";
 import { TitleScreen } from "./ui/TitleScreen.js";
 import { TitleScene } from "./levels/TitleScene.js";
 import { OptionsMenu } from "./ui/OptionsMenu.js";
+import { CreditsMenu } from "./ui/CreditsMenu.js";
 import { mountFpsCounter } from "./ui/FpsCounter.js";
 
 /**
@@ -83,6 +84,8 @@ const loading = new LoadingScreen();
 const controlsOverlay = mountControlsOverlay(game);
 // OPTIONS (volume, mouse, graphics, FPS), from the title menu and the pause menu
 const options = new OptionsMenu();
+// CREDITS, from the title menu: every asset the team didn't make, with links
+const credits = new CreditsMenu();
 mountFpsCounter();
 
 game.onLevelLoading = (name) => loading.show(name);
@@ -108,6 +111,7 @@ game.onLevelChanged = (name) => {
       },
       onOptions: () => options.open(),
       onControls: () => controlsOverlay.show(),
+      onCredits: () => credits.open(),
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
   }
