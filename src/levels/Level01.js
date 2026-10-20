@@ -358,6 +358,13 @@ const ROUTE_OFFSET = 5.6;
 const DARK_SHRINE_START_Z = -1010;
 const DARK_SHRINE_END_Z = -1185;
 const DARK_SHRINE_FADE = 28;
+// the light outside, and what it turns to under the shrine's roof (_updateDarkShrine)
+const FOG_DAY = new THREE.Color(0xcfd6a8);
+const FOG_SHRINE = new THREE.Color(0x56695e);
+const HEMI_SKY = new THREE.Color(0xbfdcff);
+const SHRINE_SKY = new THREE.Color(0xa6dccb);
+const HEMI_GROUND = new THREE.Color(0x4a5a26);
+const SHRINE_GROUND = new THREE.Color(0x8c9a6c);
 
 const BRIDGE_START_Z = -1318;
 const BRIDGE_END_Z = -1450;
@@ -893,7 +900,7 @@ export class Level01 extends Level {
 
     // In the dark shrine the route is readable from Kai's own small torch and
     // the emissive runes. Outside that section it fades almost completely out.
-    this.kaiTorch = new THREE.SpotLight(0xc9fff0, 0, 24, 0.48, 0.6, 1.4); // a cone of light ahead of Kai, only on in the dark shrine
+    this.kaiTorch = new THREE.SpotLight(0xc9fff0, 0, 30, 0.62, 0.6, 1.2); // a cone of light ahead of Kai, only on in the dark shrine
     this.kaiTorch.position.set(0, 1.55, -0.25);
     this.kaiTorch.target.position.set(0, 0.9, -9);
     this.player.add(this.kaiTorch, this.kaiTorch.target);
@@ -1130,6 +1137,15 @@ export class Level01 extends Level {
       const roof = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.38, 14.0), wallMat);
       roof.position.set(0, floor + 4.45, z - 5.5);
       group.add(roof);
+
+      // the roof is in slabs with a 4 m gap between them: daylight falls
+      // through each one in a shaft, down to the trail
+      if (z - 18 >= DARK_SHRINE_END_Z) {
+        const shaft = createLightShaft(1.7, 0xfff0c8, 0.17);
+        shaft.scale.y = 5 / 28; // the helper's beam is 28 m long, for the canopy; this one is roof to floor
+        shaft.position.set(0, floor + 4.9, z - 14.5);
+        group.add(shaft);
+      }
     }
 
     const runeMat = new THREE.MeshStandardMaterial({
@@ -1145,7 +1161,7 @@ export class Level01 extends Level {
         rune.position.set(side * 3.86, floor + 1.55, z);
         group.add(rune);
       }
-      const light = new THREE.PointLight(0x5dffd2, 1.8, 17, 2); // the runes' glow: lights the dark shrine
+      const light = new THREE.PointLight(0x5dffd2, 1.8, 22, 2); // the runes' glow: lights the dark shrine
       light.position.set(0, floor + 1.9, z);
       group.add(light);
       this._darkRuneLights.push(light);
@@ -1164,10 +1180,18 @@ export class Level01 extends Level {
     const target = THREE.MathUtils.clamp(enter * exit, 0, 1);
     this._darkFactor += (target - this._darkFactor) * (1 - Math.exp(-7 * dt));
 
-    // into the dark shrine: the sun and sky dim, Kai's torch takes over (and back again on the way out)
-    if (this.key) this.key.intensity = THREE.MathUtils.lerp(4.5, 0.38, this._darkFactor);
-    if (this.hemi) this.hemi.intensity = THREE.MathUtils.lerp(0.6, 0.10, this._darkFactor);
-    if (this.kaiTorch) this.kaiTorch.intensity = 5.2 * this._darkFactor;
+    // into the dark shrine: the sun dims, the air goes the green-grey of the
+    // shade under old stone, the runes and Kai's torch take over (and back
+    // again on the way out). It reads as dim, never as black: the walls, the
+    // floor and the obstacles ahead stay plain to see at a run.
+    if (this.key) this.key.intensity = THREE.MathUtils.lerp(4.5, 2.2, this._darkFactor);
+    if (this.hemi) {
+      // the fill from below is the lit floor bouncing back up onto the walls and the roof
+      this.hemi.intensity = THREE.MathUtils.lerp(0.6, 1.0, this._darkFactor);
+      this.hemi.color.copy(HEMI_SKY).lerp(SHRINE_SKY, this._darkFactor);
+      this.hemi.groundColor.copy(HEMI_GROUND).lerp(SHRINE_GROUND, this._darkFactor);
+    }
+    if (this.kaiTorch) this.kaiTorch.intensity = 7.5 * this._darkFactor;
     if (this.handlerLight) {
       this.handlerLight.color.setRGB(
         THREE.MathUtils.lerp(1.0, 1.0, this._darkFactor),
@@ -1176,14 +1200,12 @@ export class Level01 extends Level {
       );
     }
     if (this.scene?.fog?.isFogExp2) {
-      this.scene.fog.density = THREE.MathUtils.lerp(0.014, 0.031, this._darkFactor);
-      const base = new THREE.Color(0xcfd6a8);
-      const dark = new THREE.Color(0x111a18);
-      this.scene.fog.color.copy(base).lerp(dark, this._darkFactor);
+      this.scene.fog.density = THREE.MathUtils.lerp(0.014, 0.02, this._darkFactor);
+      this.scene.fog.color.copy(FOG_DAY).lerp(FOG_SHRINE, this._darkFactor);
     }
     if (this._sky) this._sky.material.uniforms.uDark.value = this._darkFactor;
     for (let i = 0; i < (this._darkRuneLights?.length || 0); i++) {
-      this._darkRuneLights[i].intensity = (1.4 + Math.sin(performance.now() * 0.004 + i) * 0.35) * (0.35 + this._darkFactor);
+      this._darkRuneLights[i].intensity = (2.4 + Math.sin(performance.now() * 0.004 + i) * 0.4) * (0.35 + this._darkFactor);
     }
   }
 
