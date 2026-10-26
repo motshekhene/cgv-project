@@ -4,6 +4,7 @@ import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
 import { settings, onSettings } from "./settings.js";
+import { PostFX } from "./PostFX.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -52,6 +53,9 @@ export class Game {
     this.renderer.toneMappingExposure = 1.25; // overall brightness
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // lighting is computed in linear space, shown in sRGB
     this.parent.appendChild(this.renderer.domElement);
+    // HDR bloom, colour grade, vignette, grain, the damage pulse (core/PostFX.js)
+    this.postfx = new PostFX(this.renderer);
+    this._lastHealth = null; // to see Kai get hurt, whichever level hurt him
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
@@ -152,6 +156,8 @@ export class Game {
     this.secondaryCameras.clear();
     this.overlays.clear();
     this.state.resetForLevel(name);
+    this.postfx.setProfile({}, name); // the level's look; init() can change it
+    this._lastHealth = null;
 
     const level = factory();
     level.game = this;
@@ -227,9 +233,17 @@ export class Game {
       this.applyQuality();
     }
 
-    // a level can take over drawing (e.g. a post-processing pass); most just let Game render
+    // any drop in health, from any level, pulses the screen red
+    const hp = this.state.health;
+    if (this._lastHealth !== null && hp < this._lastHealth - 0.25 && !this.paused) {
+      this.postfx.hit(Math.min(1, 0.35 + (this._lastHealth - hp) / 30));
+    }
+    this._lastHealth = hp;
+    this.postfx.update(raw);
+
+    // a level can take over drawing (e.g. its own post-processing pass); most just let Game render
     if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
-    else this.renderer.render(this.scene, this.camera);
+    else this.renderScene(this.scene, this.camera);
 
     // secondary cameras — rendered as small overlays on top of the main view
     if (this.secondaryCameras.size > 0) {
@@ -260,6 +274,12 @@ export class Game {
       }
       this.renderer.autoClear = true;
     }
+  }
+
+  /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
+  renderScene(scene, camera) {
+    if (this.postfx.enabled) this.postfx.render(scene, camera);
+    else this.renderer.render(scene, camera);
   }
 
   /**
@@ -307,6 +327,7 @@ export class Game {
     }
     window.removeEventListener("resize", this._onResize);
     this.input.detach();
+    this.postfx.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);

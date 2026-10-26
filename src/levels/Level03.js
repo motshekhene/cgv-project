@@ -2672,7 +2672,7 @@ export class Level03 extends Level {
   /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
   render(renderer, scene, camera) {
     if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);
-    else renderer.render(scene, camera);
+    else this.game.renderScene(scene, camera);
   }
 
   teardown() {
