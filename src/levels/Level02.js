@@ -41,7 +41,7 @@ import { isMuted, toggleMuted } from '../audio/masterMute.js';
  * smoke, HUD, car picker, game over) with 2B's road and secondary cameras
  * (rearview mirror + minimap).
  *
- * The River Road is a journey: Level 1's jungle and mud trail, ~4 km long,
+ * The River Road is a journey: Level 1's jungle and mud trail, ~8 km long,
  * rewards along the way (pickups.js), and at the end the road goes over a
  * waterfall (course.js). It's a gravel road, so there's little traffic: the
  * jungle is what's in the way — fallen trees, rockfalls, branches and animals

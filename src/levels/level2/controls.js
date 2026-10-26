@@ -46,6 +46,8 @@ const CSS = THEME_CSS + `
 
 @media (max-height: 640px) { .dc-steer, .dc-pedals { zoom:.75; } }
 @media (max-width: 760px) { .dc-menu { top:118px; } }
+/* steering and pedals are for touch screens; the CAR · VIEW · MUSIC · SOUND row stays for the mouse */
+@media (hover: hover) and (pointer: fine) { .dc-steer, .dc-pedals { display:none; } }
 `;
 
 const ACTIONS = ['left', 'right', 'forward', 'backward', 'boost', 'drift'];

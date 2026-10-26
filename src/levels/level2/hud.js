@@ -88,7 +88,7 @@ export function createLevel2Hud() {
         <div class="l2h-buffs" data-k="buffs"></div>
       </div>
       <div class="l2h-route plaque">
-        <div class="l2h-name"><span>THE RIVER ROAD</span><b data-k="left">4.1 KM TO THE FALLS</b></div>
+        <div class="l2h-name"><span>THE RIVER ROAD</span><b data-k="left">8.1 KM TO THE FALLS</b></div>
         <div class="l2h-bar"><div class="l2h-route-fill" data-k="route"></div>
           <i class="l2h-pip" style="left:25%"></i><i class="l2h-pip" style="left:50%"></i><i class="l2h-pip" style="left:75%"></i></div>
       </div>

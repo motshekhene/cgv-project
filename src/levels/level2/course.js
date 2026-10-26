@@ -9,7 +9,7 @@ import { createWaterfallMaterial } from '../../shaders/waterfall.js';
 /**
  * The River Road's course — Member 2A
  *
- * The road is a journey now, not an endless loop: ~4 km of jungle trail with
+ * The road is a journey now, not an endless loop: ~8 km of jungle trail with
  * distance signs ("FALLS 2 KM"), then the last 200 m become a stone causeway
  * across the river, and at COURSE_END the causeway — and the river with it —
  * goes over the edge. The car goes over too: Level02 plays the fall, the

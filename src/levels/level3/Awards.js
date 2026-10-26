@@ -452,6 +452,9 @@ export class ShrineGifts {
     if (!this.markerLayer) return;
     const W = window.innerWidth, H = window.innerHeight;
     const RX = 0.72, RY = 0.6; // the ellipse, in NDC
+    // a line of dialogue on screen (this.avoid, the StoryOverlay's): markers
+    // that would land on it go just above it instead
+    const talk = this.avoid?.classList.contains('show') ? this.avoid.getBoundingClientRect() : null;
     for (const s of this.shrines) {
       const el = s.marker;
       const ready = !s.taken && s.charge >= 1;
@@ -470,9 +473,14 @@ export class ShrineGifts {
         const m = Math.hypot(x / RX, y / RY) || 1;
         x /= m; y /= m;
       }
+      const left = (x * 0.5 + 0.5) * W;
+      let top = (-y * 0.5 + 0.5) * H;
+      const HALF = 26; // px: half the marker, icon and distance
+      if (talk && left > talk.left - HALF && left < talk.right + HALF
+        && top + HALF > talk.top && top - HALF < talk.bottom) top = talk.top - HALF - 6;
       el.style.display = 'block';
-      el.style.left = `${(x * 0.5 + 0.5) * W}px`;
-      el.style.top = `${(-y * 0.5 + 0.5) * H}px`;
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
       s.markerDist.textContent = `${Math.round(dist)} M`;
     }
   }

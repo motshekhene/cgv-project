@@ -131,6 +131,10 @@ const LEVEL_CONTROLS = {
       { label: 'RESTART', action: 'restart' },
     ],
   },
+  epilogue: {
+    title: 'EPILOGUE — THE STONE',
+    rows: [{ label: 'SKIP TO THE END', keys: 'SPACE · CLICK' }],
+  },
 };
 
 /** Rows every level gets, after its own. */
@@ -204,7 +208,7 @@ export function mountControlsOverlay(game) {
 
     let html =
       `<div style="color:${ACCENT};font-size:10px;letter-spacing:.28em;margin-bottom:10px">` +
-      `${spec.title} \u00b7 CONTROLS</div>`;
+      `${spec.title === 'CONTROLS' ? '' : `${spec.title} \u00b7 `}CONTROLS</div>`; // unknown levels: just CONTROLS
     for (const row of rows) {
       html +=
         '<div style="display:flex;justify-content:space-between;gap:14px;' +

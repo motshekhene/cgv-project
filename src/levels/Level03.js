@@ -434,6 +434,7 @@ export class Level03 extends Level {
     ensureDialogueFont();
     this.story = new StoryOverlay(undefined, { letterbox: false }); // full-frame cutscenes, no black bars
     this.story.onSkip = () => this._skip();
+    this.gifts.avoid = this.story.talkEl; // shrine markers keep off the Marshal's lines
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
     this._applyGifts();
 

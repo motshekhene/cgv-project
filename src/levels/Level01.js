@@ -549,7 +549,8 @@ const LEVEL1_HUD_CSS = `
   transform:translate(-50%,-50%); box-shadow:0 0 8px rgba(227,187,98,.6); }
 .l1h-pip { position:absolute; top:-2px; bottom:-2px; width:2px; background:rgba(0,0,0,.7); }
 .l1h-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; white-space:nowrap; margin-top:5px; font-size:9px; letter-spacing:.2em; color:var(--ink-dim); }
-.l1h-jet { color:var(--key); }
+.l1h-jet { color:var(--key); min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.l1h-row > [data-health-text] { flex-shrink:0; }
 .l1h-hornrow { align-items:center; }
 .l1h-horn { color:#7fb9bd; transition:color .3s, text-shadow .3s; }
 .l1h-horn.full { color:#aaf6fb; text-shadow:0 0 8px #4fd6e0; animation:l1hHorn 1.1s ease-in-out infinite; }
@@ -573,6 +574,8 @@ const LEVEL1_HUD_CSS = `
   .l1h-handler { grid-column:2; margin-right:0; }
 }
 @keyframes l1hLow { 50% { filter:brightness(1.6); } }
+/* the D-pad and action buttons are for touch screens: a mouse-and-keyboard player has the keys */
+@media (hover: hover) and (pointer: fine) { .l1h-touch { display:none !important; } }
 `;
 
 /**
@@ -2550,7 +2553,7 @@ export class Level01 extends Level {
     stat.innerHTML = `
       <div class="l1h-name">KAI <em><span data-reward-count>0</span> TOKENS · <span data-reward-score>0</span></em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
-      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
+      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND ONE</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
     `;
 
@@ -2585,6 +2588,7 @@ export class Level01 extends Level {
     });
 
     const actionControls = document.createElement("div");
+    actionControls.className = "l1h-touch";
     Object.assign(actionControls.style, {
       position: "absolute",
       right: "27px",
@@ -2620,6 +2624,7 @@ export class Level01 extends Level {
     // Proper D-pad at the bottom-right: each arrow sits in the direction it
     // represents instead of being laid out in one horizontal row.
     const dpad = document.createElement("div");
+    dpad.className = "l1h-touch";
     Object.assign(dpad.style, {
       position: "absolute",
       right: "22px",
@@ -2911,7 +2916,7 @@ export class Level01 extends Level {
         this._hudJetpack.textContent = "JETPACK — LANDING";
         this._hudJetpack.style.opacity = ".88";
       } else {
-        this._hudJetpack.textContent = "JETPACK — FIND A BOOSTER";
+        this._hudJetpack.textContent = "JETPACK — FIND ONE";
         this._hudJetpack.style.opacity = ".55";
       }
     }

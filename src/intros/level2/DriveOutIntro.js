@@ -141,7 +141,7 @@ export class DriveOutIntro extends Cutscene {
     this._buildRails();
     this._plant(kit);
 
-    const sign = createSign('THE FALLS  4 KM', { width: 3.2, height: 1.0 });
+    const sign = createSign('THE FALLS  8 KM', { width: 3.2, height: 1.0 });
     sign.position.set(-6, 0, ROAD_Z + ROAD_W / 2 + 2.5);
     sign.rotation.y = Math.PI + 0.25;
     this.root.add(sign);
@@ -177,7 +177,7 @@ export class DriveOutIntro extends Cutscene {
       new Burst(this.root, { at: new THREE.Vector3(10, 0.2, 79), start: 7.0, count: 40, color: 0x6a4a2e, speed: 5, size: 0.4, lift: 2.4, dir: new THREE.Vector3(-0.6, 0.3, -0.6), spread: 2, life: 1.1, seed: 32 }),
     ];
 
-    this.at(0.4, () => this.story.showCard('THE RIVER ROAD', 'Out of the jungle. The falls are four kilometres east.'));
+    this.at(0.4, () => this.story.showCard('THE RIVER ROAD', 'Out of the jungle. The falls are eight kilometres east.'));
     this.at(3.4, () => this.story.hideCard());
     this.at(CAR_GO, () => this.shake(0.15), { fx: true });
     this.at(8.15, () => this.story.showCard('HEADLIGHTS', 'He found a car too.'));

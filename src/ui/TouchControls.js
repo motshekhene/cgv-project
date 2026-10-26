@@ -56,6 +56,8 @@ const CSS = THEME_CSS + `
 
 /* phones in landscape: shrink the pad and buttons toward their corners */
 @media (max-height: 500px) { .tc-joy, .tc-btn { zoom:.7; } }
+/* the pad and buttons are for touch screens; a mouse and keyboard keep only the camera icon */
+@media (hover: hover) and (pointer: fine) { .tc-joy, .tc-btn { display:none; } }
 
 .tc-arrow { position:absolute; top:max(24%, 120px); bottom:40%; width:58px; display:none; pointer-events:auto; align-items:center; justify-content:center;
   font-size:24px; color:var(--gold); cursor:pointer; text-shadow:0 1px 2px #000; }
