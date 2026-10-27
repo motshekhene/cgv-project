@@ -1008,12 +1008,14 @@ export class Prologue extends Level {
     this.map = new TrailMap({
       path: this.walkPath,
       marks: [
-        { x: FIRE.x, z: FIRE.z, kind: 'fire', label: 'the fire' },
-        { x: CREW_CAMP.x, z: CREW_CAMP.z, kind: 'camp', label: 'the last crew' },
-        { x: STAG_AT.x, z: STAG_AT.z, kind: 'stag', label: 'the stag' },
+        { x: FIRE.x, z: FIRE.z, kind: 'fire', label: 'THE CAMP' },
+        { x: CREW_CAMP.x, z: CREW_CAMP.z, kind: 'camp', label: 'LAST CREW' },
+        { x: STAG_AT.x, z: STAG_AT.z, kind: 'stag', label: 'STAG STATUE' },
         ...GATE_ZS.map((z) => ({ x: this._pathAtZ(z).x, z, kind: 'gate' })),
-        { x: STONE.x, z: STONE.z, kind: 'stone', label: 'the stone' },
+        { x: STONE.x, z: STONE.z, kind: 'stone', label: 'THE STONE' },
+        ...LANDMARKS.map((l) => ({ x: l.x, z: l.z, kind: 'landmark', label: l.name })),
       ],
+      bounds: VALLEY,
     });
     this._mapHeading = Math.PI;
 

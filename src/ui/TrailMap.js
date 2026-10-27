@@ -15,15 +15,16 @@ import { DIALOGUE_FONT } from './dialogue.js';
  *   map.update(x, z, heading, walkedMetres);
  *   map.dispose();
  */
-const SMALL = 190;
-const BIG = 420;
+const SMALL = 210;
+const BIG = 560;
 
 export class TrailMap {
   /**
    * path:  [{ x, z, s }] the walk, in order (s: metres along it)
    * marks: [{ x, z, kind: 'fire' | 'camp' | 'stag' | 'gate' | 'stone', label }]
    */
-  constructor({ path, marks = [] }) {
+  /** bounds: { x0, x1, z0, z1 }, the whole area to show (the valley); otherwise the path and marks, padded. */
+  constructor({ path, marks = [], bounds = null }) {
     this.path = path;
     this.marks = marks;
     this.big = false;
@@ -34,7 +35,10 @@ export class TrailMap {
       z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z);
     }
     const pad = 6;
-    this.box = { x0: x0 - pad, x1: x1 + pad, z0: z0 - pad, z1: z1 + pad };
+    this.box = bounds
+      ? { x0: Math.min(bounds.x0, x0 - pad), x1: Math.max(bounds.x1, x1 + pad), z0: Math.min(bounds.z0, z0 - pad), z1: Math.max(bounds.z1, z1 + pad) }
+      : { x0: x0 - pad, x1: x1 + pad, z0: z0 - pad, z1: z1 + pad };
+    this.forest = bounds;
 
     this.el = document.createElement('div');
     this.el.style.cssText =
@@ -92,6 +96,25 @@ export class TrailMap {
     const c = this.canvas, g = c.getContext('2d');
     const k = c.height / 190; // line widths scale with the map
     g.clearRect(0, 0, c.width, c.height);
+    if (this.forest) {
+      // the forest: the valley in green, scattered tree dots so open ground reads as open
+      const [fx0, fz0] = this._px(this.forest.x0, this.forest.z0), [fx1, fz1] = this._px(this.forest.x1, this.forest.z1);
+      g.fillStyle = 'rgba(80,120,50,.28)';
+      g.fillRect(fx0, fz0, fx1 - fx0, fz1 - fz0);
+      g.fillStyle = 'rgba(40,70,30,.55)';
+      let seed = 7;
+      const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < 260; i++) {
+        const tx = fx0 + r() * (fx1 - fx0), tz = fz0 + r() * (fz1 - fz0);
+        g.beginPath(); g.arc(tx, tz, 2.2 * k, 0, Math.PI * 2); g.fill();
+      }
+      // north, so the map can be read the right way up
+      g.fillStyle = 'rgba(227,187,98,.8)';
+      g.font = `700 ${11 * k}px ${DIALOGUE_FONT}`;
+      g.textAlign = 'right';
+      g.fillText('N \u2191', c.width - 6 * k, 14 * k);
+      g.textAlign = 'left';
+    }
 
     // the path: faint ahead, inked where he has been
     const line = (from, to, style, width, dash = []) => {
@@ -123,6 +146,10 @@ export class TrailMap {
       } else if (m.kind === 'fire') {
         g.fillStyle = '#ff9a3a';
         g.beginPath(); g.moveTo(0, -5 * k); g.quadraticCurveTo(4 * k, 0, 0, 4 * k); g.quadraticCurveTo(-4 * k, 0, 0, -5 * k); g.fill();
+      } else if (m.kind === 'landmark') {
+        g.strokeStyle = 'rgba(227,187,98,.95)'; g.lineWidth = 2 * k;
+        g.fillStyle = 'rgba(227,187,98,.25)';
+        g.beginPath(); g.arc(0, 0, 5 * k, 0, Math.PI * 2); g.fill(); g.stroke();
       } else if (m.kind === 'gate') {
         g.strokeStyle = 'rgba(227,187,98,.8)'; g.lineWidth = 1.6 * k;
         g.beginPath(); g.arc(0, 1.5 * k, 3.5 * k, Math.PI, 0); g.stroke();
@@ -132,9 +159,16 @@ export class TrailMap {
       }
       g.restore();
       if (this.big && m.label) {
-        g.font = `${10 * k * 0.7}px ${DIALOGUE_FONT}`;
-        g.fillStyle = 'rgba(240,226,190,.8)';
-        g.fillText(m.label, px + 7 * k * 0.7, py + 3 * k * 0.7);
+        // the name beside it, on whichever side keeps it on the map
+        g.font = `600 ${9.5 * k * 0.6}px ${DIALOGUE_FONT}`;
+        const w = g.measureText(m.label).width;
+        const right = px + 8 * k + w < c.width - 4;
+        g.fillStyle = 'rgba(0,0,0,.55)';
+        const tx = right ? px + 8 * k : px - 8 * k - w;
+        g.fillRect(tx - 3, py - 7 * k * 0.6, w + 6, 13 * k * 0.6);
+        g.fillStyle = m.kind === 'landmark' ? '#f2d58a' : 'rgba(240,226,190,.9)';
+        g.textAlign = 'left';
+        g.fillText(m.label, tx, py + 3 * k * 0.6);
       }
     }
 
