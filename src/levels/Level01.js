@@ -252,10 +252,6 @@ const FINALE_BANGS = [2.35, 3.05]; // the Marshal hitting the bars
 const SIT_HIPS = 0.534; // his hips above his feet in the 'sitting' clip (characters/kai-bryce.json)
 const SIT_HEAD = 1.34; // the top of his head, seated
 
-// --- boost / stamina tuning ---
-const BOOST_DRAIN = 28; // stamina per second while boosting
-const BOOST_REGEN = 22; // stamina per second while not
-const BOOST_UNLOCK = 0.45; // fraction of the pool needed to boost again after running dry
 const SLIDE_TIME = 0.6; // seconds a slide lasts
 
 // --- obstacle clipping ---
@@ -555,9 +551,7 @@ const LEVEL1_HUD_CSS = `
 .l1h-horn.full { color:#aaf6fb; text-shadow:0 0 8px #4fd6e0; animation:l1hHorn 1.1s ease-in-out infinite; }
 .l1h-hornbar { flex:1; height:4px; background:rgba(0,0,0,.55); border-radius:2px; overflow:hidden; box-shadow:0 0 0 1px rgba(0,0,0,.6); }
 .l1h-hornbar > div { height:100%; width:0; background:linear-gradient(90deg,#1f7f88,#7fe9f0); box-shadow:0 0 8px #4fd6e0; transition:width .25s ease-out; }
-.l1h-hornbar > .l1h-sprintfill { background:linear-gradient(90deg,#6f9a3a,#c9f08a); box-shadow:0 0 6px #9ed36a; transition:width .1s linear; }
-.l1h-hornbar > .l1h-sprintfill.locked { background:#7a4a30; box-shadow:none; }
-.l1h-sprint { color:var(--moss-hi); }
+
 @keyframes l1hHorn { 50% { filter:brightness(1.5); } }
 .l1h-player { position:relative; grid-column:1; justify-self:start; width:250px; max-width:100%; padding:5px 11px 7px; transition:border-color .3s; }
 .l1h-player.low { border-color:rgba(242,147,79,.75); }
@@ -638,10 +632,6 @@ export class Level01 extends Level {
     // boost, so uSpeed only reaches 1.0 boosting in the last gear
     this.maxSpeed = SPEED_TOP + Math.max(BOOST_TOP, JETPACK_SPEED_BONUS);
     this.boosting = false;
-    // Once stamina runs dry the boost locks out until it has regenerated to
-    // BOOST_UNLOCK. Without this, spendStamina() fails and succeeds on
-    // alternating frames and the boost (and the FOV kick) flickers at 30 Hz.
-    this._boostLocked = false;
     // Handler pursuit — the whole of level 01's tension
     this.gap = HANDLER_START_GAP;
     // caught means "the run is lost", whichever of the two got him; failCause
@@ -2576,7 +2566,6 @@ export class Level01 extends Level {
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND ONE</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
-      <div class="l1h-row l1h-hornrow"><span class="l1h-horn l1h-sprint">SPRINT \u00b7 SHIFT</span><div class="l1h-hornbar"><div class="l1h-sprintfill" data-sprint-fill></div></div></div>
     `;
 
     const handlerPanel = document.createElement("div");
@@ -2702,7 +2691,6 @@ export class Level01 extends Level {
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
     this._hudHornLabel = stat.querySelector("[data-horn-label]");
     this._hudHornFill = stat.querySelector("[data-horn-fill]");
-    this._hudSprintFill = stat.querySelector("[data-sprint-fill]");
     this._hudHealthFill = stat.querySelector("[data-health-fill]");
     this._hudHealthFlash = stat.querySelector("[data-health-flash]");
     this._hudHealthText = stat.querySelector("[data-health-text]");
@@ -2885,10 +2873,6 @@ export class Level01 extends Level {
 
     if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
     if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
-    if (this._hudSprintFill && this.state) {
-      this._hudSprintFill.style.width = `${((this.state.stamina / this.state.maxStamina) * 100).toFixed(1)}%`;
-      this._hudSprintFill.classList.toggle("locked", !!this._boostLocked);
-    }
     if (this._hudHornFill) {
       const full = this._hornCharge >= 1;
       this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
@@ -4276,15 +4260,9 @@ export class Level01 extends Level {
     // instead, easing within each one so every change of gear is felt.
     this.baseSpeed = speedForDistance(-this.z);
 
-    // boost burns the shared stamina pool so 3B's HUD reads it for free
-    const wantsBoost = !this._jetpackActive && (input.isDown("boost") || this._virtualDown("boost"));
-    if (this._boostLocked && state.stamina >= state.maxStamina * BOOST_UNLOCK) {
-      this._boostLocked = false;
-    }
-    this.boosting = wantsBoost && !this._boostLocked && state.spendStamina(BOOST_DRAIN * dt);
-    // held the key but the pool just ran out — lock it until it recovers
-    if (wantsBoost && !this.boosting && !this._boostLocked) this._boostLocked = true;
-    if (!this.boosting) state.regenStamina(BOOST_REGEN, dt);
+    // sprint (SHIFT): as long as it's held, no stamina to run out (playtest:
+    // a sprint that cut out mid-chase read as the game failing, not as tension)
+    this.boosting = !this._jetpackActive && (input.isDown("boost") || this._virtualDown("boost"));
 
     const boostTarget = this._jetpackActive
       ? JETPACK_SPEED_BONUS
