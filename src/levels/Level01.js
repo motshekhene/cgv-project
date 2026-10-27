@@ -4162,7 +4162,10 @@ export class Level01 extends Level {
     }
     if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 8) {
       this._saidMarshal = true;
-      kaiThinks("A company coat. A mask. Who sent him after me?");
+      // the camera glances back with him as he says it, so the player sees who he means
+      kaiThinks("A company coat. A mask. Who sent him after me?", null, () => {
+        if (!this.caught && !this._finale) this._autoLook = Math.max(this._autoLook, 2.6);
+      });
     }
     if (!this._saidRuins && this.z <= HIGH_RUINS_Z + 20) {
       this._saidRuins = true;

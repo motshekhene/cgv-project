@@ -45,12 +45,13 @@ const queue = [];
  * One of Kai's thoughts, the prologue's way: italic cream serif, low centre,
  * no speaker name. Queued, so two never land on top of each other; each one
  * stays up long enough to read (or `secs`). Safe to call from any level.
+ * `onShow` runs when it actually comes up (a camera move timed to the line).
  */
-export function kaiThinks(text, secs = null) {
+export function kaiThinks(text, secs = null, onShow = null) {
   if (typeof document === 'undefined') return;
   ensureDialogueFont();
   const words = text.trim().split(/\s+/).length;
-  queue.push({ text, secs: secs ?? Math.max(2.6, 1.4 + words * 0.32) });
+  queue.push({ text, secs: secs ?? Math.max(2.6, 1.4 + words * 0.32), onShow });
   if (!thoughtTimer) next();
 }
 
@@ -73,6 +74,7 @@ function next() {
   thoughtEl.textContent = n.text;
   thoughtEl.style.opacity = '1';
   speak(n.text, 'KAI', { thought: true }); // and heard (audio/voice.js)
+  n.onShow?.();
   thoughtTimer = setTimeout(() => {
     if (thoughtEl) thoughtEl.style.opacity = '0';
     thoughtTimer = setTimeout(next, 550);

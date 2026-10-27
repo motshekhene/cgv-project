@@ -52,8 +52,8 @@ import {
  *   leave    Baba Zwane whistles two notes and walks off into the dark.
  *   rise     Kai gets up; control returns — third person from here on, the
  *            camera behind him, so his whole body is always on screen.
- *   walk     round the fire, then one long straight path up to the stone,
- *            the stone lit at the far end of it the whole way: cairns both
+ *   walk     round the fire, then the old path winding up to the stone,
+ *            the glade only showing round the last bend: cairns both
  *            sides, three gates, the stag, the last crew's abandoned camp —
  *            and something in the trees that growls, and follows him. The
  *            forest is as loud as it will ever be — the walk is what the
@@ -103,7 +103,7 @@ import {
  */
 
 // The geography: the camp at the south, a short bend round the fire, then
-// one long straight path north up through the trees to the glade where the
+// the old path winding north up through the trees to the glade where the
 // stone stands; and from the glade one straight trail east, down the
 // mountain — the way out, and where level 01 starts.
 // Everywhere Kai can stand is a circle or a strip of path (_clampWalk).
@@ -112,10 +112,15 @@ const FIRE = { x: 0, z: 7.9 };
 const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
 const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
-// the old path to the stone: round the fire on the left, then dead straight
-// for ~50 m, so from the first step the stone is at the end of it
+// the old path to the stone: round the fire on the left, then ~50 m north
 const PATH_END_Z = -48;
-const WALK_PTS = [[-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4], [0, PATH_END_Z + 4], [0, PATH_END_Z]];
+// out of the camp, then the old path winds up through the trees: right, back
+// left past the stag, right again, so the glade only shows round the last bend
+const WALK_PTS = [
+  [-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4],
+  [2.2, -10], [2.6, -16], [0.4, -21], [-2.0, -26], [-2.4, -32], [-0.6, -37], [1.8, -41],
+  [0, PATH_END_Z + 4], [0, PATH_END_Z],
+];
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
@@ -931,6 +936,19 @@ export class Prologue extends Level {
     ];
   }
 
+  /** The walk path where it crosses `z`: its x there, and the yaw that faces up it. */
+  _pathAtZ(z) {
+    const P = this.walkPath;
+    for (let i = 1; i < P.length; i++) {
+      const a = P[i - 1], b = P[i];
+      if ((a.z - z) * (b.z - z) <= 0 && a.z !== b.z) {
+        const k = (z - a.z) / (b.z - a.z);
+        return { x: a.x + (b.x - a.x) * k, yaw: Math.atan2(b.x - a.x, b.z - a.z) };
+      }
+    }
+    return { x: 0, yaw: Math.PI };
+  }
+
   /** Where he is along the walk path: the nearest sample's distance, metres. */
   _pathS(x, z) {
     let best = Infinity, s = 0;
@@ -1538,7 +1556,8 @@ export class Prologue extends Level {
     const across = Math.max(size.x, size.z) || 1;
     const spanAlongX = size.x >= size.z;   // which way the model's opening faces
     for (const [x, z, yaw, width] of [
-      ...GATE_ZS.map((z) => [0, z, Math.PI, PATH_HW * 2 + 2.4]),
+      // each gate stands across the path where it is, turned to face along it
+      ...GATE_ZS.map((z) => { const p = this._pathAtZ(z); return [p.x, z, p.yaw, PATH_HW * 2 + 2.4]; }),
       [9, RUN_Z, Math.PI / 2, RUN_HW * 2 + 2.6],
     ]) {
       const gate = cloneProp(proto);
@@ -1618,7 +1637,8 @@ export class Prologue extends Level {
     f.group.visible = true;
     for (const b of f.birds) {
       const side = Math.random() < 0.5 ? -1 : 1;
-      b.mesh.position.set(side * (3.5 + Math.random() * 3), 4.5 + Math.random() * 3, this.pz - 12 + (Math.random() - 0.5) * 4);
+      const fz = this.pz - 12 + (Math.random() - 0.5) * 4;
+      b.mesh.position.set(this._pathAtZ(fz).x + side * (3.5 + Math.random() * 3), 4.5 + Math.random() * 3, fz);
       b.vel.set(-side * (1 + Math.random() * 3), 2.5 + Math.random() * 2.5, Math.random() * 7 - 2);
       b.mesh.rotation.y = Math.atan2(b.vel.x, b.vel.z);
       b.ph = Math.random() * Math.PI * 2;
@@ -2737,7 +2757,7 @@ export class Prologue extends Level {
     }
     if (s > 32 && !b.growl) {
       b.growl = true;
-      this._eyesAt(-3.6, this.pz - 13, 2.8, -2.2);
+      this._eyesAt(this._pathAtZ(this.pz - 13).x - 3.6, this.pz - 13, 2.8, -2.2);
       this.sfx.growl(-0.6);
       this.sfx.hush(6);
       this._shake = 0.35;
@@ -2748,7 +2768,7 @@ export class Prologue extends Level {
       this.sfx.snap(0.5);
       this._shake = 0.2;
       this._later(0.35, () => {
-        this._eyesAt(3.4, this.pz - 10, 2.4, 2.4);
+        this._eyesAt(this._pathAtZ(this.pz - 10).x + 3.4, this.pz - 10, 2.4, 2.4);
         this.sfx.growl(0.7);
         this._shake = 0.4;
       });
