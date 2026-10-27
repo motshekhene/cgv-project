@@ -112,7 +112,7 @@ const LEVEL_CONTROLS = {
       { label: 'BOOST', action: 'boost' },
       { label: 'BLOW THE HORN (WHEN READY)', action: 'horn' },
       { label: 'CAR PICKER', action: 'changeCar' },
-      { label: 'VIEW · FIRST PERSON', action: 'view' },
+      { label: 'VIEW · FIRST PERSON', keys: 'C' }, // bound by Level02 itself, so not in the defaults
       { label: 'PICKER: PAINT', keys: 'Q / E' },
       { label: 'MUSIC ON / OFF', keys: 'N' },
     ],
@@ -204,20 +204,31 @@ export function mountControlsOverlay(game) {
   place();
   window.addEventListener('resize', place);
 
-  function render() {
-    const spec = LEVEL_CONTROLS[state.levelName] || { title: 'CONTROLS', rows: [] };
-    const rows = state.levelName === 'title' ? spec.rows : [...spec.rows, ...SHARED_ROWS]; // nothing to pause or mute on the menu
+  const rowsHtml = (rows) => rows.map((row) =>
+    '<div style="display:flex;justify-content:space-between;gap:14px;' +
+    'padding:3px 0">' +
+    `<span style="color:${DIM};letter-spacing:.16em">${row.label}</span>` +
+    `<span style="color:#eef2fb;text-align:right">${keysFor(game, row)}</span>` +
+    '</div>').join('');
+  const heading = (text, first) =>
+    `<div style="color:${ACCENT};font-size:10px;letter-spacing:.28em;margin:${first ? 0 : 14}px 0 8px">${text}</div>`;
 
-    let html =
-      `<div style="color:${ACCENT};font-size:10px;letter-spacing:.28em;margin-bottom:10px">` +
-      `${spec.title === 'CONTROLS' ? '' : `${spec.title} \u00b7 `}CONTROLS</div>`; // unknown levels: just CONTROLS
-    for (const row of rows) {
-      html +=
-        '<div style="display:flex;justify-content:space-between;gap:14px;' +
-        'padding:3px 0">' +
-        `<span style="color:${DIM};letter-spacing:.16em">${row.label}</span>` +
-        `<span style="color:#eef2fb;text-align:right">${keysFor(game, row)}</span>` +
-        '</div>';
+  function render() {
+    // the main menu shows every chapter's controls, so they can be learnt before playing
+    const onMenu = state.levelName === 'title';
+    panel.style.width = onMenu ? '330px' : '270px';
+    panel.style.maxHeight = onMenu ? 'min(84vh,760px)' : 'min(70vh,520px)';
+    let html;
+    if (onMenu) {
+      html = heading('MAIN MENU \u00b7 CONTROLS', true) + rowsHtml(LEVEL_CONTROLS.title.rows);
+      for (const name of ['prologue', 'level01', 'level02', 'level03', 'epilogue']) {
+        html += heading(LEVEL_CONTROLS[name].title) + rowsHtml(LEVEL_CONTROLS[name].rows);
+      }
+      html += heading('IN EVERY LEVEL') + rowsHtml(SHARED_ROWS);
+    } else {
+      const spec = LEVEL_CONTROLS[state.levelName] || { title: 'CONTROLS', rows: [] };
+      html = heading(`${spec.title === 'CONTROLS' ? '' : `${spec.title} \u00b7 `}CONTROLS`, true) // unknown levels: just CONTROLS
+        + rowsHtml([...spec.rows, ...SHARED_ROWS]);
     }
     html +=
       `<div style="color:${DIM};opacity:.75;font-size:9px;letter-spacing:.22em;` +
