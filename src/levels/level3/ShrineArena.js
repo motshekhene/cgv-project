@@ -469,11 +469,19 @@ export class ShrineArena {
     fall.position.set(FALL.x, FALL.h / 2 - 0.3, FALL.z);
     this.root.add(fall);
 
+    // a cube map of the shrine seen from the pool, for the water's reflection
+    // and refraction (shaders/water.js); refreshed every so often in updateReflections()
+    this.envTarget = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    this.envCam = new THREE.CubeCamera(0.5, 900, this.envTarget);
+    this.envCam.position.set(POOL.x, POOL.y + 0.6, POOL.z);
+    this.root.add(this.envCam);
+    this._envT = 0;
     this.poolMat = createWaterMaterial({
+      envMap: this.envTarget.texture,
       sunDir: SHRINE_DAY.sunDir,
       foamAt: new THREE.Vector3(FALL.x, FALL.z + 0.6, 3.2),
     });
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(POOL.r, 64), this.poolMat);
+    const pool = (this.pool = new THREE.Mesh(new THREE.CircleGeometry(POOL.r, 64), this.poolMat));
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(POOL.x, POOL.y, POOL.z);
     this.root.add(pool);
@@ -1012,7 +1020,23 @@ export class ShrineArena {
     this.led.visible = Math.sin(time * 5) > -0.6;
   }
 
+  /**
+   * Re-capture the pool's surroundings into its cube map: at once the first
+   * time, then twice a second (the light changes at dusk, people move). The
+   * water itself and its spray are hidden while the six faces are drawn.
+   */
+  updateReflections(renderer, dt) {
+    if (!this.envCam || (this._envT -= dt) > 0) return;
+    this._envT = 0.5;
+    this.pool.visible = false;
+    if (this.mist) this.mist.visible = false;
+    this.envCam.update(renderer, this.scene);
+    this.pool.visible = true;
+    if (this.mist) this.mist.visible = true;
+  }
+
   dispose() {
+    this.envTarget?.dispose();
     if (this.scene) this.scene.fog = null;
     this.dot.dispose();
     if (this.leaves) this.leaves.tex.dispose();

@@ -10,6 +10,12 @@ import { NOISE_GLSL } from './noise.js';
  *
  *   mat.uniforms.uTime.value = seconds;
  *   mat.uniforms.uTint.value = 0..1;   // phase III: the pool runs red
+ *
+ * Given an `envMap` (a cube map of the surroundings, e.g. from a CubeCamera
+ * at the pool), the surface really REFLECTS and REFRACTS them: the view ray
+ * is bent by the rippled normal with GLSL's reflect() (mirror) and refract()
+ * (into water, index of refraction 1.33), each looked up in the cube map, and
+ * the fresnel term decides how much of each you see.
  */
 const vertex = /* glsl */ `
   varying vec3 vWorld;
@@ -36,6 +42,10 @@ const fragment = NOISE_GLSL + /* glsl */ `
   uniform vec3 uSunColor;
   uniform vec3 uFoamAt;   // xz = centre, z component = radius
   uniform float uOpacity;
+  #ifdef USE_POOL_ENV
+    uniform samplerCube uEnv; // the surroundings, captured from the pool
+    uniform float uEnvAmt;
+  #endif
   varying vec3 vWorld;
   #include <fog_pars_fragment>
 
@@ -59,7 +69,19 @@ const fragment = NOISE_GLSL + /* glsl */ `
     vec3 deep = mix(uDeep, uBlood, uTint);
     vec3 shallow = mix(uShallow, uBlood * 1.6, uTint);
     vec3 c = mix(deep, shallow, smoothstep(0.35, 0.75, h)); // deep in the troughs, shallow on the crests
-    c = mix(c, uSky, fres * 0.65); // the sky reflected at grazing angles
+    #ifdef USE_POOL_ENV
+      // real reflection and refraction of the surroundings, through the ripples
+      vec3 rDir = reflect(-v, n);
+      vec3 tDir = refract(-v, n, 1.0 / 1.33); // air -> water
+      vec3 refl = textureCube(uEnv, rDir).rgb;
+      vec3 refr = textureCube(uEnv, tDir).rgb * shallow * 2.2; // the pool bed, seen through tinted water
+      vec3 body = mix(c, max(c * 0.5, refr), 0.55 * uEnvAmt);
+      // what's mirrored: the surroundings, never darker than a hint of sky (the cliffs are dark)
+      vec3 mirror = mix(uSky, max(refl, uSky * 0.25), uEnvAmt);
+      c = mix(body, mirror, clamp(fres * 0.9 + 0.18, 0.0, 1.0));
+    #else
+      c = mix(c, uSky, fres * 0.65); // the sky reflected at grazing angles
+    #endif
 
     vec3 r = reflect(-normalize(uSunDir), n); // sunlight bounced off the ripple
     float glint = pow(max(dot(r, v), 0.0), 90.0); // Phong specular: a tight sun glint
@@ -89,8 +111,10 @@ export function createWaterMaterial({
   flow = new THREE.Vector2(0.15, 0.1),
   foamAt = new THREE.Vector3(0, 0, 0),
   opacity = 0.88,
+  envMap = null,
 } = {}) {
   return new THREE.ShaderMaterial({
+    defines: envMap ? { USE_POOL_ENV: '' } : {},
     vertexShader: vertex,
     fragmentShader: fragment,
     transparent: true,
@@ -110,6 +134,8 @@ export function createWaterMaterial({
         uSunColor: { value: new THREE.Color(sunColor) },
         uFoamAt: { value: foamAt.clone() },
         uOpacity: { value: opacity },
+        uEnv: { value: envMap },
+        uEnvAmt: { value: envMap ? 1 : 0 },
       },
     ]),
   });

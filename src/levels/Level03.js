@@ -797,6 +797,7 @@ export class Level03 extends Level {
     this._updatePointer();
     this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
+    this.arena.updateReflections(this.game.renderer, dt);
     this.storm.update(dt, real, this.game.camera, this.combat.root.position);
     this.hud.lightning(this.arena.flash);
     if (this.sound) this.sound.update(dt);
