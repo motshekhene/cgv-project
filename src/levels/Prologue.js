@@ -3,6 +3,9 @@ import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import { TrailMap } from '../ui/TrailMap.js';
+import { VALLEY, LANDMARKS, WALK_PTS, PATH_END_Z } from './prologue/places.js';
+import { CardPickups } from '../cards/CardPickups.js';
+import { createWaterMaterial } from '../shaders/water.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
 import { GAME_TITLE } from '../ui/brand.js';
@@ -107,27 +110,14 @@ import {
 // the old path winding north up through the trees to the glade where the
 // stone stands; and from the glade one straight trail east, down the
 // mountain — the way out, and where level 01 starts.
-// Everywhere Kai can stand is a circle or a strip of path (_clampWalk).
+// The valley is open (VALLEY, places.js): Kai can wander anywhere in it, off
+// the path and round its landmarks; only the trees, the fire and the stone
+// stop him. The run, once he has the horn, is the trail east and nothing else.
 const SEAT = { x: 0, z: 10.8 };            // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
 const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
 const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
-// the old path to the stone: round the fire on the left, then ~50 m north
-const PATH_END_Z = -90;
-// out of the camp, then the old path winds up through the forest for ~140 m:
-// a long bend right, a hard left past the stag, north along a ridge, right
-// again, and a last left into the glade, which only shows round that bend
-const WALK_PTS = [
-  [-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4],
-  [3.0, -9], [6.5, -13], [8.0, -19],
-  [6.0, -25], [1.0, -28], [-4.5, -31],
-  [-7.5, -37], [-7.0, -44],
-  [-3.5, -49], [2.5, -52], [6.5, -57],
-  [6.5, -64], [3.0, -69],
-  [-2.5, -72], [-5.0, -77], [-3.0, -82],
-  [0, PATH_END_Z + 4], [0, PATH_END_Z],
-];
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
@@ -938,12 +928,19 @@ export class Prologue extends Level {
     // line to the stone
     this.clearShapes = [
       ...this.walkShapes,
+      ...LANDMARKS.map((l) => ring(l)),
       strip(RUN_FROM.x, RUN_FROM.z, RUN_TO.x + 40, RUN_TO.z, RUN_HW),
       strip(ZWANE_AT.x, ZWANE_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
       strip(SEAT.x, SEAT.z, SEAT.x + 2, SEAT.z + 5, 1.8),
       strip(WIDE_POS.x, WIDE_POS.z, GLADE.x, GLADE.z + 0.6, 1.9),
       ring(CREW_CAMP),
     ];
+  }
+
+  /** Is he on (or right beside) the old path? Off it, the keys and camera are his own. */
+  _nearPath() {
+    if (this.phase === 'flee') return true;
+    return outside(this.walkShapes, this.px, this.pz) < 1.5;
   }
 
   /** The walk path where it crosses `z`: its x there, and the yaw that faces up it. */
@@ -1386,18 +1383,24 @@ export class Prologue extends Level {
       plant.get(proto).push([x, y, z, s, ry]);
     };
 
+    // the whole valley is forest, thinner away from the path so it can be
+    // walked through; every trunk is solid (this.trees, for _blocked and the camera)
     let n = 0;
-    for (let gx = -24; gx <= 72; gx += 4.8) {
-      for (let gz = GLADE.z - 20; gz <= 28; gz += 4.8) {
+    this.trees = [];
+    this._treeGrid = new Map();
+    for (let gx = VALLEY.x0 - 10; gx <= 72; gx += 4.8) {
+      for (let gz = VALLEY.z0 - 12; gz <= VALLEY.z1 + 6; gz += 4.8) {
         const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
         const out = outside(clear, x, z);
-        if (out < 1.5 || out > 9.5) continue;
+        if (out < 1.5) continue;
+        if (out > 9.5 && rnd() < 0.35) continue; // room to walk between them out in the forest
         put(trees[n++ % trees.length], x, -0.05, z, 0.021 + rnd() * 0.014, rnd() * Math.PI * 2);
+        this._addTree(x, z, 0.55);
       }
     }
 
     // undergrowth right along the edges, so the line of the path is drawn
-    // in leaves as well as in mud
+    // in leaves as well as in mud (and round the landmarks' clearings)
     let b = 0;
     for (let gx = -16; gx <= 64; gx += 2.7) {
       for (let gz = GLADE.z - 12; gz <= 20; gz += 2.7) {
@@ -1434,6 +1437,147 @@ export class Prologue extends Level {
     placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, GLADE.z - 2.6, { s: 0.0105, ry: 0.9 });
 
     this._buildCrewCamp();
+    this._buildLandmarks();
+  }
+
+  /** A solid trunk at (x, z), in a coarse grid so a step only checks its neighbours. */
+  _addTree(x, z, r) {
+    const t = { x, z, r };
+    this.trees.push(t);
+    const k = `${Math.floor(x / 6)},${Math.floor(z / 6)}`;
+    if (!this._treeGrid.has(k)) this._treeGrid.set(k, []);
+    this._treeGrid.get(k).push(t);
+  }
+
+  /** The trunk (x, z) is inside, padded by `pad`, or null. */
+  _treeAt(x, z, pad = 0.4) {
+    if (!this._treeGrid) return null;
+    const cx = Math.floor(x / 6), cz = Math.floor(z / 6);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        for (const t of this._treeGrid.get(`${cx + i},${cz + j}`) || []) {
+          if (Math.hypot(x - t.x, z - t.z) < t.r + pad) return t;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The valley's landmarks off the path (prologue/places.js): somewhere to
+   * wander to, names for the MAP, and places for the spirit cards to hide.
+   */
+  _buildLandmarks() {
+    const k = this.kit;
+    const at = (id) => LANDMARKS.find((l) => l.id === id);
+    const solid = (x, z, r) => this._addTree(x, z, r); // round, and as solid as a trunk
+    // THE OLD FIG: one huge tree, roots spreading over the clearing
+    {
+      const L = at('fig');
+      placeProp(this.root, cloneProp(k.tree3 || k.tree1), L.x, -0.05, L.z, { s: 0.085, ry: 0.4 });
+      solid(L.x, L.z, 1.6);
+      const rootMat = new THREE.MeshStandardMaterial({ color: 0x4d3523, roughness: 1 });
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const root = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.3, 4.2, 6), rootMat);
+        root.position.set(L.x + Math.cos(a) * 2.2, 0.15, L.z + Math.sin(a) * 2.2);
+        root.rotation.set(Math.PI / 2 - 0.15, 0, -a + Math.PI / 2);
+        root.castShadow = true;
+        this.root.add(root);
+      }
+    }
+    // THE CREW'S TRUCK: the company's flatbed, left where it died, doors open
+    {
+      const L = at('truck');
+      const paint = new THREE.MeshStandardMaterial({ color: 0xd06a1e, roughness: 0.65, metalness: 0.25 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x1e2022, roughness: 0.9 });
+      const rust = new THREE.MeshStandardMaterial({ color: 0x6b3a1c, roughness: 1 });
+      const g = new THREE.Group();
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.7, 1.8), paint);
+      cab.position.set(0, 1.35, 1.9);
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 3.8), rust);
+      bed.position.set(0, 0.85, -0.9);
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 6.2), dark);
+      chassis.position.set(0, 0.55, 0.2);
+      g.add(cab, bed, chassis);
+      for (const [x, z] of [[-1.1, 2], [1.1, 2], [-1.1, -1.8], [1.1, -1.8]]) {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.35, 14), dark);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(x, 0.42, z);
+        g.add(w);
+      }
+      g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.position.set(L.x, 0, L.z);
+      g.rotation.set(0, 0.7, 0.06); // nose down in the mud, slewed off the old track
+      this.root.add(g);
+      solid(L.x + 0.6, L.z + 0.6, 1.6);
+      solid(L.x - 0.6, L.z - 0.6, 1.6);
+      solid(L.x - 1.4, L.z - 1.7, 1.4);
+    }
+    // THE FOREST POOL: still water in a ring of rocks (the water shader, standing still)
+    {
+      const L = at('pool');
+      const mat = createWaterMaterial({ foamAt: new THREE.Vector3(L.x, L.z, 0.001), flow: new THREE.Vector2(0.02, 0.01) });
+      this._poolMat = mat;
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(5.2, 40), mat);
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(L.x, 0.04, L.z);
+      this.root.add(pool);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + 0.2;
+        placeProp(this.root, cloneProp(k['rock' + (1 + (i % 3))]), L.x + Math.cos(a) * 5.8, -0.1, L.z + Math.sin(a) * 5.8, { s: 0.012 + (i % 2) * 0.004, ry: a });
+      }
+      solid(L.x, L.z, 5.0); // nobody walks on water
+    }
+    // LOOKOUT ROCK: a heap of big boulders with a broken column on top, over the valley
+    {
+      const L = at('lookout');
+      for (const [dx, dz, sc, ry] of [[0, 0, 0.055, 0.3], [2.4, 1.2, 0.05, 1.9], [-2.2, 1.6, 0.045, 3.1], [0.8, -2.2, 0.04, 4.4]]) {
+        placeProp(this.root, cloneProp(k['rock' + (1 + Math.round(ry) % 3)]), L.x + dx, -0.2, L.z + dz, { s: sc, ry });
+      }
+      placeProp(this.root, cloneProp(k.columnShort), L.x + 0.3, 2.2, L.z - 0.2, { s: 0.014, ry: 1.2 });
+      solid(L.x, L.z, 3.2);
+      solid(L.x + 2.4, L.z + 1.2, 1.6);
+      solid(L.x - 2.2, L.z + 1.6, 1.5);
+    }
+    // THE FALLEN GIANT: a great trunk down across the forest floor, its roots in the air
+    {
+      const L = at('fallen');
+      const bark = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 1, map: this.mats?.trail?.map || null });
+      const g = new THREE.Group();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 1.05, 14, 14), bark);
+      trunk.rotation.z = Math.PI / 2;
+      trunk.position.y = 0.9;
+      g.add(trunk);
+      // the root plate, torn up on its end
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.1, 0.6, 16), new THREE.MeshStandardMaterial({ color: 0x3d2a1c, roughness: 1 }));
+      plate.rotation.z = Math.PI / 2;
+      plate.position.set(7.2, 1.6, 0);
+      g.add(plate);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const root = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.2, 2.6, 5), bark);
+        root.position.set(7.6, 1.6 + Math.sin(a) * 2.2, Math.cos(a) * 2.2);
+        root.rotation.set(a, 0, Math.PI / 2 - 0.4);
+        g.add(root);
+      }
+      g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.position.set(L.x, 0, L.z);
+      g.rotation.y = 0.5;
+      this.root.add(g);
+      for (let i = -4; i <= 4; i++) solid(L.x + Math.cos(0.5) * i * 1.6, L.z - Math.sin(0.5) * i * 1.6, 1.0);
+      solid(L.x + Math.cos(0.5) * 7.2, L.z - Math.sin(0.5) * 7.2, 2.2);
+    }
+    // THE RUINED HUT: four broken walls and no roof, where someone lived once
+    {
+      const L = at('hut');
+      for (const [dx, dz, ry] of [[0, -2.4, 0], [0, 2.4, Math.PI], [-2.4, 0, Math.PI / 2], [2.4, 0.8, -Math.PI / 2]]) {
+        this._putFit(k.wall, L.x + dx, L.z + dz, 4.6, ry);
+      }
+      for (const [dx, dz] of [[0, -2.4], [0, 2.4], [-2.4, 0], [2.4, 0.8]]) {
+        for (let i = -1; i <= 1; i++) solid(L.x + dx + (dz ? i * 1.4 : 0), L.z + dz + (dx ? i * 1.4 : 0), 0.7);
+      }
+    }
   }
 
   /**
@@ -2054,6 +2198,9 @@ export class Prologue extends Level {
    */
   _blocked(x, z, fromX, fromZ) {
     const r = 0.4;
+    // a trunk (or a landmark's rock): only blocks a step that goes further into it
+    const t = this._treeAt(x, z, r);
+    if (t && Math.hypot(x - t.x, z - t.z) < Math.hypot(fromX - t.x, fromZ - t.z)) return true;
     const depth = (b, px, pz) => Math.min(px + r - b.x0, b.x1 - (px - r), pz + r - b.z0, b.z1 - (pz - r));
     for (const b of this.blockers) {
       const d = depth(b, x, z);
@@ -2073,7 +2220,7 @@ export class Prologue extends Level {
     // the edge and slides along it. Turn the camera far off it and the
     // keys are camera-relative again.
     let dirYaw = this.yaw;
-    if (f > 0 && s === 0) {
+    if (f > 0 && s === 0 && this._nearPath()) {
       const way = this._wayYaw();
       if (way !== null && Math.abs(wrapAngle(way - this.yaw)) < 0.8) dirYaw = way;
     }
@@ -2094,7 +2241,13 @@ export class Prologue extends Level {
    * put back on the nearest edge, so he slides along it instead of sticking.
    */
   _clampWalk() {
-    const shapes = this.phase === 'flee' ? this.fleeShapes : this.walkShapes;
+    // walking (and at the stone): anywhere in the valley
+    if (this.phase !== 'flee') {
+      this.px = THREE.MathUtils.clamp(this.px, VALLEY.x0, VALLEY.x1);
+      this.pz = THREE.MathUtils.clamp(this.pz, VALLEY.z0, VALLEY.z1);
+      return;
+    }
+    const shapes = this.fleeShapes;
     let best = Infinity, bx = 0, bz = 0, bd = 1, br = 0;
     for (const sh of shapes) {
       const n = nearSpine(sh, this.px, this.pz);
@@ -2276,7 +2429,8 @@ export class Prologue extends Level {
     // pulled in toward him rather than pushed through the trunk.
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     let back = CHASE_BACK;
-    while (back > 1.5 && outside(this.clearShapes, this.px + s * back, this.pz + c * back) > CAM_CLEAR) {
+    while (back > 1.5 && (this._treeAt(this.px + s * back, this.pz + c * back, 0.45)
+      || (this.phase === 'flee' && outside(this.clearShapes, this.px + s * back, this.pz + c * back) > CAM_CLEAR))) {
       back -= 0.3;
     }
     // in fast (never sit inside a trunk), out slowly (no lurch past it)
@@ -2373,12 +2527,13 @@ export class Prologue extends Level {
     }
     // leave the mouse alone while walking and the camera swings back in
     // behind him, onto the way ahead
-    if (this.standing && this._moving && this._mouseIdle > 0.7) {
+    if (this.standing && this._moving && this._mouseIdle > 0.7 && this._nearPath()) {
       const way = this._wayYaw();
       if (way !== null) this.yaw += wrapAngle(way - this.yaw) * (1 - Math.exp(-2.4 * dt));
     }
     this._tickCreatures(dt);
     this._shake = Math.max(0, this._shake - dt * 0.6);
+    if (this._poolMat) this._poolMat.uniforms.uTime.value = this.t; // the forest pool's ripples
 
     // the forest is alive until the horn comes off the stone
     this.sfx.tickForest(dt);
