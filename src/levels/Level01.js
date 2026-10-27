@@ -16,7 +16,7 @@ import {
 } from "../audio/jungleAudio.js";
 import { showEndCard, showLoseCard } from "../ui/EndCard.js";
 import { THEME_CSS } from "../ui/theme.js";
-import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
+import { kaiThinks, clearThoughts, holdThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
 import { dotTexture } from "../intros/fx.js";
 import { PAINTS, applyPaint, detectPaint } from "./level2/paint.js";
@@ -2288,6 +2288,7 @@ export class Level01 extends Level {
       this.rewardScore += r.value;
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
+      if (this.rewardCount === 1) this._showTransientBanner("THE FOREST\u2019S LIGHT \u00b7 20 FILL THE HORN", 2.6, { info: true });
       // every light feeds the horn
       if (this._hornCharge < 1) {
         this._hornCharge = Math.min(1, this._hornCharge + 1 / HORN_TOKENS);
@@ -2992,10 +2993,22 @@ export class Level01 extends Level {
     this._pauseButton = null;
   }
 
-  _showTransientBanner(text, seconds = 1.8) {
-    if (typeof document === "undefined") return;
+  /**
+   * One line of text at the top of the screen. Only ever one at a time: an
+   * `info` line (the goal, a tip) waits for the one showing to go; anything
+   * else (a hazard warning) replaces it at once. Kai's thoughts step aside
+   * while either is up (holdThoughts), so there is never more than one thing
+   * to read.
+   */
+  _showTransientBanner(text, seconds = 1.8, { info = false } = {}) {
+    if (typeof document === "undefined" || !this.scene) return; // not after the level has gone
+    if (info && (this._transientBanner || this._storyCard)) {
+      (this._bannerQueue ||= []).push([text, seconds]);
+      return;
+    }
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
+    holdThoughts(seconds + 0.4);
 
     const el = document.createElement("div");
     el.textContent = text;
@@ -3011,6 +3024,9 @@ export class Level01 extends Level {
     this._bannerTimer = setTimeout(() => {
       if (el.parentNode) el.parentNode.removeChild(el);
       if (this._transientBanner === el) this._transientBanner = null;
+      // the next waiting line, after a breath
+      const queued = this._bannerQueue?.shift();
+      if (queued && !this.caught) this._bannerTimer = setTimeout(() => this._showTransientBanner(queued[0], queued[1]), 350);
     }, seconds * 1000);
   }
 
@@ -3030,6 +3046,7 @@ export class Level01 extends Level {
     });
     document.body.append(card);
     this._storyCard = card;
+    holdThoughts(4.4); // the page is the thing to read now
     this._storyTimer = setTimeout(() => {
       if (card.parentNode) card.parentNode.removeChild(card);
       if (this._storyCard === card) this._storyCard = null;
@@ -4169,18 +4186,14 @@ export class Level01 extends Level {
     // say what the run is, once, as it starts
     if (!this._toldGoal && this._storyT > 0.6) {
       this._toldGoal = true;
-      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 EVERY HIT SLOWS YOU AND LETS HIM CLOSE IN", 4.2);
-    }
-    if (!this._toldLights && this._storyT > 5.5) {
-      this._toldLights = true;
-      this._showTransientBanner("CATCH THE FOREST\u2019S LIGHT \u00b7 20 FILL THE HORN", 3.2);
+      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 EVERY HIT SLOWS YOU AND LETS HIM CLOSE IN", 3.6, { info: true });
     }
     // the first time he gets close, say how close is too close
-    if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 3) {
+    if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 5) {
       this._toldClose = true;
       this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 IF THE GAP HITS 0 M, HE HAS YOU", 2.8);
     }
-    if (!this._saidStart && this._storyT > 1.4) {
+    if (!this._saidStart && this._storyT > 4.6) { // after the goal has been read
       this._saidStart = true;
       kaiThinks("Every sound in the forest stopped when I took it.");
       kaiThinks("And someone\u2019s on the trail behind me.");
@@ -4399,7 +4412,7 @@ export class Level01 extends Level {
       this._healthFlashT = 0.35; // red flash duration
       if (!this._toldHit) {
         this._toldHit = true;
-        this._showTransientBanner("HIT \u00b7 YOU LOSE HEALTH, AND THE MARSHAL GAINS GROUND", 2.4);
+        this._showTransientBanner("HIT \u00b7 YOU LOSE HEALTH, AND THE MARSHAL GAINS GROUND", 2.4, { info: true });
       }
 
       // --- trip / stumble animation ---

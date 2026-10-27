@@ -39,7 +39,27 @@ export function ensureDialogueFont() {
 
 let thoughtEl = null;
 let thoughtTimer = 0;
+let shown = null; // the thought on screen now
+let holdUntil = 0; // performance.now() before which no thought shows
 const queue = [];
+
+/**
+ * Something the player must read right now (a warning, a torn page) is on
+ * screen: Kai's thoughts step aside for `secs`. The one on screen goes back
+ * to the front of the queue and comes up again after, so nothing is lost and
+ * nothing is read on top of anything else.
+ */
+export function holdThoughts(secs) {
+  if (typeof document === 'undefined') return;
+  holdUntil = Math.max(holdUntil, performance.now() + secs * 1000);
+  if (shown) {
+    queue.unshift(shown);
+    shown = null;
+  }
+  if (thoughtEl) thoughtEl.style.opacity = '0';
+  clearTimeout(thoughtTimer);
+  thoughtTimer = setTimeout(next, holdUntil - performance.now());
+}
 
 /**
  * One of Kai's thoughts, the prologue's way: italic cream serif, low centre,
@@ -56,7 +76,13 @@ export function kaiThinks(text, secs = null, onShow = null) {
 }
 
 function next() {
+  const wait = holdUntil - performance.now();
+  if (wait > 0) {
+    thoughtTimer = setTimeout(next, wait);
+    return;
+  }
   const n = queue.shift();
+  shown = n || null;
   if (!n) {
     thoughtTimer = 0;
     if (thoughtEl) thoughtEl.style.opacity = '0';
@@ -75,7 +101,9 @@ function next() {
   thoughtEl.style.opacity = '1';
   speak(n.text, 'KAI', { thought: true }); // and heard (audio/voice.js)
   n.onShow?.();
+  n.onShow = null; // once, even if a hold brings the line back
   thoughtTimer = setTimeout(() => {
+    shown = null;
     if (thoughtEl) thoughtEl.style.opacity = '0';
     thoughtTimer = setTimeout(next, 550);
   }, n.secs * 1000);
@@ -84,6 +112,8 @@ function next() {
 /** Clear any thought on screen and everything queued (a level tearing down). */
 export function clearThoughts() {
   queue.length = 0;
+  shown = null;
+  holdUntil = 0;
   hush();
   clearTimeout(thoughtTimer);
   thoughtTimer = 0;
