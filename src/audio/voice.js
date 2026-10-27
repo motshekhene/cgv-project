@@ -74,7 +74,7 @@ export function speak(text, who = 'KAI', { thought = false } = {}) {
  * hint cuts off the one before.
  */
 export function hint(text) {
-  const said = String(text).replace(/\u00b7|·/g, ',').replace(/\s+—\s+|\s+-\s+/g, ', ').toLowerCase();
+  const said = String(text).replace(/\s*(\u00b7|\u00c2?\u00b7)\s*/g, ', ').replace(/\s+\u2014\s+|\s+-\s+/g, ', ').toLowerCase();
   speak(said, 'NARRATOR');
 }
 
