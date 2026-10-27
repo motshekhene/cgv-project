@@ -30,6 +30,8 @@ import { CardPickups } from '../cards/CardPickups.js';
 import { clueFor } from '../cards/cards.js';
 import { createClueBoard } from '../cards/clueSign.js';
 import { kaiThinks } from '../ui/dialogue.js';
+import { TrailMap } from '../ui/TrailMap.js';
+import { GIFT_SPOTS, POOL } from './level3/ShrineArena.js';
 
 /**
  * Level 03 — FIGHT, "The Falls".
@@ -440,6 +442,22 @@ export class Level03 extends Level {
     });
 
     this.hud = new FightHUD();
+    // the map of the falls, in the corner like the prologue's (N: bigger)
+    this.map = new TrailMap({
+      path: [],
+      title: 'THE FALLS',
+      bounds: { x0: -32, x1: 32, z0: -40, z1: 32 },
+      marks: [
+        { x: POOL.x, z: POOL.z, kind: 'landmark', label: 'THE POOL' },
+        { x: -7, z: -36, kind: 'landmark', label: 'THE FALLS' },
+        { x: 0, z: 0, kind: 'landmark', label: 'COURTYARD' },
+        { x: GIFT_SPOTS.vitality.x, z: GIFT_SPOTS.vitality.z, kind: 'stag', label: 'STAG SHRINE' },
+        { x: GIFT_SPOTS.strategy.x, z: GIFT_SPOTS.strategy.z, kind: 'camp', label: 'FOX SHRINE' },
+        { x: GIFT_SPOTS.power.x, z: GIFT_SPOTS.power.z, kind: 'fire', label: 'EMBER SHRINE' },
+      ],
+    });
+    this._mapHeading = Math.PI;
+    this._mapLast = new THREE.Vector3();
     this.style = new StyleMeter(this.hud);
     this.pauseTip = PAUSE_TIP; // main.js's shared pause menu shows it under the controls
     this.touch = new TouchControls(input, {
@@ -821,6 +839,13 @@ export class Level03 extends Level {
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
     this._cards?.update(dt, kp, 1.2);
+    if (this.map) {
+      const mdx = kp.x - this._mapLast.x, mdz = kp.z - this._mapLast.z;
+      if (Math.hypot(mdx, mdz) > 1e-3) this._mapHeading = Math.atan2(mdx, -mdz);
+      this._mapLast.copy(kp);
+      this.map.show(fighting);
+      this.map.update(kp.x, kp.z, this._mapHeading, 0);
+    }
     if (this._clueThought && fighting && (this._clueT3 = (this._clueT3 || 0) + dt) > 25) {
       kaiThinks(this._clueThought);
       this._clueThought = null;
@@ -2698,6 +2723,7 @@ export class Level03 extends Level {
   }
 
   teardown() {
+    this.map?.dispose();
     this._loseCard?.destroy();
     this.zones?.dispose();
     this.squad?.dispose();

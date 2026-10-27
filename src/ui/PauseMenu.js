@@ -48,7 +48,7 @@ const CSS = THEME_CSS + `
 `;
 
 export class PauseMenu {
-  constructor({ onResume = null, onRestart = null, onOptions = null, onMenu = null } = {}) {
+  constructor({ onResume = null, onRestart = null, onOptions = null, onPlaybook = null, onMenu = null } = {}) {
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
@@ -85,6 +85,7 @@ export class PauseMenu {
     button('RESUME', 'ESC', onResume);
     button('RESTART', 'R', onRestart);
     button('OPTIONS', '', onOptions);
+    button('PLAYBOOK', '', onPlaybook);
     button('MAIN MENU', '', onMenu);
     this.el.addEventListener('mousedown', (e) => e.stopPropagation());
     document.body.appendChild(this.el);

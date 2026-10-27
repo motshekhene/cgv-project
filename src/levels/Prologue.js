@@ -1542,7 +1542,7 @@ export class Prologue extends Level {
     // LOOKOUT ROCK: a heap of big boulders with a broken column on top, over the valley
     {
       const L = at('lookout');
-      for (const [dx, dz, sc, ry] of [[0, 0, 0.055, 0.3], [2.4, 1.2, 0.05, 1.9], [-2.2, 1.6, 0.045, 3.1], [0.8, -2.2, 0.04, 4.4]]) {
+      for (const [dx, dz, sc, ry] of [[0, 0, 0.032, 0.3], [2.4, 1.2, 0.024, 1.9], [-2.2, 1.6, 0.022, 3.1], [0.8, -2.2, 0.02, 4.4]]) {
         placeProp(this.root, cloneProp(k['rock' + (1 + Math.round(ry) % 3)]), L.x + dx, -0.2, L.z + dz, { s: sc, ry });
       }
       placeProp(this.root, cloneProp(k.columnShort), L.x + 0.3, 2.2, L.z - 0.2, { s: 0.014, ry: 1.2 });

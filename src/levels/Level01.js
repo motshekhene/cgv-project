@@ -2016,10 +2016,6 @@ export class Level01 extends Level {
   _updateStoryLetters(dt, state, x, prevZ) {
     for (const letter of this._storyLetters) {
       if (letter.collected) continue;
-      if (!this._toldPages && letter.z < this.z && this.z - letter.z < 70) {
-        this._toldPages = true;
-        this._showTransientBanner("A TORN PAGE AHEAD \u00b7 RUN THROUGH IT TO PICK IT UP", 2.8, { info: true });
-      }
       letter.spin += dt * 2.4;
       letter.group.rotation.y = letter.spin;
       letter.group.position.y = jungleCourseHeight(letter.z) + 1.2 + Math.sin(letter.spin * 1.7) * 0.12;
@@ -2304,7 +2300,6 @@ export class Level01 extends Level {
       this.rewardScore += r.value;
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
-      if (this.rewardCount === 1) this._showTransientBanner("THE FOREST\u2019S LIGHT \u00b7 20 FILL THE HORN", 2.6, { info: true });
       // every light feeds the horn
       if (this._hornCharge < 1) {
         this._hornCharge = Math.min(1, this._hornCharge + 1 / HORN_TOKENS);
@@ -4221,20 +4216,14 @@ export class Level01 extends Level {
    */
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
-    // say what the run is, once, as it starts
+    // the rules are in the PLAYBOOK (ui/Playbook.js); here, only where to find it, and a warning when he's close
     if (!this._toldGoal && this._storyT > 0.6) {
       this._toldGoal = true;
-      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 HE\u2019S ALWAYS GAINING \u00b7 HOLD SHIFT TO SPRINT", 4.0, { info: true });
+      this._showTransientBanner("RUN \u00b7 ESC \u00b7 PLAYBOOK FOR THE RULES", 2.6, { info: true });
     }
-    if (this.boosting) this._everBoosted = true;
-    if (!this._toldSprint && !this._everBoosted && this.gap > 0 && this.gap < 10 && !this.caught && this._storyT > 5) {
-      this._toldSprint = true;
-      this._showTransientBanner("HE\u2019S GAINING ON YOU \u00b7 HOLD SHIFT TO SPRINT AWAY", 2.8);
-    }
-    // the first time he gets close, say how close is too close
     if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 5) {
       this._toldClose = true;
-      this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 IF THE GAP HITS 0 M, HE HAS YOU", 2.8);
+      this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 SPRINT", 2.0);
     }
     if (this._clueThought && this._storyT > 70) {
       kaiThinks(this._clueThought);
@@ -4447,10 +4436,6 @@ export class Level01 extends Level {
         : OBSTACLE_DAMAGE;
       this._health = Math.max(0, this._health - dmg);
       this._healthFlashT = 0.35; // red flash duration
-      if (!this._toldHit) {
-        this._toldHit = true;
-        this._showTransientBanner("HIT \u00b7 YOU LOSE HEALTH, AND THE MARSHAL GAINS GROUND", 2.4, { info: true });
-      }
 
       // --- trip / stumble animation ---
       this._stumbleT = this._stumbleDuration;

@@ -24,7 +24,8 @@ export class TrailMap {
    * marks: [{ x, z, kind: 'fire' | 'camp' | 'stag' | 'gate' | 'stone', label }]
    */
   /** bounds: { x0, x1, z0, z1 }, the whole area to show (the valley); otherwise the path and marks, padded. */
-  constructor({ path, marks = [], bounds = null }) {
+  constructor({ path, marks = [], bounds = null, title = 'THE OLD PATH' }) {
+    this.title = title;
     this.path = path;
     this.marks = marks;
     this.big = false;
@@ -73,7 +74,7 @@ export class TrailMap {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
-    this.caption.textContent = this.big ? 'THE OLD PATH  ·  N TO CLOSE' : 'N · MAP';
+    this.caption.textContent = this.big ? `${this.title}  ·  N TO CLOSE` : 'N · MAP';
     this._last = '';
   }
 
