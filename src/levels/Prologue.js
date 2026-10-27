@@ -3,6 +3,7 @@ import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import { speak } from '../audio/voice.js';
+import { musicVolumeNode } from '../audio/masterMute.js';
 import { GAME_TITLE } from '../ui/brand.js';
 import { lookScale } from '../core/settings.js';
 import {
@@ -227,6 +228,19 @@ const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, KAI: KAI_GREEN };
    the forest silent (startSilent) and, when the horn is back on its stone,
    wake() brings it all back.
    ========================================================================== */
+// the fire's music (Sfx.startScore): D minor pentatonic, D3 up to D5
+const SCALE = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 523.25, 587.33];
+const PULSE = 0.36; // seconds per beat: slow, a story being told
+const SCORE_LEVEL = 0.22;
+// [lead, answering line, bass root] per beat, 24 beats round: four phrases over
+// D, F, C and A in the bass, a falling tune with the second part weaving under it
+const MBIRA = [
+  [7, 4, 0], [5, -1], [6, 3], [5, 2], [4, -1], [5, 3],
+  [8, 5, 1], [6, -1], [5, 4], [6, 3], [4, -1], [3, 1],
+  [7, 4, 4], [6, -1], [4, 2], [5, 4], [3, -1], [4, 2],
+  [6, 3, 3], [5, -1], [3, 1], [4, 2], [2, -1], [3, 0],
+];
+
 export class Sfx {
   constructor() {
     this.ctx = null;
@@ -560,6 +574,91 @@ export class Sfx {
     this.doveT = 2.2;
   }
 
+  /* ------------------------------------------------------------- the score */
+  /**
+   * The fire's music: a slow mbira over a low, warm drone, made here like
+   * every other sound (no files). It starts with Baba Zwane's story, dips
+   * under each line he or Kai says, and cuts out with everything else at the
+   * silence. It goes through the OPTIONS music volume.
+   *
+   * The mbira is two interlocking parts on a D pentatonic: a lead line and a
+   * second line answering it half a beat later, the way two mbira players
+   * do. Each tine is a struck sine with a short, slightly out-of-tune upper
+   * partial and a touch of buzz, ringing out over ~2 s.
+   */
+  startScore() {
+    if (!this.ctx || this.score || !this.alive) return;
+    const ctx = this.ctx, t = this.t;
+    this.score = ctx.createGain();
+    this.score.gain.setValueAtTime(0, t);
+    this.score.gain.linearRampToValueAtTime(SCORE_LEVEL, t + 4);
+    this.score.connect(musicVolumeNode(ctx)).connect(this.master);
+    // the drone: two low triangles a fifth apart through a slowly breathing lowpass
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 0.7;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.07;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 140;
+    lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    const droneG = ctx.createGain(); droneG.gain.value = 0.32;
+    lp.connect(droneG); droneG.connect(this.score);
+    this._drone = [lfo];
+    for (const f of [73.42, 110.0]) {   // D2 and A2
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      o.detune.value = f > 100 ? 4 : -3;
+      o.connect(lp); o.start(t);
+      this._drone.push(o);
+    }
+    lfo.start(t);
+    this._scoreAt = t + 1.2; // the first tine, once the drone has come up
+    this._pulse = 0;
+  }
+
+  /** One mbira tine: f Hz, `at` in context time. */
+  _tine(f, at, amp) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(amp, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(amp * 0.25, at + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 2.2);
+    g.connect(this.score);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    o.connect(g); o.start(at); o.stop(at + 2.3);
+    // the metal's upper partial: bright and gone almost at once
+    const p = ctx.createOscillator(); p.type = 'sine'; p.frequency.value = f * 4.07;
+    const pg = ctx.createGain();
+    pg.gain.setValueAtTime(amp * 0.35, at);
+    pg.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+    p.connect(pg); pg.connect(this.score); p.start(at); p.stop(at + 0.15);
+  }
+
+  /** Called every frame: keeps a little of the mbira scheduled ahead. */
+  tickScore() {
+    if (!this.score || !this.alive) return;
+    const ahead = this.t + 0.4;
+    while (this._scoreAt < ahead) {
+      const i = this._pulse % MBIRA.length;
+      const step = MBIRA[i];
+      // lead on the beat, the answering line between, the bass every half bar
+      if (step[0] >= 0) this._tine(SCALE[step[0]], this._scoreAt, 0.16);
+      if (step[1] >= 0) this._tine(SCALE[step[1]], this._scoreAt + PULSE * 0.5, 0.1);
+      if (i % 6 === 0) this._tine(SCALE[step[2] ?? 0] / 2, this._scoreAt, 0.13);
+      this._scoreAt += PULSE * (1 + (Math.random() - 0.5) * 0.04); // played by hand, not a clock
+      this._pulse++;
+    }
+  }
+
+  /** A line is being spoken: the music steps back under it for a few seconds. */
+  duckScore(secs = 3) {
+    if (!this.score || !this.alive) return;
+    const g = this.score.gain, t = this.t;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(SCORE_LEVEL * 0.4, t + 0.3);
+    g.setValueAtTime(SCORE_LEVEL * 0.4, t + secs);
+    g.linearRampToValueAtTime(SCORE_LEVEL, t + secs + 1.5);
+  }
+
   /** THE SILENCE. Everything cuts at once — the wind, the birds, the fire. */
   silence() {
     if (!this.ctx) return;
@@ -568,6 +667,12 @@ export class Sfx {
     if (this.tone) this.tone.gain.cancelScheduledValues(t);
     if (this.tone) this.tone.gain.setValueAtTime(this.tone.gain.value, t);
     if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.06);
+    // the music goes with it, mid-note
+    if (this.score) {
+      this.score.gain.cancelScheduledValues(t);
+      this.score.gain.setValueAtTime(this.score.gain.value, t);
+      this.score.gain.linearRampToValueAtTime(0, t + 0.06);
+    }
     // the bottom falling out of the morning — one soft sub swell into
     // nothing, so the cut is something you feel and not just notice
     const o = ctx.createOscillator();
@@ -659,10 +764,11 @@ export class Sfx {
       for (const src of this._loops || []) src.stop();
       if (this.alarmOsc) this.alarmOsc.stop();
       if (this.alarmLfo) this.alarmLfo.stop();
+      for (const o of this._drone || []) o.stop();
       this.ctx.close();
     } catch (e) { /* already closed */ }
     this.ctx = null; this.master = null;
-    this.tone = this.alarmGain = null;
+    this.tone = this.alarmGain = this.score = null;
   }
 }
 
@@ -1809,6 +1915,7 @@ export class Prologue extends Level {
     this.t = 0;
     // the click that starts Baba Zwane also starts the forest
     this.hud.title.style.opacity = '0';
+    this.sfx.startScore(); // the fire's music comes up under the story
     this._nextLine();
   }
 
@@ -1818,6 +1925,7 @@ export class Prologue extends Level {
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
     speak(line.text, line.who);
+    this.sfx.duckScore(Math.max(2.5, line.text.split(/\s+/).length * 0.38));
     if (line.who === 'BABA ZWANE') {
       // his words, at his head across the fire
       this.hud.sub.style.left = '50%';
@@ -2224,6 +2332,7 @@ export class Prologue extends Level {
     // the forest is alive until the horn comes off the stone
     this.sfx.tickForest(dt);
     this.sfx.tickFire(dt);
+    this.sfx.tickScore();
 
     // fireflies pulse along the route; mist crawls
     this.fireflyMat.opacity = (0.55 + Math.sin(this.t * 1.7) * 0.25) * (1 - this.dawnK);
