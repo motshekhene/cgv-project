@@ -1,4 +1,5 @@
 import { THEME_CSS, END_CSS, showEndScreen, hideEndScreen } from './theme.js';
+import { speak, hush } from '../audio/voice.js';
 
 /**
  * StoryOverlay — the cinematic layer for Level 3 (3B, story/UI): letterbox
@@ -124,6 +125,7 @@ export class StoryOverlay {
    * pauses with the game.
    */
   showLine(who, text, color, cps = 38) {
+    speak(text, who); // read aloud too (audio/voice.js)
     this.line = { text, t: 0, cps, shown: -1 };
     this.talkEl.style.setProperty('--who', color);
     this.talkEl.querySelector('small').textContent = who;
@@ -152,6 +154,7 @@ export class StoryOverlay {
   }
 
   hideLine() {
+    hush();
     this.line = null;
     this.talkEl.classList.remove('show');
     this.shadeEl.classList.remove('show');

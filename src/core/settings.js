@@ -8,6 +8,7 @@
  *   invertY      bool  mouse-look up / down flipped
  *   quality      'low' | 'medium' | 'high'   resolution and shadows (Game.applyQuality)
  *   showFps      bool  the frame-rate counter (ui/FpsCounter.js)
+ *   voices       bool  the dialogue read aloud (audio/voice.js)
  *
  *   import { settings, setSetting, onSettings } from '../core/settings.js';
  *   setSetting('music', 0.5);
@@ -18,7 +19,7 @@ const KEY = 'silent-horn.settings';
 export const QUALITIES = ['low', 'medium', 'high'];
 export const SENSITIVITIES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 
-const DEFAULTS = { master: 1, music: 0.8, sensitivity: 1, invertY: false, quality: 'high', showFps: false };
+const DEFAULTS = { master: 1, music: 0.8, sensitivity: 1, invertY: false, quality: 'high', showFps: false, voices: true };
 
 const clamp01 = (v, d) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : d);
 
@@ -37,6 +38,7 @@ function load() {
     invertY: typeof s.invertY === 'boolean' ? s.invertY : DEFAULTS.invertY,
     quality: QUALITIES.includes(s.quality) ? s.quality : DEFAULTS.quality,
     showFps: typeof s.showFps === 'boolean' ? s.showFps : DEFAULTS.showFps,
+    voices: typeof s.voices === 'boolean' ? s.voices : DEFAULTS.voices,
   };
 }
 

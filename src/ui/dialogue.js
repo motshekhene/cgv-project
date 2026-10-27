@@ -17,6 +17,8 @@
  *   kaiThinks('The whole forest just went quiet.');   // fades itself out
  */
 
+import { speak, hush } from '../audio/voice.js';
+
 export const DIALOGUE_FONT = "'Crimson Pro', Georgia, 'Times New Roman', serif";
 export const CREAM = '#f2e8d5';
 export const SPEAKERS = {
@@ -70,6 +72,7 @@ function next() {
   }
   thoughtEl.textContent = n.text;
   thoughtEl.style.opacity = '1';
+  speak(n.text, 'KAI', { thought: true }); // and heard (audio/voice.js)
   thoughtTimer = setTimeout(() => {
     if (thoughtEl) thoughtEl.style.opacity = '0';
     thoughtTimer = setTimeout(next, 550);
@@ -79,6 +82,7 @@ function next() {
 /** Clear any thought on screen and everything queued (a level tearing down). */
 export function clearThoughts() {
   queue.length = 0;
+  hush();
   clearTimeout(thoughtTimer);
   thoughtTimer = 0;
   if (thoughtEl) {

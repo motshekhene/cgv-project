@@ -5,6 +5,7 @@ import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
 import { settings, onSettings } from "./settings.js";
 import { PostFX } from "./PostFX.js";
+import { hush, pauseVoice } from "../audio/voice.js";
 import { windTime } from "../shaders/wind.js";
 import { displayUniforms, isDisplayReferred, patchDisplayReferred } from "../shaders/display.js";
 
@@ -155,6 +156,7 @@ export class Game {
       this.level.teardown();
       this.level = null;
     }
+    hush(); // no line carries over into the next level
     this.secondaryCameras.clear();
     this.overlays.clear();
     this.state.resetForLevel(name);
@@ -202,6 +204,7 @@ export class Game {
   setPaused(v, reason = 'user') {
     this.paused = v;
     this.state.paused = v;
+    if (reason === 'user') pauseVoice(v);
     if (this.level && this.level.onPause) this.level.onPause(v, reason);
     if (this.onPaused) this.onPaused(v, reason);
   }
