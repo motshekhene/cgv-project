@@ -12,7 +12,11 @@ import { displayToSceneColor } from "../shaders/display.js";
  *      (with a soft knee, so it fades in instead of popping), then a chain of
  *      half-size downsamples (13-tap filter) and tent-filtered upsamples added
  *      back together: a wide, smooth glow from a handful of cheap passes
- *   3. COMPOSITE: scene + bloom, ACES tone mapping, then a colour grade
+ *   3. GOD RAYS (light scattering, GPU Gems 3 ch. 13): from every pixel, march
+ *      toward the sun's position on screen, adding up the bright sky it
+ *      passes and fading with each step; trees and ruins in the way leave
+ *      gaps, so shafts of light fan out through the canopy
+ *   4. COMPOSITE: scene + bloom + rays, ACES tone mapping, then a colour grade
  *      (white balance, lift/gain, contrast, saturation), a vignette, colour
  *      fringes toward the edges, the damage pulse, film grain and a dither
  *      so dark gradients don't band, then sRGB for the screen
@@ -82,10 +86,37 @@ const UP = /* glsl */ `
     gl_FragColor = vec4(col / 16.0, 1.0);
   }`;
 
+// radial light scattering toward the sun, at half resolution
+const RAYS = /* glsl */ `
+  uniform sampler2D tSrc;   // the HDR scene
+  uniform vec2 uSun;        // the sun's position on screen, 0..1 (may be off screen)
+  uniform float uThreshold; // only sky this bright scatters
+  uniform float uDensity;   // how far toward the sun each pixel looks
+  uniform float uDecay;     // how fast the light falls off along the march
+  varying vec2 vUv;
+  const int STEPS = 40;
+  void main() {
+    vec2 delta = (vUv - uSun) * uDensity / float(STEPS);
+    vec2 uv = vUv;
+    float illum = 1.0;
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < STEPS; i++) {
+      uv -= delta;
+      vec3 s = texture2D(tSrc, clamp(uv, 0.0, 1.0)).rgb;
+      float l = max(s.r, max(s.g, s.b));
+      acc += min(s, vec3(8.0)) * smoothstep(uThreshold, uThreshold * 1.8, l) * illum;
+      illum *= uDecay;
+    }
+    gl_FragColor = vec4(acc / float(STEPS), 1.0);
+  }`;
+
 const COMPOSITE = /* glsl */ `
   uniform sampler2D tScene;
   uniform sampler2D tBloom;
   uniform float uBloom;      // how much glow is added back
+  uniform sampler2D tRays;
+  uniform float uRays;       // god-ray strength (0 when the sun is behind the camera)
+  uniform vec3 uRayColor;
   uniform vec3 uWhite;       // white balance: multiplies the HDR colour (warm dawn, cold storm)
   uniform vec3 uLift;        // added to the shadows
   uniform vec3 uGain;        // multiplies the highlights
@@ -120,6 +151,7 @@ const COMPOSITE = /* glsl */ `
     col.g = texture2D(tScene, vUv).g;
     col.b = texture2D(tScene, vUv - ca).b;
     col += texture2D(tBloom, vUv).rgb * uBloom;
+    col += texture2D(tRays, vUv).rgb * uRays * uRayColor;
     col *= uWhite;
     col = mix(col, uFlashColor * 2.0, uFlash);
 
@@ -156,21 +188,22 @@ const DEFAULT = {
   contrast: 1.05, saturation: 1.06,
   vignette: 0.38, vignetteColor: [0.15, 0.12, 0.1],
   fringe: 0.0025, grain: 0.03,
+  rays: 0, rayThreshold: 1.2, rayDensity: 0.9, rayDecay: 0.96, rayColor: [1.0, 0.86, 0.62],
 };
 
 export const PROFILES = {
   // the glade at dawn: warm, soft glow
-  title: { bloom: 0.6, white: [1.05, 1.0, 0.93], lift: [0.015, 0.01, 0.0] },
+  title: { rays: 0.9, bloom: 0.6, white: [1.05, 1.0, 0.93], lift: [0.015, 0.01, 0.0] },
   // the fire, the night, the horn: the hot things glow
   prologue: { bloom: 0.75, threshold: 1.5, white: [1.04, 0.99, 0.94], lift: [0.0, 0.005, 0.02], vignette: 0.6, contrast: 1.1 },
   // misty green jungle morning: rich greens and earth, the sun shafts glow
-  level01: { bloom: 0.35, threshold: 2.5, contrast: 1.1, saturation: 1.12, vignette: 0.42 },
-  "level02-intro": { bloom: 0.6, threshold: 1.8, white: [1.05, 0.99, 0.92], gain: [1.03, 0.99, 0.94] },
+  level01: { rays: 1.2, bloom: 0.35, threshold: 2.5, contrast: 1.1, saturation: 1.12, vignette: 0.42 },
+  "level02-intro": { rays: 0.8, bloom: 0.6, threshold: 1.8, white: [1.05, 0.99, 0.92], gain: [1.03, 0.99, 0.94] },
   // sunset into the storm: warm highlights, cooler shadows, headlights and lamps bloom
-  level02: { bloom: 0.5, threshold: 2.0, white: [1.03, 0.99, 0.95], gain: [1.03, 0.99, 0.94], contrast: 1.1, saturation: 1.12 },
+  level02: { rays: 0.7, bloom: 0.5, threshold: 2.0, white: [1.03, 0.99, 0.95], gain: [1.03, 0.99, 0.94], contrast: 1.1, saturation: 1.12 },
   // the falls: cold water, golden Key light
-  level03: { bloom: 0.6, threshold: 1.4, white: [1.04, 1.0, 0.94], contrast: 1.15, saturation: 1.18, vignette: 0.55 },
-  epilogue: { bloom: 0.7, threshold: 1.6, white: [1.06, 1.0, 0.92], lift: [0.015, 0.01, 0.0] },
+  level03: { rays: 0.6, rayThreshold: 1.6, bloom: 0.6, threshold: 1.4, white: [1.04, 1.0, 0.94], contrast: 1.15, saturation: 1.18, vignette: 0.55 },
+  epilogue: { rays: 0.8, bloom: 0.7, threshold: 1.6, white: [1.06, 1.0, 0.92], lift: [0.015, 0.01, 0.0] },
 };
 
 const _size = new THREE.Vector2();
@@ -201,13 +234,22 @@ export class PostFX {
       tSrc: { value: null }, uTexel: { value: new THREE.Vector2() },
       uThreshold: { value: 1 }, uKnee: { value: 0.5 },
     });
+    this.raysRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+    this.rays = pass(RAYS, {
+      tSrc: { value: null }, uSun: { value: new THREE.Vector2() },
+      uThreshold: { value: 1 }, uDensity: { value: 1 }, uDecay: { value: 0.96 },
+    });
+    this.sunDir = null; // world direction to the sun; Game finds it on the level's sky (uniforms.uSunDir)
+    this._sunV = new THREE.Vector3();
+    this._camDir = new THREE.Vector3();
     this.down = pass(DOWN, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.up = pass(UP, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uRadius: { value: 1 } }, {
       blending: THREE.AdditiveBlending, transparent: true,
     });
     this.composite = pass(COMPOSITE, {
       tScene: { value: this.sceneRT.texture }, tBloom: { value: null },
-      uBloom: { value: 0 }, uWhite: { value: new THREE.Vector3() },
+      uBloom: { value: 0 }, tRays: { value: this.raysRT.texture }, uRays: { value: 0 }, uRayColor: { value: new THREE.Vector3() },
+      uWhite: { value: new THREE.Vector3() },
       uLift: { value: new THREE.Vector3() }, uGain: { value: new THREE.Vector3() },
       uContrast: { value: 1 }, uSaturation: { value: 1 },
       uVignette: { value: 0 }, uVignetteColor: { value: new THREE.Vector3() },
@@ -260,6 +302,7 @@ export class PostFX {
   _resize(w, h) {
     if (this.sceneRT.width === w && this.sceneRT.height === h && this._mipCount === this._wantMips()) return;
     this.sceneRT.setSize(w, h);
+    this.raysRT.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
     for (const m of this.mips) m.dispose();
     this.mips = [];
     this._mipCount = this._wantMips();
@@ -330,7 +373,27 @@ export class PostFX {
     }
     r.autoClear = autoClear;
 
+    // god rays: only while the sun is somewhere ahead of the camera
+    let rays = 0;
+    if (p.rays > 0 && this.sunDir) {
+      camera.getWorldDirection(this._camDir);
+      const facing = this._camDir.dot(this.sunDir);
+      rays = p.rays * THREE.MathUtils.smoothstep(facing, 0.1, 0.6);
+      if (rays > 0.001) {
+        this._sunV.copy(camera.getWorldPosition(this._sunV)).addScaledVector(this.sunDir, 1000).project(camera);
+        const ru = this.rays.uniforms;
+        ru.tSrc.value = this.sceneRT.texture;
+        ru.uSun.value.set(this._sunV.x * 0.5 + 0.5, this._sunV.y * 0.5 + 0.5);
+        ru.uThreshold.value = p.rayThreshold;
+        ru.uDensity.value = p.rayDensity;
+        ru.uDecay.value = p.rayDecay;
+        this._draw(this.rays, this.raysRT);
+      }
+    }
+
     const u = this.composite.uniforms;
+    u.uRays.value = rays;
+    u.uRayColor.value.fromArray(p.rayColor);
     u.tScene.value = this.sceneRT.texture;
     u.tBloom.value = this.mips[0].texture;
     // the chain sums every level, so normalise by its length
@@ -354,8 +417,9 @@ export class PostFX {
 
   dispose() {
     this.sceneRT.dispose();
+    this.raysRT.dispose();
     for (const m of this.mips) m.dispose();
-    for (const m of [this.prefilter, this.down, this.up, this.composite]) m.dispose();
+    for (const m of [this.rays, this.prefilter, this.down, this.up, this.composite]) m.dispose();
     this.quad.geometry.dispose();
   }
 }

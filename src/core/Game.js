@@ -301,10 +301,16 @@ export class Game {
     // tone curve (shaders/display.js); checked every so often for new ones
     if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
       this._pfxScan = 30;
+      let sun = null;
       scene.traverse((o) => {
         const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-        for (const m of ms) if (isDisplayReferred(m)) patchDisplayReferred(m);
+        for (const m of ms) {
+          if (isDisplayReferred(m)) patchDisplayReferred(m);
+          // the level's sky knows where the sun is: PostFX's god rays aim at it
+          if (o.isMesh && m.side === THREE.BackSide && m.uniforms?.uSunDir) sun = m.uniforms.uSunDir.value;
+        }
       });
+      this.postfx.sunDir = sun ? (this._sunDir || (this._sunDir = new THREE.Vector3())).copy(sun).normalize() : null;
     }
     displayUniforms.uDisplayExposure.value = this.renderer.toneMappingExposure;
     displayUniforms.uViaPostFX.value = this.postfx.enabled ? 1 : 0;
