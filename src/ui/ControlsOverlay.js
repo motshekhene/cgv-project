@@ -110,6 +110,7 @@ const LEVEL_CONTROLS = {
       { label: 'DRIFT (HOLD + STEER)', action: 'drift' },
       { label: 'HANDBRAKE', action: 'handbrake' },
       { label: 'BOOST', action: 'boost' },
+      { label: 'BLOW THE HORN (WHEN READY)', action: 'horn' },
       { label: 'CAR PICKER', action: 'changeCar' },
       { label: 'VIEW · FIRST PERSON', action: 'view' },
       { label: 'PICKER: PAINT', keys: 'Q / E' },

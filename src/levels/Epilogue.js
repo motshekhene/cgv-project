@@ -411,12 +411,19 @@ export class Epilogue extends Level {
     this.sfx.tickForest(dt);
     if (!this._said3 && t > T.wake + 1.6) { this._said3 = true; kaiThinks('Listen.'); }
     if (!this._said4 && t > T.wake + 3.8) { this._said4 = true; kaiThinks('Everything’s waking up.'); }
+    // with every page in his pocket, he knows what comes next
+    if (!this._said5 && t > T.wake + 6.4 && (this.state?.letters?.length ?? 0) >= 6) {
+      this._said5 = true;
+      kaiThinks('And the valley is going to read every one of those pages.');
+    }
 
     this._updateCamera(dt, t, kp);
     if (!this._carded && t >= T.card) this._showCard();
   }
 
   _wake() {
+    // the colour comes back with the birds, over a few seconds
+    if (this.game?.postfx) { this.game.postfx.silenceRate = 0.7; this.game.postfx.silence = 0; }
     this.woken = true;
     this.sfx.wake();
   }
@@ -466,10 +473,17 @@ export class Epilogue extends Level {
   _showCard() {
     this._carded = true;
     clearThoughts();
+    // the ending depends on what Kai found: all six torn pages (the company's
+    // own papers, three on the trail and three at the falls) are the proof
+    const pages = this.state?.letters?.length ?? 0;
+    const all = pages >= 6;
     this._card = showEndCard({
       kind: 'win',
-      title: 'THE END',
-      sub: 'The horn is back on its stone, and the forest is awake.',
+      title: all ? 'THE TRUE ENDING' : 'THE END',
+      sub: all
+        ? 'The horn is back on its stone, and the forest is awake. Kai carried the six torn pages, the company\u2019s own words, down to the valley. Everyone read what it had paid for, and no crew ever came back.'
+        : 'The horn is back on its stone, and the forest is awake.',
+      lines: [{ text: all ? 'ALL 6 TORN PAGES FOUND' : `${pages} / 6 TORN PAGES FOUND \u00b7 FIND THEM ALL FOR THE TRUE ENDING` }],
       // the credits are on the main menu now (CREDITS), with links
       action: { label: 'MAIN MENU', key: 'ENTER', onClick: () => this.game.setLevel('title') },
       extra: [{ label: 'PLAY AGAIN', onClick: () => this.game.setLevel('prologue') }],

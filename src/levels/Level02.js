@@ -473,10 +473,44 @@ export class Level02 extends Level {
     kaiThinks('Down the river road. Lose him, then get this horn to Baba Zwane.');
   }
 
+  _updateHorn(dt) {
+    if (!this._announced || this._finale || this._wreck) return;
+    const was = this._hornCharge ?? 0;
+    this._hornCharge = Math.min(1, was + dt / 30); // full every 30 s
+    if (was < 1 && this._hornCharge >= 1) {
+      this._flash('THE HORN IS READY \u00b7 F', '#4fd6e0');
+      if (!this._hornTold) {
+        this._hornTold = true;
+        setTimeout(() => this.scene && kaiThinks('The horn. The animals came when I blew it on the trail.'), 2200);
+      }
+    }
+    if (!this.input.pressed('horn')) return;
+    if (this._hornCharge < 1) {
+      this._flash(`THE HORN \u00b7 ${Math.round(this._hornCharge * 100)}%`, '#7fa9ad');
+      return;
+    }
+    this._hornCharge = 0;
+    this.sound.hornCall();
+    this.game?.postfx?.flash(0.25, 0x4fd6e0);
+    this.game?.postfx?.kick(0.6);
+    // the herd crosses between Kai and the Marshal, wherever he is
+    const cz = this.car.mesh.position.z, hz = this.handler.mesh.position.z;
+    const herdZ = Math.abs(hz - cz) > 10 ? (cz + hz) / 2 : cz - 9 * Math.sign(cz - hz || 1);
+    this.obstacles.herd(herdZ);
+    this.handler.giveSpace(5);
+    this.handler.speed *= 0.35;
+    this._flash('THE FOREST ANSWERS', '#4fd6e0');
+  }
+
   /* ======================== per frame ======================== */
 
   update(dt, state) {
     dt = this._steady(dt);
+    // A CLUE: how he drives. Once, well into the chase.
+    if (this._announced && !this._clueSaid && (this._clueT = (this._clueT || 0) + dt) > 45) {
+      this._clueSaid = true;
+      kaiThinks('He takes every bend before it comes. Like someone who\u2019s known this road all his life.');
+    }
 
     // car picker orbit camera
     if (this._selectingCar) {
@@ -508,6 +542,11 @@ export class Level02 extends Level {
     this._controls?.setFlags({ music: this.sound.musicOn, muted: isMuted() });
 
     if (this.input.pressed('view')) this._toggleView();
+
+    // THE HORN, its second power: out of the window, and the forest's animals
+    // answer, crossing the road between Kai and the Marshal (Level 1 used it
+    // to clear the trail; Level 3 calls the stag)
+    this._updateHorn(dt);
 
     // open car picker
     if (this.input.pressed('changeCar')) {

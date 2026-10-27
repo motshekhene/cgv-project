@@ -128,6 +128,7 @@ const COMPOSITE = /* glsl */ `
   uniform float uKick;       // extra fringe for a moment (boost, dodge)
   uniform float uHit;        // 0..1 damage pulse
   uniform float uDanger;     // 0..1 how close the pursuer is: the edges glow ember and beat like a heart
+  uniform float uSilence;    // 0..1 how long the horn has been gone from its stone: the colour drains out of the world
   uniform vec3 uFlashColor;
   uniform float uFlash;      // 0..1 full-screen flash
   uniform float uGrain;
@@ -167,6 +168,11 @@ const COMPOSITE = /* glsl */ `
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(lum), col, uSaturation);
 
+    // the silence: the world goes grey the longer the horn is gone, but anything
+    // cyan (the horn, its light, the forest's lights) keeps its colour
+    float cyanKeep = clamp((min(col.g, col.b) - col.r) * 3.0, 0.0, 1.0);
+    float grey = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, vec3(grey) * vec3(0.96, 0.99, 1.04), uSilence * (1.0 - cyanKeep));
     // vignette: darker (and tinted) toward the corners
     float v = smoothstep(0.25, 0.85, r);
     col = mix(col, col * uVignetteColor, v * uVignette);
@@ -211,6 +217,17 @@ export const PROFILES = {
   epilogue: { rays: 0.8, bloom: 0.7, threshold: 1.6, white: [1.06, 1.0, 0.92], lift: [0.015, 0.01, 0.0] },
 };
 
+/**
+ * THE SILENCE, through the whole run: the horn leaves its stone in the
+ * prologue and the forest falls silent, and here the colour goes with the
+ * sound. A little greyer every chapter; the prologue starts full of colour
+ * and goes grey the moment it is taken; the epilogue starts nearly grey and
+ * floods back when it is laid home (Prologue.js, Epilogue.js set these).
+ */
+export const SILENCE = {
+  title: 0, prologue: 0, level01: 0.28, 'level02-intro': 0.34, level02: 0.38, level03: 0.48, epilogue: 0.58,
+};
+
 const _size = new THREE.Vector2();
 
 function pass(fragmentShader, uniforms, extra = {}) {
@@ -229,6 +246,9 @@ export class PostFX {
     this._kick = 0;
     this.danger = 0; // 0..1, set by Game from how close the pursuer is
     this._danger = 0;
+    this.silence = 0; // 0..1, the story's: how far the horn is from its stone (SILENCE, levels)
+    this._silence = 0;
+    this.silenceRate = 0.6; // how fast it eases there (the epilogue's colour floods back slowly)
     this.profile = { ...DEFAULT };
     this._bgKeep = new THREE.Color();
     this._clearKeep = new THREE.Color();
@@ -260,7 +280,7 @@ export class PostFX {
       uLift: { value: new THREE.Vector3() }, uGain: { value: new THREE.Vector3() },
       uContrast: { value: 1 }, uSaturation: { value: 1 },
       uVignette: { value: 0 }, uVignetteColor: { value: new THREE.Vector3() },
-      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 }, uDanger: { value: 0 },
+      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 }, uDanger: { value: 0 }, uSilence: { value: 0 },
       uFlashColor: { value: new THREE.Color(1, 1, 1) }, uFlash: { value: 0 },
       uGrain: { value: 0 }, uTime: { value: 0 }, uAspect: { value: new THREE.Vector2(1, 1) },
     }, { toneMapped: true }); // the one pass that tone maps (and converts to sRGB)
@@ -280,6 +300,11 @@ export class PostFX {
   /** A level's look: the level's PROFILES entry, plus anything given here. */
   setProfile(p = {}, name = null) {
     this.profile = { ...DEFAULT, ...(name ? PROFILES[name] : null), ...p };
+    if (name && SILENCE[name] !== undefined) {
+      // a new chapter starts where the story left the colour, no fade
+      this.silence = this._silence = SILENCE[name];
+      this.silenceRate = 0.6;
+    }
   }
 
   /** Kai is hurt: a red pulse that fades over about half a second. */
@@ -305,6 +330,7 @@ export class PostFX {
     this._flash *= Math.exp(-7 * dt);
     this._kick *= Math.exp(-5 * dt);
     this._danger += (this.danger - this._danger) * (1 - Math.exp(-4 * dt));
+    this._silence += (this.silence - this._silence) * (1 - Math.exp(-this.silenceRate * dt));
   }
 
   _resize(w, h) {
@@ -420,6 +446,7 @@ export class PostFX {
     u.uKick.value = this._kick;
     u.uHit.value = this._hit;
     u.uDanger.value = this._danger;
+    u.uSilence.value = this._silence;
     u.uFlash.value = this._flash;
     u.uGrain.value = p.grain;
     u.uTime.value = this.time % 100;

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
+import { makeWhistleBuffer } from "../audio/whistle.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -3653,6 +3654,16 @@ export class Level01 extends Level {
     }
 
     if (!this.caught && !this.escaped) {
+      // A CLUE: now and then he whistles Baba Zwane's two notes from the fire.
+      // Kai half-knows it; the player who listened at the fire knows it.
+      this._whistleT = (this._whistleT ?? 16) - dt;
+      if (this._whistleT <= 0 && this.gap < 20 && this._audio && this.handler) {
+        this._whistleT = 22 + Math.random() * 10;
+        this._whistles = (this._whistles || 0) + 1;
+        this._audio.playPositional(this.handler, "zwaneWhistle", { volume: 0.85, refDistance: 9, maxDistance: 60 });
+        if (this._whistles === 1) setTimeout(() => this.scene && kaiThinks("That whistle. Where have I heard that?"), 1300);
+        if (this._whistles === 3) setTimeout(() => this.scene && kaiThinks("Two notes, high then low. Someone used to call me like that."), 1300);
+      }
       if (this._handlerRageT > 0) this._handlerRageT = Math.max(0, this._handlerRageT - dt);
       const rageBoost = this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0;
       // the roots have him: he stands where they caught him until he tears free
@@ -4115,6 +4126,8 @@ export class Level01 extends Level {
       this._audio.buffers.set(name, buffer);
     }
     const tension = this._audio.buffers.get("tension");
+    // Baba Zwane's two-note whistle from the fire, which the Marshal can't help (a clue)
+    this._audio.buffers.set("zwaneWhistle", makeWhistleBuffer(ctx));
 
     // the recorded coin chime (Pixabay) swaps over the synthesised one by
     // name the moment it decodes — same headroom, so the volume is unchanged
