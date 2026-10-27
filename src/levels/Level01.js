@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { Particles } from "../fx/Particles.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -994,6 +995,24 @@ export class Level01 extends Level {
 
     this._pollen = createPollen(500);
     this.root.add(this._pollen);
+
+    // kicked-up trail dust (footsteps, landings, slides) and debris off impacts (fx/Particles.js)
+    this._dust = new Particles({ max: 500 });
+    this._debris = new Particles({ max: 200, soft: 0.6 });
+    this.root.add(this._dust.points, this._debris.points);
+  }
+
+  /** A puff of trail dust at Kai's feet; `big` for a landing or a slide start. */
+  _kickDust(big = 0) {
+    if (!this._dust || this._flightLift > 0.2) return;
+    const p = this.player.position;
+    this._dustAt = (this._dustAt || new THREE.Vector3()).set(p.x, this._floorY + 0.05, p.z + 0.25);
+    this._dustPush = (this._dustPush || new THREE.Vector3()).set(0, 0, Math.min(this.speed, 20) * 0.12);
+    this._dust.emit(this._dustAt, {
+      count: big ? 14 + big * 10 : 3, speed: 0.6 + big * 1.6, up: 0.35 + big * 0.4, dir: this._dustPush,
+      color: 0xb48c63, colorEnd: 0x8f7a64, size: 0.22 + big * 0.12, sizeEnd: 0.9 + big * 0.6,
+      life: 0.7 + big * 0.4, alpha: 0.42, gravity: -0.4, drag: 2.6,
+    });
   }
 
   _updateTunnelDetail(pulse) {
@@ -4156,7 +4175,22 @@ export class Level01 extends Level {
   }
 
   update(dt, state) {
+    const shakeBefore = this._shake;
     this._updateRun(dt, state);
+    // an impact (the shake jumped): a burst of earth and splinters at Kai
+    if (this._debris && this._shake - shakeBefore > 0.25 && this.player) {
+      const p = this.player.position;
+      this._debrisAt = (this._debrisAt || new THREE.Vector3()).set(p.x, p.y + 0.6, p.z - 0.4);
+      this._debris.emit(this._debrisAt, {
+        count: 26, speed: 5, up: 3, color: 0x7a5a3a, colorEnd: 0x4a3a2a, size: 0.12, sizeEnd: 0.08,
+        life: 0.9, alpha: 0.95, gravity: -14, drag: 1.2,
+      });
+      this._kickDust(1.5);
+    }
+    // slides drag a trail of dust
+    if (this.sliding && this._dust && Math.random() < 0.6) this._kickDust(0.15);
+    this._dust?.update(dt);
+    this._debris?.update(dt);
     if (this._finale || this.caught) state.timeScale = 1; // never stuck in a horn call's slow beat
     const cam = this.game?.camera;
     if (!cam) return;
@@ -4282,6 +4316,7 @@ export class Level01 extends Level {
         this.vy = 0;
         this.airborne = false;
         this._audio?.playOneShot("land", { volume: 0.48, rate: 0.9 + Math.random() * 0.2 });
+        this._kickDust(1);
       }
     }
 
@@ -4608,6 +4643,7 @@ export class Level01 extends Level {
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
+        this._kickDust();
       }
     }
 

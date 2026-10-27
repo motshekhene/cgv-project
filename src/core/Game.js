@@ -6,6 +6,7 @@ import { toggleMuted } from "../audio/masterMute.js";
 import { settings, onSettings } from "./settings.js";
 import { PostFX } from "./PostFX.js";
 import { windTime } from "../shaders/wind.js";
+import { displayUniforms, isDisplayReferred, patchDisplayReferred } from "../shaders/display.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -159,6 +160,8 @@ export class Game {
     this.state.resetForLevel(name);
     this.postfx.setProfile({}, name); // the level's look; init() can change it
     this._lastHealth = null;
+    this._lastShake = null;
+    this._pfxScan = 0; // look for display-colour shaders on the first frame
 
     const level = factory();
     level.game = this;
@@ -243,6 +246,15 @@ export class Game {
       this.postfx.hit(Math.min(1, 0.35 + (this._lastHealth - hp) / 30));
     }
     this._lastHealth = hp;
+    // every level keeps a camera-shake amount (shake or _shake); a jump in it
+    // is an impact, so the lens kicks too: colour fringes, and a flash on the big ones
+    const shake = this.level ? (this.level.shake ?? this.level._shake ?? 0) : 0;
+    const jump = shake - (this._lastShake ?? shake);
+    if (jump > 0.12 && !this.paused) {
+      this.postfx.kick(Math.min(1, jump * 1.2));
+      if (jump > 0.6) this.postfx.flash(Math.min(0.35, (jump - 0.5) * 0.4), 0xfff1dc);
+    }
+    this._lastShake = shake;
     this.postfx.update(raw);
 
     // a level can take over drawing (e.g. its own post-processing pass); most just let Game render
@@ -282,6 +294,17 @@ export class Game {
 
   /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
   renderScene(scene, camera) {
+    // shaders that write screen colours directly get the inverse of PostFX's
+    // tone curve (shaders/display.js); checked every so often for new ones
+    if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
+      this._pfxScan = 30;
+      scene.traverse((o) => {
+        const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of ms) if (isDisplayReferred(m)) patchDisplayReferred(m);
+      });
+    }
+    displayUniforms.uDisplayExposure.value = this.renderer.toneMappingExposure;
+    displayUniforms.uViaPostFX.value = this.postfx.enabled ? 1 : 0;
     if (this.postfx.enabled) this.postfx.render(scene, camera);
     else this.renderer.render(scene, camera);
   }

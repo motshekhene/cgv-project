@@ -1059,8 +1059,11 @@ export function createJungleSky({ fog = null } = {}) {
         vec3 fogC = uFog;
         #ifdef TONE_MAPPING
           fogC = toneMapping(fogC);
+          fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
+        #else
+          // drawn into PostFX's HDR target: tone map it the way the screen will (shaders/display.js)
+          fogC = sceneToDisplay(fogC);
         #endif
-        fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
         float haze = uFogBand > 0.0 ? 1.0 - smoothstep(0.0, uFogBand, h) : 0.0; // fog at the horizon, none overhead
         c = mix(c, fogC, max(haze, uDark)); // so fogged scenery melts into the sky
         gl_FragColor = vec4(c, 1.0);

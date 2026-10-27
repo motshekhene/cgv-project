@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { settings } from "./settings.js";
+import { displayToSceneColor } from "../shaders/display.js";
 
 /**
  * PostFX — every level's frame goes through here on its way to the screen
@@ -126,9 +127,10 @@ const COMPOSITE = /* glsl */ `
     #include <tonemapping_fragment>
     col = gl_FragColor.rgb;
 
-    // grade (display-referred, 0..1): lift the blacks, scale the whites, contrast around mid-grey
+    // grade (display-referred, still linear): lift the blacks, scale the whites,
+    // and contrast as a power curve pivoting on 18% mid-grey, so mid-tones stay put
     col = col * uGain + uLift * (1.0 - col);
-    col = clamp((col - 0.5) * uContrast + 0.5, 0.0, 1.0);
+    col = clamp(0.18 * pow(max(col, vec3(0.0)) / 0.18, vec3(uContrast)), 0.0, 1.0);
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(lum), col, uSaturation);
 
@@ -149,10 +151,10 @@ const COMPOSITE = /* glsl */ `
 
 /** Each level's look. Anything not given falls back to DEFAULT. */
 const DEFAULT = {
-  bloom: 0.5, threshold: 2.0, knee: 0.6, radius: 1.0,
+  bloom: 0.35, threshold: 3.0, knee: 1.0, radius: 1.0,
   white: [1, 1, 1], lift: [0, 0, 0], gain: [1, 1, 1],
-  contrast: 1.08, saturation: 1.1,
-  vignette: 0.45, vignetteColor: [0.15, 0.12, 0.1],
+  contrast: 1.05, saturation: 1.06,
+  vignette: 0.38, vignetteColor: [0.15, 0.12, 0.1],
   fringe: 0.0025, grain: 0.03,
 };
 
@@ -162,12 +164,12 @@ export const PROFILES = {
   // the fire, the night, the horn: the hot things glow
   prologue: { bloom: 0.75, threshold: 1.5, white: [1.04, 0.99, 0.94], lift: [0.0, 0.005, 0.02], vignette: 0.6, contrast: 1.1 },
   // misty green jungle morning: rich greens and earth, the sun shafts glow
-  level01: { bloom: 0.45, threshold: 2.2, lift: [0, 0.005, 0.01], contrast: 1.12, saturation: 1.08 },
+  level01: { bloom: 0.25, threshold: 3.5 },
   "level02-intro": { bloom: 0.6, threshold: 1.8, white: [1.05, 0.99, 0.92], gain: [1.03, 0.99, 0.94] },
   // sunset into the storm: warm highlights, cooler shadows, headlights and lamps bloom
-  level02: { bloom: 0.65, threshold: 1.6, white: [1.03, 0.99, 0.95], lift: [0.0, 0.005, 0.02], gain: [1.04, 0.99, 0.93], contrast: 1.12 },
+  level02: { bloom: 0.4, threshold: 2.5, white: [1.03, 0.99, 0.95], gain: [1.03, 0.99, 0.94] },
   // the falls: cold water, golden Key light
-  level03: { bloom: 0.6, threshold: 1.6, white: [0.98, 1.0, 1.03], lift: [0.0, 0.008, 0.02], gain: [1.04, 1.0, 0.95], contrast: 1.12, vignette: 0.55 },
+  level03: { bloom: 0.45, threshold: 2.2, white: [0.98, 1.0, 1.03], gain: [1.03, 1.0, 0.96], contrast: 1.08, vignette: 0.5 },
   epilogue: { bloom: 0.7, threshold: 1.6, white: [1.06, 1.0, 0.92], lift: [0.015, 0.01, 0.0] },
 };
 
@@ -188,6 +190,9 @@ export class PostFX {
     this._flash = 0;
     this._kick = 0;
     this.profile = { ...DEFAULT };
+    this._bgKeep = new THREE.Color();
+    this._clearKeep = new THREE.Color();
+    this._clearTmp = new THREE.Color();
 
     this.sceneRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.mips = []; // bloom chain, built on the first frame at the screen's size
@@ -288,8 +293,18 @@ export class PostFX {
     this._resize(_size.x, _size.y);
     const p = this.profile;
 
+    // a plain background colour is a screen colour in a direct render (it's
+    // cleared, never tone mapped): give it the scene colour that comes out the
+    // same after the composite, and put it back after. (Fog: shaders/display.js.)
+    const bg = scene.background?.isColor ? scene.background : null;
+    if (bg) { this._bgKeep.copy(bg); displayToSceneColor(bg, r.toneMappingExposure, bg); }
+    r.getClearColor(this._clearKeep);
+    const clearAlpha = r.getClearAlpha();
+    r.setClearColor(displayToSceneColor(this._clearKeep, r.toneMappingExposure, this._clearTmp), clearAlpha);
     r.setRenderTarget(this.sceneRT);
     r.render(scene, camera);
+    if (bg) bg.copy(this._bgKeep);
+    r.setClearColor(this._clearKeep, clearAlpha);
 
     // bloom: bright pass into the first mip, down the chain, back up adding as it goes
     const pu = this.prefilter.uniforms;
