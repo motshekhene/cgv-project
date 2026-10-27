@@ -1,14 +1,14 @@
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
-import { CARD, SPOTS, isFound, todaysSpirit, dayNumber } from '../cards/cards.js';
+import { CARD, todaysCard, dayNumber, RARITY_NAME } from '../cards/cards.js';
 
 /**
  * MAP on the main menu: the whole game on one page, three panels drawn on
  * canvases. Level 1's trail from the stone down to the camp, Level 2's River
  * Road to the falls, and the courtyard at the falls from above, each with
- * its landmarks. The spirit cards you've found are marked where they were;
- * today's spirit is a pulsing gold circle round the area its riddle points
- * to (an area, not the exact spot: the riddle still has to be read).
+ * its landmarks. Today's card is a pulsing gold circle round the area its
+ * riddle points to (an area, not the exact spot: the riddle still has to be
+ * read), and once it's found, a mark where it was.
  *
  *   const map = new GameMap();  map.open();
  */
@@ -74,17 +74,17 @@ export class GameMap {
   }
 
   open() {
-    const d = todaysSpirit();
+    const d = todaysCard();
     this.el.innerHTML = `
       <div class="gm-in plaque">
         <h2>THE MAP</h2>
-        <div class="gm-riddle"><b>TODAY’S SPIRIT${d.found ? ' · FOUND ✓' : ''}</b>“${d.riddle}”</div>
+        <div class="gm-riddle"><b>TODAY’S CARD${d.taken ? ' · FOUND ✓' : ` · ${RARITY_NAME[d.card.rarity]}`}</b>${d.taken ? 'Found. A new card hides somewhere tomorrow.' : `“${d.riddle}”`}</div>
         <div class="gm-panels">
           <div class="gm-panel"><h3>LEVEL 1 · THE OLD TRAIL</h3><canvas data-l="1" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 2 · THE RIVER ROAD</h3><canvas data-l="2" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 3 · THE FALLS</h3><canvas data-l="3" width="300" height="520"></canvas></div>
         </div>
-        <div class="gm-key">◆ a spirit card you’ve found &nbsp; ○ gold circle: where today’s spirit hides &nbsp; · the others are still out there</div>
+        <div class="gm-key">○ gold circle: the area today’s card is hiding in (the riddle tells you exactly where) &nbsp; ◆ where you found it</div>
         <div class="gm-back" data-back>BACK</div>
       </div>`;
     this.el.querySelector('[data-back]').addEventListener('click', () => this.close());
@@ -105,7 +105,7 @@ export class GameMap {
   }
 
   _draw(time) {
-    const daily = todaysSpirit();
+    const daily = todaysCard();
     const pulse = 0.5 + 0.5 * Math.sin(time * 3);
     for (const c of this.canvases) {
       const g = c.getContext('2d');
@@ -177,9 +177,8 @@ export class GameMap {
     const toY = (d) => top + (d / L1.len) * (bot - top);
     const toX = (lx) => mid + (lx / 3.6) * (W / 2);
     this._route(g, c, L1.len, L1.marks, L1.lanes, toY, toX, W);
-    for (const [id, s] of Object.entries(SPOTS)) if (s.level === 'level01' && isFound(id)) this._cardMark(g, toX(LANE(s.lane)), toY(-s.z), id);
-    if (daily.spot.level === 'level01' && !daily.found) this._daily(g, mid, toY(-daily.spot.z), 26, pulse);
-    if (daily.found && daily.spot.level === 'level01') this._cardMark(g, toX(LANE(daily.spot.lane)), toY(-daily.spot.z), daily.card.id);
+    if (daily.spot.level === 'level01' && !daily.taken) this._daily(g, mid, toY(-daily.spot.z), 26, pulse);
+    if (daily.taken && daily.spot.level === 'level01') this._cardMark(g, toX(LANE(daily.spot.lane)), toY(-daily.spot.z), daily.card.id);
   }
 
   _road(g, c, daily, pulse) {
@@ -187,9 +186,8 @@ export class GameMap {
     const toY = (d) => top + (d / L2.len) * (bot - top);
     const toX = (x) => mid + (x / 12) * (W / 2);
     this._route(g, c, L2.len, L2.marks, [-6, 0, 6], toY, toX, W);
-    for (const [id, s] of Object.entries(SPOTS)) if (s.level === 'level02' && isFound(id)) this._cardMark(g, toX(s.x), toY(s.z), id);
-    if (daily.spot.level === 'level02' && !daily.found) this._daily(g, mid, toY(daily.spot.z), 28, pulse);
-    if (daily.found && daily.spot.level === 'level02') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
+    if (daily.spot.level === 'level02' && !daily.taken) this._daily(g, mid, toY(daily.spot.z), 28, pulse);
+    if (daily.taken && daily.spot.level === 'level02') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 
   _falls(g, c, daily, pulse) {
@@ -213,9 +211,8 @@ export class GameMap {
       g.fillStyle = INK;
       g.fillText(p.label, x, y + (p.kind === 'falls' ? -12 : p.kind === 'shrine' ? 16 : 0));
     }
-    for (const [id, s] of Object.entries(SPOTS)) if (s.level === 'level03' && isFound(id)) this._cardMark(g, toX(s.x), toY(s.z), id);
-    if (daily.spot.level === 'level03' && !daily.found) this._daily(g, toX(daily.spot.x), toY(daily.spot.z), 7 * k, pulse);
-    if (daily.found && daily.spot.level === 'level03') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
+    if (daily.spot.level === 'level03' && !daily.taken) this._daily(g, toX(daily.spot.x), toY(daily.spot.z), 7 * k, pulse);
+    if (daily.taken && daily.spot.level === 'level03') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 }
 

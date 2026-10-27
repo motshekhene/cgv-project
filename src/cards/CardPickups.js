@@ -14,7 +14,7 @@ import { hint } from '../audio/voice.js';
  *   this.cards.update(dt, playerPosition, radius);   // every frame
  *   this.cards.dispose();                              // teardown (the root's dispose frees the meshes)
  */
-const GLOW = { 1: 0x9fd8a0, 2: 0x8fd0ff, 3: 0xffd36a };
+const GLOW = { 1: 0x9fd8a0, 2: 0xc89cff, 3: 0xffd36a };
 const _v = new THREE.Vector3();
 
 function glowTexture() {
@@ -71,7 +71,8 @@ export class CardPickups {
       if (Math.hypot(_v.x, _v.z) < radius && Math.abs(_v.y) < 2.6) {
         it.taken = true;
         it.group.visible = false;
-        if (collect(it.card.id)) showCardReveal(it.card, it.daily);
+        const got = collect(it.card.id);
+        if (got) showCardReveal(it.card, got === 'again');
       }
     }
   }
@@ -86,8 +87,8 @@ export class CardPickups {
 let revealEl = null;
 let revealTimer = 0;
 
-/** NEW CARD! — the card flips up to the middle of the screen, then away. */
-export function showCardReveal(card, daily = false) {
+/** NEW CARD! — the card flips up to the middle of the screen, then away. `again`: one already in the album. */
+export function showCardReveal(card, again = false) {
   if (typeof document === 'undefined') return;
   if (!document.getElementById('card-reveal-css')) {
     const st = document.createElement('style');
@@ -106,10 +107,9 @@ export function showCardReveal(card, daily = false) {
   clearTimeout(revealTimer);
   const el = document.createElement('div');
   el.className = 'cr';
-  const legendary = card.rarity >= 3;
-  el.style.setProperty('--glow', legendary ? '#ffd36a' : '#8fe8ff');
-  const title = legendary ? (daily ? 'TODAY’S SPIRIT!' : 'LEGENDARY!') : 'NEW CARD!';
-  el.innerHTML = `<b>${title}</b><img alt="${card.name}" src="${cardCanvas(card).toDataURL()}"><small>${card.name} · ${foundCount()} / ${CARDS.length} SPIRIT CARDS</small>`;
+  el.style.setProperty('--glow', card.rarity >= 3 ? '#ffd36a' : card.rarity === 2 ? '#c89cff' : '#8fe8ff');
+  const title = again ? 'ALREADY IN YOUR ALBUM' : card.rarity >= 3 ? 'LEGENDARY CARD!' : card.rarity === 2 ? 'RARE CARD!' : 'NEW CARD!';
+  el.innerHTML = `<b>${title}</b><img alt="${card.name}" src="${cardCanvas(card).toDataURL()}"><small>${card.name} · ${foundCount()} / ${CARDS.length} SPIRIT CARDS · A NEW ONE HIDES TOMORROW</small>`;
   document.body.appendChild(el);
   revealEl = el;
   hint(`${title} ${card.name}.`);

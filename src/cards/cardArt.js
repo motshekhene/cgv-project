@@ -191,6 +191,94 @@ function art(g, kind, color, x, y, w, h) {
       g.beginPath(); g.moveTo(0, -20); g.lineTo(-22, 30); g.lineTo(-2, 26); g.lineTo(-16, 82); g.lineTo(26, 14); g.lineTo(6, 18); g.lineTo(22, -20); g.closePath(); g.fill();
       break;
     }
+    case 'eyes': {
+      g.fillStyle = '#050505';
+      g.beginPath(); g.ellipse(0, 0, 90, 60, 0, 0, Math.PI * 2); g.fill();
+      for (const side of [-1, 1]) {
+        const gr = g.createRadialGradient(side * 32, 0, 1, side * 32, 0, 22);
+        gr.addColorStop(0, '#fff6c0'); gr.addColorStop(0.5, '#ffb030'); gr.addColorStop(1, 'rgba(255,140,0,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(side * 32, 0, 22, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#050505'; g.beginPath(); g.ellipse(side * 32, 0, 3, 11, 0, 0, Math.PI * 2); g.fill();
+      }
+      break;
+    }
+    case 'butterfly': {
+      g.fillStyle = '#d8f0e8';
+      for (const side of [-1, 1]) {
+        g.beginPath(); g.ellipse(side * 34, -22, 34, 28, side * 0.5, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.ellipse(side * 26, 26, 22, 20, -side * 0.4, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = '#0c0c0c';
+      g.beginPath(); g.ellipse(0, 0, 6, 40, 0, 0, Math.PI * 2); g.fill();
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(0, -38); g.lineTo(-14, -60); g.moveTo(0, -38); g.lineTo(14, -60); g.stroke();
+      break;
+    }
+    case 'beetle': {
+      g.beginPath(); g.arc(40, -30, 34, 0, Math.PI * 2); g.fillStyle = '#5a3a1a'; g.fill(); // its ball
+      g.fillStyle = '#0c0c0c';
+      g.beginPath(); g.ellipse(-20, 20, 40, 28, 0.3, 0, Math.PI * 2); g.fill();
+      g.lineWidth = 5;
+      for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(-30 + i * 18, 40); g.lineTo(-40 + i * 22, 66); g.stroke(); }
+      break;
+    }
+    case 'snake': {
+      g.lineWidth = 20;
+      g.beginPath();
+      g.moveTo(-80, 50); g.bezierCurveTo(-40, -10, 0, 80, 30, 10); g.bezierCurveTo(50, -40, 80, -10, 70, -50);
+      g.stroke();
+      g.beginPath(); g.ellipse(72, -56, 16, 11, -0.6, 0, Math.PI * 2); g.fill();
+      break;
+    }
+    case 'paw': {
+      g.beginPath(); g.ellipse(0, 20, 34, 30, 0, 0, Math.PI * 2); g.fill();
+      for (const [x, y] of [[-40, -26], [-14, -46], [14, -46], [40, -26]]) { g.beginPath(); g.ellipse(x, y, 13, 17, 0, 0, Math.PI * 2); g.fill(); }
+      break;
+    }
+    case 'leaf': {
+      g.beginPath(); g.moveTo(0, 80); g.bezierCurveTo(-90, 20, -40, -70, 0, -86); g.bezierCurveTo(40, -70, 90, 20, 0, 80); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(0, 80); g.lineTo(0, -80);
+      for (let i = -60; i < 60; i += 22) { g.moveTo(0, i); g.lineTo(-30, i - 18); g.moveTo(0, i); g.lineTo(30, i - 18); }
+      g.stroke();
+      break;
+    }
+    case 'mushroom': {
+      g.fillStyle = '#c8ffd0';
+      g.shadowColor = '#8affb8'; g.shadowBlur = 20;
+      g.beginPath(); g.ellipse(0, -10, 70, 40, 0, Math.PI, 0); g.fill();
+      g.shadowBlur = 0;
+      g.fillStyle = '#e8f0e0';
+      g.fillRect(-14, -10, 28, 70);
+      break;
+    }
+    case 'feather': {
+      g.fillStyle = '#1a1a24';
+      g.beginPath(); g.moveTo(-50, 80); g.bezierCurveTo(-60, 0, 0, -80, 50, -84); g.bezierCurveTo(40, -20, 0, 40, -50, 80); g.fill();
+      g.fillStyle = '#e8e8f0';
+      for (let i = 0; i < 14; i++) { g.beginPath(); g.arc(-30 + (i % 4) * 16 + (i / 4) * 8, 40 - Math.floor(i / 4) * 30 - (i % 4) * 6, 3, 0, Math.PI * 2); g.fill(); }
+      break;
+    }
+    case 'drum': {
+      g.beginPath(); g.moveTo(-50, -50); g.lineTo(50, -50); g.lineTo(30, 70); g.lineTo(-30, 70); g.closePath(); g.fill();
+      g.fillStyle = '#c8b090'; g.beginPath(); g.ellipse(0, -50, 50, 14, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#c8b090'; g.lineWidth = 2;
+      for (let i = -40; i <= 40; i += 16) { g.beginPath(); g.moveTo(i, -44); g.lineTo(i * 0.6, 66); g.stroke(); }
+      break;
+    }
+    case 'stone': {
+      for (const [y, w] of [[50, 70], [16, 54], [-14, 40], [-40, 26]]) { g.beginPath(); g.ellipse(0, y, w, 16, 0, 0, Math.PI * 2); g.fill(); }
+      break;
+    }
+    case 'moon': {
+      g.fillStyle = '#f4f0dc';
+      g.shadowColor = '#f4f0dc'; g.shadowBlur = 24;
+      g.beginPath(); g.arc(0, 0, 56, 0, Math.PI * 2); g.fill();
+      g.shadowBlur = 0;
+      g.fillStyle = 'rgba(0,0,0,.12)';
+      for (const [x, y, r] of [[-18, -14, 12], [20, 10, 9], [-6, 26, 7]]) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+      break;
+    }
     default:
       g.beginPath(); g.arc(0, 0, 40, 0, Math.PI * 2); g.fill();
   }

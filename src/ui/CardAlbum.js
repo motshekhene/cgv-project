@@ -1,20 +1,19 @@
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
-import { CARDS, SPOTS, isFound, foundCount, todaysSpirit } from '../cards/cards.js';
+import { CARDS, isFound, foundCount, todaysCard, RARITY_NAME } from '../cards/cards.js';
 import { cardCanvas, cardBackCanvas } from '../cards/cardArt.js';
 
 /**
- * CARDS on the main menu: the spirit card album. Every card in the game in
- * order, the found ones face up, the rest face down with the level they hide
- * in (so you know where to go back to), and at the top today's spirit and its
- * riddle. Click a found card to see it big.
+ * SPIRIT CARDS on the main menu: the album. Every card in the game, common
+ * to legendary, the found ones face up and the rest face down with their
+ * rarity; at the top, today's card: its riddle, or that it's been found and
+ * a new one hides tomorrow. Click a found card to see it big.
  *
  *   const album = new CardAlbum({ onMap: () => map.open() });
  *   album.open();
  *
  * Esc, Backspace or BACK closes it; it keeps every key to itself while open.
  */
-const LEVEL_NAME = { level01: 'LEVEL 1', level02: 'LEVEL 2', level03: 'LEVEL 3' };
 
 const CSS = THEME_CSS + `
 .ca { position:fixed; inset:0; z-index:9700; display:flex; align-items:center; justify-content:center; font-family:var(--sans); color:var(--ink);
@@ -64,26 +63,26 @@ export class CardAlbum {
   }
 
   _render() {
-    const daily = todaysSpirit();
+    const today = todaysCard();
     const back = cardBackCanvas().toDataURL();
     const cards = CARDS.map((c) => {
       const found = isFound(c.id);
-      const where = c.daily ? 'DAILY' : LEVEL_NAME[SPOTS[c.id]?.level] || '';
       return `<div class="ca-card ${found ? 'found' : 'missing'}" data-id="${c.id}">
         <img alt="${found ? c.name : 'not found yet'}" src="${found ? cardCanvas(c).toDataURL() : back}">
-        ${found ? '' : `<span>${where}</span>`}
+        ${found ? '' : `<span>${RARITY_NAME[c.rarity]}</span>`}
       </div>`;
     }).join('');
+    const kind = RARITY_NAME[today.card.rarity];
     this.el.innerHTML = `
       <div class="ca-in plaque">
         <h2>SPIRIT CARDS</h2>
-        <div class="ca-count">${foundCount()} of ${CARDS.length} found · run through a card in any level to keep it</div>
+        <div class="ca-count">${foundCount()} of ${CARDS.length} found \u00b7 one card hides in the game each day: rare ones about one day in six, legendary about one in thirty</div>
         <div class="ca-daily">
-          <img alt="" src="${daily.found ? cardCanvas(daily.card).toDataURL() : back}">
+          <img alt="" src="${today.taken ? cardCanvas(today.card).toDataURL() : back}">
           <div>
-            <b>TODAY’S SPIRIT ${daily.found ? '· FOUND ✓' : ''}</b>
-            <p>“${daily.riddle}”</p>
-            ${this.onMap ? '<a data-map>SEE IT ON THE MAP →</a>' : ''}
+            ${today.taken
+              ? `<b>TODAY\u2019S CARD \u00b7 FOUND \u2713</b><p>${today.card.name}. A new card hides somewhere tomorrow.</p>`
+              : `<b>TODAY\u2019S CARD \u00b7 A ${kind} CARD IS HIDING</b><p>\u201C${today.riddle}\u201D</p>${this.onMap ? '<a data-map>SEE THE AREA ON THE MAP \u2192</a>' : ''}`}
           </div>
         </div>
         <div class="ca-grid">${cards}</div>
