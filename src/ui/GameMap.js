@@ -11,31 +11,43 @@ import { VALLEY, LANDMARKS, WALK_PTS } from '../levels/prologue/places.js';
  * above. There is no riddle and no marked spot here: today's spirit card is
  * hinted at only in the game (cards/cards.js), and this is where you work out
  * where those words point. Today's card is marked once you've found it.
+ * Every place is a round picture of it, taken in the game
+ * (public/assets/guide/); point at one (or tap it) to see it big.
  *
  *   const map = new GameMap();  map.open();
  */
 const GOLD = '#e3bb62', INK = '#efe4c8', DIM = 'rgba(239,228,200,.55)', DAILY = '#ffd36a';
 
+// [metres along, name, picture]
 const L1 = {
   len: 4460, lanes: [-2.4, 0, 2.4],
   marks: [
-    [0, 'THE STONE'], [720, 'THE FORK'], [1010, 'DARK SHRINE'], [1318, 'FALLING BRIDGE'], [1465, 'THE GUARDIAN'],
-    [2950, 'HIGH RUINS'], [4350, 'THE GATE'], [4460, 'THE CAMP'],
+    [0, 'THE STONE', 'p-stone'], [720, 'THE FORK', 'l1-fork'], [1010, 'DARK SHRINE', 'l1-darkshrine'],
+    [1318, 'FALLING BRIDGE', 'l1-bridge'], [1465, 'THE GUARDIAN', 'l1-guardian'],
+    [2950, 'HIGH RUINS', 'l1-ruins'], [4350, 'THE GATE', 'l1-gate'], [4460, 'THE CAMP', 'l1-camp'],
   ],
 };
 const L2 = {
   len: 8100,
-  marks: [[0, 'THE TRAILHEAD'], [4700, 'BARRICADES'], [5900, 'BARRICADES'], [6950, 'BARRICADES'], [8100, 'THE FALLS']],
+  marks: [[0, 'THE TRAILHEAD', 'l2-road'], [4700, 'BARRICADES', 'l2-barricade'], [5900, 'BARRICADES', 'l2-barricade'],
+    [6950, 'BARRICADES', 'l2-barricade'], [8100, 'THE FALLS', 'l3-falls']],
+};
+
+// the pictures, loaded once (public/assets/guide/)
+const PICS = {};
+const pic = (name) => {
+  if (!PICS[name]) { PICS[name] = new Image(); PICS[name].src = `./assets/guide/${name}.jpg`; }
+  return PICS[name];
 };
 const L3 = {
   x0: -34, x1: 34, z0: -40, z1: 34,
   places: [
-    { x: -7, z: -28, r: 11, kind: 'pool', label: 'THE POOL' },
-    { x: -7, z: -36, r: 0, kind: 'falls', label: 'THE FALLS' },
-    { x: 0, z: 0, r: 13, kind: 'yard', label: 'COURTYARD' },
-    { x: -25.5, z: 9.5, r: 2.5, kind: 'shrine', label: 'STAG SHRINE', color: '#8affb8' },
-    { x: 25, z: 10.5, r: 2.5, kind: 'shrine', label: 'FOX SHRINE', color: '#8fd0ff' },
-    { x: -2.5, z: 27.5, r: 2.5, kind: 'shrine', label: 'EMBER SHRINE', color: '#ffb347' },
+    { x: -7, z: -28, r: 11, kind: 'pool', label: 'THE POOL', pic: 'l3-falls' },
+    { x: -7, z: -36, r: 0, kind: 'falls', label: 'THE FALLS', pic: 'l3-falls' },
+    { x: 0, z: 0, r: 13, kind: 'yard', label: 'COURTYARD', pic: 'l3-yard' },
+    { x: -25.5, z: 9.5, r: 2.5, kind: 'shrine', label: 'STAG SHRINE', color: '#8affb8', pic: 'l3-stag' },
+    { x: 25, z: 10.5, r: 2.5, kind: 'shrine', label: 'FOX SHRINE', color: '#8fd0ff', pic: 'l3-fox' },
+    { x: -2.5, z: 27.5, r: 2.5, kind: 'shrine', label: 'EMBER SHRINE', color: '#ffb347', pic: 'l3-ember' },
   ],
 };
 
@@ -44,7 +56,7 @@ const CSS = THEME_CSS + `
   visibility:hidden; opacity:0; pointer-events:none; transition:opacity .2s ease, visibility 0s linear .2s; }
 .gm.show { visibility:visible; opacity:1; pointer-events:auto; transition:opacity .2s ease; }
 .gm::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(10,12,8,.72), rgba(4,5,3,.96)); backdrop-filter:blur(3px); }
-.gm-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; width:min(980px, 96vw); max-height:calc(100vh - 24px); overflow-y:auto; padding:16px 20px 12px; text-align:center; }
+.gm-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; width:min(980px, 96vw); max-height:calc(100vh - 24px); overflow-y:auto; overflow-x:hidden; padding:16px 20px 12px; text-align:center; }
 .gm h2 { margin:0; font-family:${DIALOGUE_FONT}; font-weight:600; font-size:clamp(24px, 3.6vw, 36px); letter-spacing:.32em; text-indent:.32em; color:var(--gold); text-shadow:0 2px 0 #000; }
 .gm-riddle { margin:6px auto 10px; max-width:760px; font:italic 16px ${DIALOGUE_FONT}; color:var(--ink); }
 .gm-riddle b { font:700 11px var(--sans); letter-spacing:.24em; color:#ffd36a; font-style:normal; margin-right:6px; }
@@ -53,6 +65,12 @@ const CSS = THEME_CSS + `
 .gm-panel h3 { margin:0 0 6px; font:700 11px var(--sans); letter-spacing:.28em; color:var(--gold); }
 .gm-panel canvas { width:100%; border:1px solid rgba(227,187,98,.4); border-radius:4px; background:radial-gradient(ellipse at 40% 35%, rgba(52,44,30,.92), rgba(20,17,12,.94)); }
 .gm-key { margin-top:8px; font:12px var(--sans); color:var(--ink-dim); letter-spacing:.08em; }
+.gm-panel canvas.over { cursor:pointer; }
+.gm-pop { position:absolute; z-index:2; width:300px; pointer-events:none; border:1px solid var(--gold); border-radius:4px; overflow:hidden;
+  background:#0c0e09; box-shadow:0 10px 30px rgba(0,0,0,.7); opacity:0; transition:opacity .12s; }
+.gm-pop.show { opacity:1; }
+.gm-pop img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
+.gm-pop span { display:block; padding:6px 10px; font:700 12px var(--sans); letter-spacing:.2em; color:var(--gold); text-align:left; }
 .gm-back { display:inline-block; margin-top:10px; padding:7px 28px; cursor:pointer; font:600 13px ${DIALOGUE_FONT}; letter-spacing:.3em; color:var(--gold); border:1px solid var(--line); border-radius:2px; background:rgba(227,187,98,.08); }
 `;
 
@@ -87,12 +105,42 @@ export class GameMap {
           <div class="gm-panel"><h3>LEVEL 2 · THE RIVER ROAD</h3><canvas data-l="2" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 3 · THE FALLS</h3><canvas data-l="3" width="300" height="520"></canvas></div>
         </div>
-        <div class="gm-key">◆ today’s card, where you found it</div>
+        <div class="gm-key">point at a place (or tap it) to see it \u00b7 ◆ today’s card, where you found it</div>
+        <div class="gm-pop"><img alt=""><span></span></div>
         <div class="gm-back" data-back>BACK</div>
       </div>`;
     this.el.querySelector('[data-back]').addEventListener('click', () => this.close());
     this.el.addEventListener('click', (e) => { if (e.target === this.el) this.close(); });
     this.canvases = [...this.el.querySelectorAll('canvas')];
+    this._spots = new Map();
+    this._hover = null;
+    const pop = this.el.querySelector('.gm-pop'), box = this.el.querySelector('.gm-in');
+    const point = (c, e) => {
+      const rc = c.getBoundingClientRect();
+      const mx = (e.clientX - rc.left) * (c.width / rc.width), my = (e.clientY - rc.top) * (c.height / rc.height);
+      let best = null, bd = 18 * 18;
+      for (const s of this._spots.get(c) || []) {
+        const d = (s.x - mx) ** 2 + (s.y - my) ** 2;
+        if (d < bd) { bd = d; best = s; }
+      }
+      this._hover = best && { c, label: best.label };
+      c.classList.toggle('over', !!best);
+      if (!best) { pop.classList.remove('show'); return; }
+      pop.querySelector('img').src = pic(best.pic).src;
+      pop.querySelector('span').textContent = best.label;
+      // beside the place, inside the map's box
+      const rb = box.getBoundingClientRect();
+      let left = e.clientX - rb.left + box.scrollLeft + 18, top = e.clientY - rb.top + box.scrollTop - 90;
+      if (left + 300 > box.clientWidth) left -= 336;
+      top = Math.max(box.scrollTop + 4, Math.min(top, box.scrollTop + box.clientHeight - 210));
+      pop.style.left = `${left}px`; pop.style.top = `${top}px`;
+      pop.classList.add('show');
+    };
+    for (const c of this.canvases) {
+      c.addEventListener('pointermove', (e) => point(c, e));
+      c.addEventListener('pointerdown', (e) => point(c, e));
+      c.addEventListener('pointerleave', () => { this._hover = null; c.classList.remove('over'); pop.classList.remove('show'); });
+    }
     this.el.classList.add('show');
     const loop = (t) => {
       if (!this.el.classList.contains('show')) return;
@@ -112,6 +160,8 @@ export class GameMap {
     const pulse = 0.5 + 0.5 * Math.sin(time * 3);
     for (const c of this.canvases) {
       const g = c.getContext('2d');
+      this._spots.set(c, []);
+      this._c = c;
       g.clearRect(0, 0, c.width, c.height);
       const l = c.dataset.l;
       if (l === '0') this._valley(g, c, daily);
@@ -132,17 +182,45 @@ export class GameMap {
     for (const lx of lanesX) { g.beginPath(); g.moveTo(toX(lx), top); g.lineTo(toX(lx), bot); g.stroke(); }
     g.font = `11px ${DIALOGUE_FONT}`;
     g.textBaseline = 'middle';
-    for (const [d, label] of marks) {
+    // names on the right, pushed apart where places sit close together, a line back to the road
+    const ly = [];
+    marks.forEach(([d], i) => { ly[i] = Math.max(toY(d), i ? ly[i - 1] + 28 : -Infinity); });
+    for (let i = marks.length - 1; i >= 0; i--) ly[i] = Math.min(ly[i], i < marks.length - 1 ? ly[i + 1] - 28 : bot + 6);
+    const R = 17, right = c.width / 2 + roadW / 2;
+    marks.forEach(([d, label, name], i) => {
       const y = toY(d);
       g.fillStyle = GOLD;
       g.fillRect(c.width / 2 - roadW / 2 - 6, y - 1, roadW + 12, 2);
+      g.strokeStyle = 'rgba(227,187,98,.5)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(right + 6, y); g.lineTo(right + 14, ly[i]); g.stroke();
       g.fillStyle = INK;
-      g.textAlign = d % 2000 === 0 || label === 'THE CAMP' || label === 'THE FALLS' ? 'left' : 'left';
-      g.fillText(label, c.width / 2 + roadW / 2 + 10, y);
+      g.textAlign = 'left';
+      g.fillText(label, right + 18, ly[i] - 5);
       g.fillStyle = DIM;
-      g.textAlign = 'right';
-      g.fillText(`${(d / 1000).toFixed(1)} km`, c.width / 2 - roadW / 2 - 10, y);
+      g.fillText(`${(d / 1000).toFixed(1)} km`, right + 18, ly[i] + 7);
+      // its picture, left of the road; close neighbours stagger so none hide another
+      const px = c.width / 2 - roadW / 2 - R - 6 - (i % 2) * (R * 2 + 4);
+      g.beginPath(); g.moveTo(px + R, y); g.lineTo(c.width / 2 - roadW / 2 - 6, y); g.stroke();
+      this._pin(g, px, y, label, name, R);
+    });
+  }
+
+  /** A place as a round picture with a gold ring; remembered so pointing at it shows it big. */
+  _pin(g, x, y, label, name, r = 13) {
+    const img = pic(name);
+    const on = this._hover && this._hover.c === this._c && this._hover.label === label;
+    g.save();
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
+    g.fillStyle = '#1a1710'; g.fill();
+    if (img.complete && img.naturalWidth) {
+      g.clip();
+      const h = r * 2, w = h * (img.naturalWidth / img.naturalHeight);
+      g.drawImage(img, x - w / 2, y - h / 2, w, h);
     }
+    g.restore();
+    g.strokeStyle = on ? '#fff3c8' : GOLD; g.lineWidth = on ? 3 : 2;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
+    this._spots.get(this._c).push({ x, y, label, pic: name });
   }
 
   _cardMark(g, x, y, id) {
@@ -179,20 +257,15 @@ export class GameMap {
     g.beginPath(); g.moveTo(toX(0), toY(-94)); g.lineTo(toX(58), toY(-94)); g.stroke();
     g.fillStyle = DIM; g.fillText('TO THE OLD TRAIL \u2192', toX(44), toY(-98.5));
     // the camp and its fire, the stone in its glade
-    const spot = (x, z, color, label, dx = 0, dy = 13, align = 'center') => {
-      g.fillStyle = color; g.beginPath(); g.arc(toX(x), toY(z), 4.5, 0, Math.PI * 2); g.fill();
+    const spot = (x, z, name, label, dx = 0, dy = 20, align = 'center') => {
+      this._pin(g, toX(x), toY(z), label, name, 12);
       g.fillStyle = INK; g.textAlign = align; g.fillText(label, toX(x) + dx, toY(z) + dy); g.textAlign = 'center';
     };
-    spot(0, 8, '#ff9a3a', 'THE CAMP');
-    spot(0, -96.6, '#4fd6e0', 'THE STONE', 0, -12);
-    spot(0.5, -18.6, 'rgba(200,190,160,.9)', 'LAST CREW', -8, 0, 'right');
-    spot(-1.5, -27, 'rgba(200,200,190,.9)', 'STAG STATUE', -8, 0, 'right');
-    for (const L of LANDMARKS) {
-      g.strokeStyle = GOLD; g.lineWidth = 1.5;
-      g.beginPath(); g.arc(toX(L.x), toY(L.z), 5, 0, Math.PI * 2); g.stroke();
-      g.fillStyle = INK;
-      g.fillText(L.name, toX(L.x), toY(L.z) + 13);
-    }
+    spot(0, 8, 'p-camp', 'THE CAMP');
+    spot(0, -96.6, 'p-stone', 'THE STONE', 0, -19);
+    spot(-6.9, -18.6, 'p-crew', 'LAST CREW', -15, 0, 'right');
+    spot(5, -27, 'p-stag', 'STAG STATUE', -15, 0, 'right');
+    for (const L of LANDMARKS) spot(L.x, L.z, `p-${L.id}`, L.name);
     if (daily.taken && daily.spot.level === 'prologue') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 
@@ -230,8 +303,11 @@ export class GameMap {
       else if (p.kind === 'falls') { g.fillStyle = '#d8f4ff'; g.fillRect(x - 3.5 * k, y - 4, 7 * k, 8); }
       else if (p.kind === 'yard') { g.strokeStyle = GOLD; g.lineWidth = 2; g.beginPath(); g.arc(x, y, p.r * k, 0, Math.PI * 2); g.stroke(); }
       else { g.fillStyle = p.color; g.beginPath(); g.arc(x, y, p.r * k, 0, Math.PI * 2); g.fill(); }
+      // its picture: beside the pool, over the falls, at the middle of the rest
+      const ox = p.kind === 'pool' ? p.r * k + 16 : 0, oy = p.kind === 'falls' ? -2 : 0;
+      this._pin(g, x + ox, y + oy, p.label, p.pic, 15);
       g.fillStyle = INK;
-      g.fillText(p.label, x, y + (p.kind === 'falls' ? -12 : p.kind === 'shrine' ? 16 : 0));
+      g.fillText(p.label, x + ox, y + oy + (p.kind === 'falls' ? -23 : 24));
     }
     if (daily.taken && daily.spot.level === 'level03') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
