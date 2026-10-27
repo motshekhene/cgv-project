@@ -555,6 +555,9 @@ const LEVEL1_HUD_CSS = `
 .l1h-horn.full { color:#aaf6fb; text-shadow:0 0 8px #4fd6e0; animation:l1hHorn 1.1s ease-in-out infinite; }
 .l1h-hornbar { flex:1; height:4px; background:rgba(0,0,0,.55); border-radius:2px; overflow:hidden; box-shadow:0 0 0 1px rgba(0,0,0,.6); }
 .l1h-hornbar > div { height:100%; width:0; background:linear-gradient(90deg,#1f7f88,#7fe9f0); box-shadow:0 0 8px #4fd6e0; transition:width .25s ease-out; }
+.l1h-hornbar > .l1h-sprintfill { background:linear-gradient(90deg,#6f9a3a,#c9f08a); box-shadow:0 0 6px #9ed36a; transition:width .1s linear; }
+.l1h-hornbar > .l1h-sprintfill.locked { background:#7a4a30; box-shadow:none; }
+.l1h-sprint { color:var(--moss-hi); }
 @keyframes l1hHorn { 50% { filter:brightness(1.5); } }
 .l1h-player { position:relative; grid-column:1; justify-self:start; width:250px; max-width:100%; padding:5px 11px 7px; transition:border-color .3s; }
 .l1h-player.low { border-color:rgba(242,147,79,.75); }
@@ -2573,6 +2576,7 @@ export class Level01 extends Level {
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND ONE</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
+      <div class="l1h-row l1h-hornrow"><span class="l1h-horn l1h-sprint">SPRINT \u00b7 SHIFT</span><div class="l1h-hornbar"><div class="l1h-sprintfill" data-sprint-fill></div></div></div>
     `;
 
     const handlerPanel = document.createElement("div");
@@ -2698,6 +2702,7 @@ export class Level01 extends Level {
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
     this._hudHornLabel = stat.querySelector("[data-horn-label]");
     this._hudHornFill = stat.querySelector("[data-horn-fill]");
+    this._hudSprintFill = stat.querySelector("[data-sprint-fill]");
     this._hudHealthFill = stat.querySelector("[data-health-fill]");
     this._hudHealthFlash = stat.querySelector("[data-health-flash]");
     this._hudHealthText = stat.querySelector("[data-health-text]");
@@ -2880,6 +2885,10 @@ export class Level01 extends Level {
 
     if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
     if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
+    if (this._hudSprintFill && this.state) {
+      this._hudSprintFill.style.width = `${((this.state.stamina / this.state.maxStamina) * 100).toFixed(1)}%`;
+      this._hudSprintFill.classList.toggle("locked", !!this._boostLocked);
+    }
     if (this._hudHornFill) {
       const full = this._hornCharge >= 1;
       this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
@@ -4186,7 +4195,12 @@ export class Level01 extends Level {
     // say what the run is, once, as it starts
     if (!this._toldGoal && this._storyT > 0.6) {
       this._toldGoal = true;
-      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 EVERY HIT SLOWS YOU AND LETS HIM CLOSE IN", 3.6, { info: true });
+      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 HE\u2019S ALWAYS GAINING \u00b7 HOLD SHIFT TO SPRINT", 4.0, { info: true });
+    }
+    if (this.boosting) this._everBoosted = true;
+    if (!this._toldSprint && !this._everBoosted && this.gap > 0 && this.gap < 10 && !this.caught && this._storyT > 5) {
+      this._toldSprint = true;
+      this._showTransientBanner("HE\u2019S GAINING ON YOU \u00b7 HOLD SHIFT TO SPRINT AWAY", 2.8);
     }
     // the first time he gets close, say how close is too close
     if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 5) {
