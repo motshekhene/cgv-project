@@ -448,11 +448,9 @@ const REWARD_PICKUP_Z = 1.05;
 const REWARD_VISIBLE_AHEAD = 230;
 const REWARD_VISIBLE_BEHIND = 24;
 
-const JETPACK_PICKUPS = [
-  { z: -1668, lane: 1 },
-  { z: -2635, lane: 0 },
-  { z: -2965, lane: 2 }, // up the climb onto the high ruins
-];
+// No flying in Level 1 (playtest: it didn't fit a man running for his life
+// down a mountain). The flight code stays, with nothing to start it.
+const JETPACK_PICKUPS = [];
 const JETPACK_DURATION = 6.0;
 const JETPACK_HEIGHT = 6.2;
 const JETPACK_SAFE_LIFT = 2.5;
@@ -1997,6 +1995,10 @@ export class Level01 extends Level {
   _updateStoryLetters(dt, state, x, prevZ) {
     for (const letter of this._storyLetters) {
       if (letter.collected) continue;
+      if (!this._toldPages && letter.z < this.z && this.z - letter.z < 70) {
+        this._toldPages = true;
+        this._showTransientBanner("A TORN PAGE AHEAD \u00b7 RUN THROUGH IT TO PICK IT UP", 2.8, { info: true });
+      }
       letter.spin += dt * 2.4;
       letter.group.rotation.y = letter.spin;
       letter.group.position.y = jungleCourseHeight(letter.z) + 1.2 + Math.sin(letter.spin * 1.7) * 0.12;
@@ -2569,7 +2571,7 @@ export class Level01 extends Level {
     stat.innerHTML = `
       <div class="l1h-name">KAI <em><span data-reward-count>0</span> LIGHTS · <span data-reward-score>0</span></em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
-      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">THE WIND — FIND IT</span><span data-health-text>100 / 100</span></div>
+      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">HEALTH</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
     `;
 
@@ -2943,7 +2945,7 @@ export class Level01 extends Level {
         this._hudJetpack.textContent = "THE WIND — SETTING DOWN";
         this._hudJetpack.style.opacity = ".88";
       } else {
-        this._hudJetpack.textContent = "THE WIND — FIND IT";
+        this._hudJetpack.textContent = "HEALTH";
         this._hudJetpack.style.opacity = ".55";
       }
     }
@@ -3747,6 +3749,9 @@ export class Level01 extends Level {
 
   /** Kai has reached the bay: hand him and the camera to the finish scene. */
   _startFinale(x) {
+    // why there's a car: this is the logging company's camp at the foot of the
+    // mountain, and Kai is one of its guides (Baba Zwane got him the work)
+    kaiThinks("The company\u2019s camp. They always leave the keys in the crew car.");
     const vehicle = this.serviceVehicle;
     if (!vehicle) {
       this._showEscapedCard();
@@ -4209,12 +4214,7 @@ export class Level01 extends Level {
       this._toldClose = true;
       this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 IF THE GAP HITS 0 M, HE HAS YOU", 2.8);
     }
-    if (!this._saidStart && this._storyT > 4.6) { // after the goal has been read
-      this._saidStart = true;
-      kaiThinks("Every sound in the forest stopped when I took it.");
-      kaiThinks("And someone\u2019s on the trail behind me.");
-    }
-    if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 8) {
+    if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 40) { // well into the run, not on top of the start
       this._saidMarshal = true;
       // the camera glances back with him as he says it, so the player sees who he means
       kaiThinks("A company coat. A mask. Who sent him after me?", null, () => {
