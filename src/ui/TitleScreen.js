@@ -18,8 +18,8 @@ import { settings, onSettings } from '../core/settings.js';
  *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   the same H panel every level has
  *   CREDITS    every asset the team didn't make, with links (ui/CreditsMenu.js)
- *   SPIRIT CARDS  the card album, and today's spirit's riddle (ui/CardAlbum.js)
- *   MAP        the three levels' landmarks, found cards, today's spirit (ui/GameMap.js)
+ *   SPIRIT CARDS  the card album, and how rare today's hidden card is (ui/CardAlbum.js)
+ *   MAP        every landmark in the valley and the three levels (ui/GameMap.js)
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
  * main.js passes onStart(levelName), onOptions, onControls and onCredits.

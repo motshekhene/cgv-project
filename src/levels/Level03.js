@@ -27,6 +27,9 @@ import { loadRig } from '../player/rig.js';
 import { attachHorn, poseHorn, HORN_HAND } from '../intros/cast.js';
 import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
 import { CardPickups } from '../cards/CardPickups.js';
+import { clueFor } from '../cards/cards.js';
+import { createClueBoard } from '../cards/clueSign.js';
+import { kaiThinks } from '../ui/dialogue.js';
 
 /**
  * Level 03 — FIGHT, "The Falls".
@@ -337,6 +340,16 @@ export class Level03 extends Level {
     this.arena = new ShrineArena(this.root, scene);
     // the spirit cards hidden round the falls (cards/cards.js)
     this._cards = new CardPickups(this.root, 'level03', (spot) => new THREE.Vector3(spot.x, 1.3, spot.z));
+    // on some days the clue is carved on a stone tablet at the courtyard's edge
+    const carved = clueFor('sign:level03');
+    if (carved) {
+      const tablet = createClueBoard(carved, { stone: true, width: 2.6, height: 1.5, raise: 0.5 });
+      tablet.position.set(9.5, 0, 4);
+      tablet.rotation.y = -Math.PI / 2 + 0.4;
+      this.root.add(tablet);
+      this.arena.obstacles?.push({ x: 9.5, z: 4, r: 1.2 });
+    }
+    this._clueThought = clueFor('think:level03');
     this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
       loadRig(assets, 'kai-bryce', 'kai.fbx'),
@@ -808,6 +821,10 @@ export class Level03 extends Level {
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
     this._cards?.update(dt, kp, 1.2);
+    if (this._clueThought && fighting && (this._clueT3 = (this._clueT3 || 0) + dt) > 25) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
+    }
     this.gifts.setMarkersVisible(this.mode === 'FIGHT' && !this._ended);
     this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null, this.game.camera);
     if (fighting || this.mode === 'RISE') {

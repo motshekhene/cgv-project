@@ -1,8 +1,11 @@
 /**
  * SPIRIT CARDS — the collectible layer over the story: the forest's
  * creatures, places and spirits as trading cards. ONE card is out in the
- * world each day, hidden at one of the secret places in Level 1, 2 or 3,
- * and the main menu gives that day's riddle (the MAP circles the area).
+ * world each day, hidden at one of the secret places in the prologue's valley
+ * or Level 1, 2 or 3. Where it hides is only ever said IN the game: one line
+ * from Baba Zwane, one of Kai's thoughts, a sign or a carved tablet (CLUE_WAYS),
+ * naming landmarks but never the level. The MAP shows every landmark, so the
+ * player matches the clue to a place.
  * Find it and it's yours; then nothing more until tomorrow, when a new card
  * hides somewhere new. Most days it's a common card; a rare one turns up
  * about one day in six, a legendary about one day in thirty. Found cards are
@@ -12,8 +15,8 @@
  *   const today = todaysCard();          // { card, spot, riddle, found, taken }
  *   if (collect(today.card.id)) ...      // false if today's card is already taken
  *
- * Spots are in each level's own terms: Level 1 { z, lane } on the trail,
- * Level 2 { z, x } on the River Road, Level 3 { x, z } round the courtyard.
+ * Spots are in each level's own terms: the prologue and Level 3 { x, z },
+ * Level 1 { z, lane } on the trail, Level 2 { z, x } on the River Road.
  */
 
 // type: what the card's frame and art are coloured by
@@ -77,23 +80,37 @@ export const CARDS = [
 export const CARD = Object.fromEntries(CARDS.map((x) => [x.id, x]));
 export const RARITY_NAME = { 1: 'COMMON', 2: 'RARE', 3: 'LEGENDARY' };
 
-// the secret places, each with its riddle; one of them holds the day's card
+// The secret places one card a day can hide in. `clue` is how the forest's
+// lore names the place: it never says which level, only landmarks the MAP
+// shows, so a clue heard in one place can point somewhere else entirely.
 export const DAILY_SPOTS = [
-  { level: 'level01', z: -460, lane: 0, riddle: 'Not far below the stone, before the trail first splits, the left side of the trail.' },
-  { level: 'level01', z: -1240, lane: 2, riddle: 'Between the dark shrine and the bridge that falls away, the right side of the trail.' },
-  { level: 'level01', z: -1700, lane: 1, riddle: 'Just past where the stone stag charges, right down the middle of the trail.' },
-  { level: 'level01', z: -2400, lane: 2, riddle: 'Halfway between the guardian and the high ruins, keep to the right.' },
-  { level: 'level01', z: -3700, lane: 0, riddle: 'Past the high ruins, with the camp under a kilometre away, keep to the left edge.' },
-  { level: 'level02', z: 1300, x: -9, riddle: 'Early on the River Road, far left, before the first kilometre is out.' },
-  { level: 'level02', z: 3000, x: 9, riddle: 'On the River Road, about five kilometres before the falls, in the far right lane.' },
-  { level: 'level02', z: 4200, x: -3, riddle: 'On the River Road, just before the company’s first barricades, left of centre.' },
-  { level: 'level02', z: 5450, x: 9, riddle: 'Between the company’s first and second barricades on the River Road, keep to the far right.' },
-  { level: 'level02', z: 7600, x: -9, riddle: 'On the River Road, past the last barricades, with the falls in sight, far left.' },
-  { level: 'level03', x: -25, z: 2, riddle: 'At the falls, walk from the Stag’s shrine toward the courtyard. It waits on the way.' },
-  { level: 'level03', x: 7, z: 27, riddle: 'At the falls, beside the Ember’s shrine, on the side away from the pool.' },
-  { level: 'level03', x: 21, z: 4, riddle: 'At the falls, between the Fox’s shrine and the courtyard.' },
-  { level: 'level03', x: -7, z: -14, riddle: 'At the falls, at the edge of the pool, facing the water.' },
+  { level: 'prologue', x: -21, z: -8, clue: 'under the roots of the old fig' },
+  { level: 'prologue', x: 22, z: 6, clue: 'beside the crew\u2019s rusted truck' },
+  { level: 'prologue', x: 19, z: -30, clue: 'at the edge of the still forest pool' },
+  { level: 'prologue', x: -23, z: -53, clue: 'at the foot of lookout rock' },
+  { level: 'prologue', x: 20, z: -76, clue: 'by the roots of the fallen giant' },
+  { level: 'prologue', x: -22, z: -88, clue: 'inside the ruined hut\u2019s walls' },
+  { level: 'level01', z: -460, lane: 0, clue: 'on the left of the old trail, before it first forks' },
+  { level: 'level01', z: -1240, lane: 2, clue: 'on the right of the trail, between the dark shrine and the falling bridge' },
+  { level: 'level01', z: -1700, lane: 1, clue: 'in the middle of the trail, just past where the stone guardian charges' },
+  { level: 'level01', z: -3700, lane: 0, clue: 'on the left of the trail, past the high ruins, with the camp close' },
+  { level: 'level02', z: 1300, x: -9, clue: 'in the far left lane of the river road, before its first kilometre is out' },
+  { level: 'level02', z: 3000, x: 9, clue: 'in the far right lane of the river road, five kilometres short of the falls' },
+  { level: 'level02', z: 5450, x: 9, clue: 'far right on the river road, between the first and second barricades' },
+  { level: 'level02', z: 7600, x: -9, clue: 'far left on the river road, past the last barricades, with the falls in sight' },
+  { level: 'level03', x: -25, z: 2, clue: 'between the stag\u2019s shrine and the courtyard' },
+  { level: 'level03', x: 7, z: 27, clue: 'beside the ember\u2019s shrine, on the side away from the pool' },
+  { level: 'level03', x: 21, z: 4, clue: 'between the fox\u2019s shrine and the courtyard' },
+  { level: 'level03', x: -7, z: -14, clue: 'at the edge of the pool below the falls' },
 ];
+
+/**
+ * How today's clue reaches the player, chosen by the day (and never the
+ * menus): something Baba Zwane says at the fire, one of Kai's thoughts in a
+ * level, a sign painted on the trail, a board by the river road, or a stone
+ * tablet at the falls. Often not in the level the card is in.
+ */
+export const CLUE_WAYS = ['zwane', 'think:level01', 'think:level02', 'think:level03', 'sign:level01', 'sign:level02', 'sign:level03'];
 
 /* ---------------------------------------------------------------- the collection */
 const KEY = 'silent-horn.cards';
@@ -155,8 +172,9 @@ export function todaysCard() {
     if (!isFound(cand.id)) { card = cand; break; }
   }
   const spot = DAILY_SPOTS[Math.floor(luck(day, 3) * DAILY_SPOTS.length)];
+  const way = CLUE_WAYS[Math.floor(luck(day, 4) * CLUE_WAYS.length)];
   if (taken) card = taken;
-  return { card, spot, riddle: spot.riddle, day, taken: !!taken, found: isFound(card.id) };
+  return { card, spot, clue: spot.clue, way, day, taken: !!taken, found: isFound(card.id) };
 }
 
 /**
@@ -178,4 +196,17 @@ export function collect(id) {
 export function cardsForLevel(level) {
   const t = todaysCard();
   return t.spot.level === level && !t.taken ? [{ card: t.card, spot: t.spot, daily: true }] : [];
+}
+
+/** The clue said as a whole line, for whoever says it. */
+export function clueLine(way, clue) {
+  if (way === 'zwane') return `And Kai, the old people say the forest hides a little of its spirit somewhere every day. Today it sleeps ${clue}.`;
+  if (way.startsWith('think')) return `Baba Zwane\u2019s old saying: the forest hides its spirit somewhere every day. Today it sleeps ${clue}.`;
+  return `TODAY THE FOREST\u2019S SPIRIT SLEEPS ${clue.toUpperCase()}`;
+}
+
+/** Does today's clue come in `place` ('zwane', 'think:level02', 'sign:level01' ...)? Returns the line, or null. */
+export function clueFor(place) {
+  const t = todaysCard();
+  return t.way === place && !t.taken ? clueLine(t.way, t.clue) : null;
 }

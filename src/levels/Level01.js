@@ -4,6 +4,8 @@ import { renderChaseScore } from "../audio/chaseScore.js";
 import { makeWhistleBuffer } from "../audio/whistle.js";
 import { hint } from "../audio/voice.js";
 import { CardPickups } from "../cards/CardPickups.js";
+import { clueFor } from "../cards/cards.js";
+import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -1968,6 +1970,16 @@ export class Level01 extends Level {
   _buildCards() {
     this._cards = new CardPickups(this.root, "level01", (spot) =>
       new THREE.Vector3(LANE_X[spot.lane] + this._routeOffsetAt(spot.z, 0), jungleCourseHeight(spot.z) + 1.3, spot.z));
+    // on some days the clue is painted on a board at the side of the trail
+    const sign = clueFor("sign:level01");
+    if (sign) {
+      const board = createClueBoard(sign, { width: 3.6, height: 1.7 });
+      const z = -300;
+      board.position.set(LANE_X[0] - 4.2 + this._routeOffsetAt(z, 0), jungleCourseHeight(z), z);
+      board.rotation.y = 0.35; // turned to face the runner coming down the trail
+      this.root.add(board);
+    }
+    this._clueThought = clueFor("think:level01"); // or Kai remembers it, a while into the run
   }
 
   _buildStoryLetters() {
@@ -4223,6 +4235,10 @@ export class Level01 extends Level {
     if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 5) {
       this._toldClose = true;
       this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 IF THE GAP HITS 0 M, HE HAS YOU", 2.8);
+    }
+    if (this._clueThought && this._storyT > 70) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
     }
     if (!this._saidMarshal && state.handlerState === "CLOSING" && this._storyT > 40) { // well into the run, not on top of the start
       this._saidMarshal = true;

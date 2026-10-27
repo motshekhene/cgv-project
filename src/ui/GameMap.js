@@ -1,14 +1,16 @@
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
-import { CARD, todaysCard, dayNumber, RARITY_NAME } from '../cards/cards.js';
+import { CARD, todaysCard } from '../cards/cards.js';
+import { VALLEY, LANDMARKS, WALK_PTS } from '../levels/prologue/places.js';
 
 /**
- * MAP on the main menu: the whole game on one page, three panels drawn on
- * canvases. Level 1's trail from the stone down to the camp, Level 2's River
- * Road to the falls, and the courtyard at the falls from above, each with
- * its landmarks. Today's card is a pulsing gold circle round the area its
- * riddle points to (an area, not the exact spot: the riddle still has to be
- * read), and once it's found, a mark where it was.
+ * MAP on the main menu: the whole game on one page, four panels drawn on
+ * canvases, every landmark named: the prologue's valley (the camp, the old
+ * path, the stone, and the places off it), Level 1's trail down to the camp,
+ * Level 2's River Road to the falls, and the courtyard at the falls from
+ * above. There is no riddle and no marked spot here: today's spirit card is
+ * hinted at only in the game (cards/cards.js), and this is where you work out
+ * where those words point. Today's card is marked once you've found it.
  *
  *   const map = new GameMap();  map.open();
  */
@@ -46,8 +48,8 @@ const CSS = THEME_CSS + `
 .gm h2 { margin:0; font-family:${DIALOGUE_FONT}; font-weight:600; font-size:clamp(24px, 3.6vw, 36px); letter-spacing:.32em; text-indent:.32em; color:var(--gold); text-shadow:0 2px 0 #000; }
 .gm-riddle { margin:6px auto 10px; max-width:760px; font:italic 16px ${DIALOGUE_FONT}; color:var(--ink); }
 .gm-riddle b { font:700 11px var(--sans); letter-spacing:.24em; color:#ffd36a; font-style:normal; margin-right:6px; }
-.gm-panels { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-.gm-panel { flex:1 1 260px; max-width:310px; }
+.gm-panels { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.gm-panel { flex:1 1 200px; max-width:240px; }
 .gm-panel h3 { margin:0 0 6px; font:700 11px var(--sans); letter-spacing:.28em; color:var(--gold); }
 .gm-panel canvas { width:100%; border:1px solid rgba(227,187,98,.4); border-radius:4px; background:radial-gradient(ellipse at 40% 35%, rgba(52,44,30,.92), rgba(20,17,12,.94)); }
 .gm-key { margin-top:8px; font:12px var(--sans); color:var(--ink-dim); letter-spacing:.08em; }
@@ -78,13 +80,16 @@ export class GameMap {
     this.el.innerHTML = `
       <div class="gm-in plaque">
         <h2>THE MAP</h2>
-        <div class="gm-riddle"><b>TODAY’S CARD${d.taken ? ' · FOUND ✓' : ` · ${RARITY_NAME[d.card.rarity]}`}</b>${d.taken ? 'Found. A new card hides somewhere tomorrow.' : `“${d.riddle}”`}</div>
+        <div class="gm-riddle">${d.taken
+          ? `<b>TODAY’S CARD · FOUND ✓</b>${d.card.name}, marked where you found it. A new one hides tomorrow.`
+          : 'Somewhere in the game today, the forest says where its spirit sleeps: in what Baba Zwane or Kai say, or written by a path. Find the place here.'}</div>
         <div class="gm-panels">
+          <div class="gm-panel"><h3>PROLOGUE · THE VALLEY</h3><canvas data-l="0" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 1 · THE OLD TRAIL</h3><canvas data-l="1" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 2 · THE RIVER ROAD</h3><canvas data-l="2" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 3 · THE FALLS</h3><canvas data-l="3" width="300" height="520"></canvas></div>
         </div>
-        <div class="gm-key">○ gold circle: the area today’s card is hiding in (the riddle tells you exactly where) &nbsp; ◆ where you found it</div>
+        <div class="gm-key">◆ today’s card, where you found it</div>
         <div class="gm-back" data-back>BACK</div>
       </div>`;
     this.el.querySelector('[data-back]').addEventListener('click', () => this.close());
@@ -111,7 +116,8 @@ export class GameMap {
       const g = c.getContext('2d');
       g.clearRect(0, 0, c.width, c.height);
       const l = c.dataset.l;
-      if (l === '1') this._trail(g, c, daily, pulse);
+      if (l === '0') this._valley(g, c, daily);
+      else if (l === '1') this._trail(g, c, daily, pulse);
       else if (l === '2') this._road(g, c, daily, pulse);
       else this._falls(g, c, daily, pulse);
     }
@@ -152,24 +158,44 @@ export class GameMap {
     g.restore();
   }
 
-  /** The gold circle round today's spirit: centred near it, not on it. */
-  _daily(g, x, y, r, pulse) {
-    const n = dayNumber();
-    const ox = Math.sin(n * 12.9898) * r * 0.45, oy = Math.cos(n * 78.233) * r * 0.45;
-    g.strokeStyle = DAILY;
-    g.lineWidth = 2;
-    g.globalAlpha = 0.5 + 0.5 * pulse;
-    g.setLineDash([5, 4]);
-    g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.stroke();
-    g.setLineDash([]);
-    g.globalAlpha = 0.12 + 0.12 * pulse;
-    g.fillStyle = DAILY;
-    g.fill();
-    g.globalAlpha = 1;
-    g.fillStyle = DAILY;
-    g.font = `700 16px ${DIALOGUE_FONT}`;
+  /** The prologue's valley from above: the camp, the old path to the stone, the trail out east, and the places off it. */
+  _valley(g, c, daily) {
+    const pad = 16;
+    const x0 = VALLEY.x0, x1 = 58, z0 = VALLEY.z0, z1 = VALLEY.z1;
+    const k = Math.min((c.width - pad * 2) / (x1 - x0), (c.height - pad * 2) / (z1 - z0));
+    const toX = (x) => pad + (x - x0) * k;
+    const toY = (z) => pad + (z - z0) * k;
+    g.font = `11px ${DIALOGUE_FONT}`;
     g.textAlign = 'center';
-    g.fillText('?', x + ox, y + oy);
+    g.textBaseline = 'middle';
+    // the forest, and the valley's edge
+    g.fillStyle = 'rgba(111,191,74,.18)';
+    g.fillRect(toX(VALLEY.x0), toY(VALLEY.z0), (VALLEY.x1 - VALLEY.x0) * k, (VALLEY.z1 - VALLEY.z0) * k);
+    // the old path, the trail east from the stone
+    g.strokeStyle = 'rgba(227,187,98,.75)';
+    g.lineWidth = 4;
+    g.lineCap = g.lineJoin = 'round';
+    g.beginPath();
+    WALK_PTS.forEach(([x, z], i) => (i ? g.lineTo(toX(x), toY(z)) : g.moveTo(toX(x), toY(z))));
+    g.stroke();
+    g.beginPath(); g.moveTo(toX(0), toY(-94)); g.lineTo(toX(58), toY(-94)); g.stroke();
+    g.fillStyle = DIM; g.fillText('TO THE OLD TRAIL \u2192', toX(44), toY(-98.5));
+    // the camp and its fire, the stone in its glade
+    const spot = (x, z, color, label, dx = 0, dy = 13, align = 'center') => {
+      g.fillStyle = color; g.beginPath(); g.arc(toX(x), toY(z), 4.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = INK; g.textAlign = align; g.fillText(label, toX(x) + dx, toY(z) + dy); g.textAlign = 'center';
+    };
+    spot(0, 8, '#ff9a3a', 'THE CAMP');
+    spot(0, -96.6, '#4fd6e0', 'THE STONE', 0, -12);
+    spot(0.5, -18.6, 'rgba(200,190,160,.9)', 'LAST CREW', -8, 0, 'right');
+    spot(-1.5, -27, 'rgba(200,200,190,.9)', 'STAG STATUE', 8, 0, 'left');
+    for (const L of LANDMARKS) {
+      g.strokeStyle = GOLD; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(toX(L.x), toY(L.z), 5, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = INK;
+      g.fillText(L.name, toX(L.x), toY(L.z) + 13);
+    }
+    if (daily.taken && daily.spot.level === 'prologue') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 
   _trail(g, c, daily, pulse) {
@@ -177,7 +203,6 @@ export class GameMap {
     const toY = (d) => top + (d / L1.len) * (bot - top);
     const toX = (lx) => mid + (lx / 3.6) * (W / 2);
     this._route(g, c, L1.len, L1.marks, L1.lanes, toY, toX, W);
-    if (daily.spot.level === 'level01' && !daily.taken) this._daily(g, mid, toY(-daily.spot.z), 26, pulse);
     if (daily.taken && daily.spot.level === 'level01') this._cardMark(g, toX(LANE(daily.spot.lane)), toY(-daily.spot.z), daily.card.id);
   }
 
@@ -186,7 +211,6 @@ export class GameMap {
     const toY = (d) => top + (d / L2.len) * (bot - top);
     const toX = (x) => mid + (x / 12) * (W / 2);
     this._route(g, c, L2.len, L2.marks, [-6, 0, 6], toY, toX, W);
-    if (daily.spot.level === 'level02' && !daily.taken) this._daily(g, mid, toY(daily.spot.z), 28, pulse);
     if (daily.taken && daily.spot.level === 'level02') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 
@@ -211,7 +235,6 @@ export class GameMap {
       g.fillStyle = INK;
       g.fillText(p.label, x, y + (p.kind === 'falls' ? -12 : p.kind === 'shrine' ? 16 : 0));
     }
-    if (daily.spot.level === 'level03' && !daily.taken) this._daily(g, toX(daily.spot.x), toY(daily.spot.z), 7 * k, pulse);
     if (daily.taken && daily.spot.level === 'level03') this._cardMark(g, toX(daily.spot.x), toY(daily.spot.z), daily.card.id);
   }
 }

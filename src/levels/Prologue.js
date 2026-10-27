@@ -5,6 +5,7 @@ import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dia
 import { TrailMap } from '../ui/TrailMap.js';
 import { VALLEY, LANDMARKS, WALK_PTS, PATH_END_Z } from './prologue/places.js';
 import { CardPickups } from '../cards/CardPickups.js';
+import { clueFor } from '../cards/cards.js';
 import { createWaterMaterial } from '../shaders/water.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
@@ -996,6 +997,13 @@ export class Prologue extends Level {
     this._buildCreatures();
     this._buildFigures(cast);
     this._buildHud();
+    // the conversation; on some days Baba Zwane adds the old saying, and with it today's clue
+    this.script = [...SCRIPT];
+    const said = clueFor('zwane');
+    if (said) this.script.splice(this.script.length - 1, 0, { who: 'BABA ZWANE', text: said });
+    // today's spirit card, if it sleeps somewhere in this valley (cards/cards.js)
+    this._cards = new CardPickups(this.root, 'prologue', (spot) => new THREE.Vector3(spot.x, 1.3, spot.z));
+    this._cardAt = new THREE.Vector3();
     // the old map of the way up, in the corner while he walks it (N: bigger)
     this.map = new TrailMap({
       path: this.walkPath,
@@ -2110,7 +2118,7 @@ export class Prologue extends Level {
   }
 
   _showLine(i) {
-    const line = SCRIPT[i];
+    const line = this.script[i];
     this.hud.subName.textContent = line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
@@ -2133,7 +2141,7 @@ export class Prologue extends Level {
 
   _nextLine() {
     this.scriptIndex++;
-    if (this.scriptIndex >= SCRIPT.length) {
+    if (this.scriptIndex >= this.script.length) {
       // the conversation is over — the title has long faded, the fire is
       // lower, and Baba Zwane has one thing left to do before he goes
       this.hud.sub.style.opacity = '0';
@@ -2534,6 +2542,7 @@ export class Prologue extends Level {
     this._tickCreatures(dt);
     this._shake = Math.max(0, this._shake - dt * 0.6);
     if (this._poolMat) this._poolMat.uniforms.uTime.value = this.t; // the forest pool's ripples
+    if (this._cards && this.standing) this._cards.update(dt, this._cardAt.set(this.px, 0.6, this.pz), 1.2);
 
     // the forest is alive until the horn comes off the stone
     this.sfx.tickForest(dt);

@@ -6,8 +6,8 @@ import { cardCanvas, cardBackCanvas } from '../cards/cardArt.js';
 /**
  * SPIRIT CARDS on the main menu: the album. Every card in the game, common
  * to legendary, the found ones face up and the rest face down with their
- * rarity; at the top, today's card: its riddle, or that it's been found and
- * a new one hides tomorrow. Click a found card to see it big.
+ * rarity; at the top, today's card: how rare it is (never where: that is
+ * only told in the game), or that it's been found and a new one hides tomorrow. Click a found card to see it big.
  *
  *   const album = new CardAlbum({ onMap: () => map.open() });
  *   album.open();
@@ -82,7 +82,7 @@ export class CardAlbum {
           <div>
             ${today.taken
               ? `<b>TODAY\u2019S CARD \u00b7 FOUND \u2713</b><p>${today.card.name}. A new card hides somewhere tomorrow.</p>`
-              : `<b>TODAY\u2019S CARD \u00b7 A ${kind} CARD IS HIDING</b><p>\u201C${today.riddle}\u201D</p>${this.onMap ? '<a data-map>SEE THE AREA ON THE MAP \u2192</a>' : ''}`}
+              : `<b>TODAY\u2019S CARD \u00b7 A ${kind} CARD IS HIDING</b><p>Where it sleeps is said somewhere in the game today: listen to Baba Zwane and Kai, and read the signs. Then find the place.</p>${this.onMap ? '<a data-map>OPEN THE MAP \u2192</a>' : ''}`}
           </div>
         </div>
         <div class="ca-grid">${cards}</div>

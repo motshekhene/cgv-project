@@ -31,6 +31,8 @@ import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
 import { hint } from '../audio/voice.js';
 import { CardPickups } from '../cards/CardPickups.js';
+import { clueFor } from '../cards/cards.js';
+import { createClueBoard } from '../cards/clueSign.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 import { Rain } from './level2/rain.js';
 import { isMuted, toggleMuted } from '../audio/masterMute.js';
@@ -356,6 +358,15 @@ export class Level02 extends Level {
     this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null), animals);
     // the spirit cards hidden along the road (cards/cards.js)
     this._cards = new CardPickups(this.root, 'level02', (spot) => new THREE.Vector3(spot.x, 1.7, spot.z));
+    // on some days the clue is on a board by the road, facing the oncoming car
+    const sign = clueFor('sign:level02');
+    if (sign) {
+      const board = createClueBoard(sign, { width: 5, height: 2.2, raise: 1.6 });
+      board.position.set(15.5, 0, 700);
+      board.rotation.y = Math.PI - 0.35;
+      this.root.add(board);
+    }
+    this._clueThought = clueFor('think:level02');
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -511,6 +522,11 @@ export class Level02 extends Level {
 
   update(dt, state) {
     dt = this._steady(dt);
+    // today's card clue, if Kai is the one who remembers it today
+    if (this._announced && this._clueThought && (this._clueT2 = (this._clueT2 || 0) + dt) > 75) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
+    }
     // A CLUE: how he drives. Once, well into the chase.
     if (this._announced && !this._clueSaid && (this._clueT = (this._clueT || 0) + dt) > 45) {
       this._clueSaid = true;
