@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Particles } from "../fx/Particles.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
@@ -310,7 +308,7 @@ const OBSTACLE_BEHIND = 30; // metres behind Kai a mesh stays drawn
 const OBSTACLE_AHEAD = 210; // ...and ahead, past the fog wall
 
 // --- the horn call (level1/hornCall.js) ---
-// The tokens fill the horn; full, Kai blows it on the run and the forest
+// The forest's lights (the glowing wisps on the trail) fill the horn; full, Kai blows it on the run and the forest
 // answers: everything on the trail HORN_REACH m ahead of him shatters, and
 // roots hold the Marshal where he stands for HORN_HOLD s (about 10-15 m of
 // ground, at his speed), then he breaks free and comes on again.
@@ -578,34 +576,6 @@ const LEVEL1_HUD_CSS = `
 /* the D-pad and action buttons are for touch screens: a mouse-and-keyboard player has the keys */
 @media (hover: hover) and (pointer: fine) { .l1h-touch { display:none !important; } }
 `;
-
-/**
- * The horn stamped on the coins: its curl as a flat shape, extruded a few
- * millimetres proud of the field on both faces (the coin's faces sit at z
- * +-0.026), so it catches the light as the coin turns.
- */
-function coinEmblemGeometry() {
-  const k = 0.0011; // the shape is drawn on a 260-wide grid
-  const sh = new THREE.Shape();
-  sh.moveTo(38, 168);
-  sh.bezierCurveTo(30, 104, 76, 42, 146, 40);
-  sh.bezierCurveTo(196, 39, 226, 72, 224, 112);
-  sh.bezierCurveTo(223, 138, 204, 154, 186, 150);
-  sh.bezierCurveTo(204, 138, 206, 112, 192, 94);
-  sh.bezierCurveTo(174, 72, 142, 66, 114, 78);
-  sh.bezierCurveTo(84, 92, 70, 124, 76, 168);
-  sh.closePath();
-  const front = new THREE.ExtrudeGeometry(sh, { depth: 8, bevelEnabled: true, bevelThickness: 2, bevelSize: 2, bevelSegments: 1, curveSegments: 10 });
-  front.translate(-131, -104, 0);
-  front.scale(k, -k, k);
-  front.translate(0, 0, 0.024);
-  const back = front.clone();
-  back.rotateY(Math.PI);
-  const merged = mergeGeometries([front, back]);
-  front.dispose();
-  back.dispose();
-  return merged;
-}
 
 const _flyQ = new THREE.Quaternion();
 const _flyQ2 = new THREE.Quaternion();
@@ -2188,35 +2158,66 @@ export class Level01 extends Level {
       }
     }
 
-    // The coins: struck gold, the horn on both faces. A lathe-turned body (a
-    // raised rim, a recessed field, a domed centre) and the horn in relief on
-    // each face, as two instanced meshes driven by the same matrices; a
-    // reflection map so the gold reads as metal and not as yellow plastic.
-    // Each instance's colour tints it: gold, or the rare high coins' teal.
-    const body = new THREE.LatheGeometry([
-      [0, 0.034], [0.085, 0.034], [0.095, 0.026], [0.19, 0.026], [0.205, 0.038], [0.25, 0.038],
-      [0.27, 0.026], [0.27, -0.026], [0.25, -0.038], [0.205, -0.038], [0.19, -0.026], [0.095, -0.026],
-      [0.085, -0.034], [0, -0.034],
-    ].map(([r, y]) => new THREE.Vector2(r, y)), 44);
-    body.rotateX(Math.PI / 2); // stood on edge, facing down the trail
-    const emblem = coinEmblemGeometry();
-    const metal = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.26, metalness: 0.9,
-      emissive: new THREE.Color(0x4a3000), emissiveIntensity: 0.45,
-      envMap: this._coinEnvMap(), envMapIntensity: 1.25,
+    // The forest's light: what the horn drinks. Each is a small glowing
+    // wisp, cyan like the horn (the only cyan in the game), so the player
+    // reads at once what feeds it: a bright core and a soft halo round it,
+    // two instanced meshes moved by the same matrices. The halo is our own
+    // shader: brightest at its middle, falling off toward its rim (the view
+    // direction against the sphere's normal), breathing with time. Its
+    // colour is over 1.0, so PostFX's bloom makes it glow. The rare high
+    // ones are paler, nearly white.
+    const body = new THREE.IcosahedronGeometry(0.075, 1);
+    const core = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const halo = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec3 vN;
+        varying vec3 vV;
+        varying vec3 vColor;
+        void main() {
+          mat4 m = modelMatrix;
+          #ifdef USE_INSTANCING
+            m = modelMatrix * instanceMatrix;
+          #endif
+          vColor = vec3(1.0);
+          #ifdef USE_INSTANCING_COLOR
+            vColor = instanceColor;
+          #endif
+          vec4 wp = m * vec4(position, 1.0);
+          vN = normalize(mat3(m) * normal);
+          vV = normalize(cameraPosition - wp.xyz);
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec3 vN;
+        varying vec3 vV;
+        varying vec3 vColor;
+        void main() {
+          float facing = abs(dot(normalize(vN), normalize(vV))); // 1 at the middle of the halo, 0 at its rim
+          float glow = pow(facing, 2.6) * (0.85 + 0.15 * sin(uTime * 5.0 + vColor.r * 9.0));
+          gl_FragColor = vec4(vColor * glow * 2.4, glow);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
-    const mesh = new THREE.InstancedMesh(body, metal, rewards.length);
+    this._spiritHalo = halo;
+    const emblem = new THREE.SphereGeometry(0.3, 18, 12);
+    const mesh = new THREE.InstancedMesh(body, core, rewards.length);
     mesh.name = "temple-run-rewards";
-    const discMesh = new THREE.InstancedMesh(emblem, metal, rewards.length);
-    discMesh.name = "temple-run-rewards-emblem";
+    const discMesh = new THREE.InstancedMesh(emblem, halo, rewards.length);
+    discMesh.name = "temple-run-rewards-halo";
     for (const m of [mesh, discMesh]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled = false;
-      m.castShadow = true;
     }
     for (let i = 0; i < rewards.length; i++) {
-      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0xffc23a : rewards[i].color);
-      mesh.setColorAt(i, c);
+      // ordinary lights the horn's cyan; the rare high ones paler, nearly white
+      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0x4fd6e0 : 0xc8fbff);
+      mesh.setColorAt(i, c.clone().multiplyScalar(3)); // over 1.0: it blooms
       discMesh.setColorAt(i, c);
     }
     mesh.instanceColor.needsUpdate = true;
@@ -2228,17 +2229,6 @@ export class Level01 extends Level {
     this.root.add(mesh);
     this.root.add(discMesh);
     this._updateRewardInstances(0);
-  }
-
-  /** A soft studio reflection for the coins' gold, made once from three's RoomEnvironment. */
-  _coinEnvMap() {
-    if (this._coinEnv) return this._coinEnv;
-    const renderer = this.game?.renderer;
-    if (!renderer) return null;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    this._coinEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    return this._coinEnv;
   }
 
   _updateRewardInstances(dt) {
@@ -2258,8 +2248,8 @@ export class Level01 extends Level {
         dummy.scale.setScalar(0.001);
         dummy.rotation.set(0, 0, 0);
       } else {
-        // upright, bobbing, spinning on the spot like every runner's coins
-        const bob = Math.sin(this._rewardTime * 3.6 + r.phase) * 0.11;
+        // drifting: a slow bob and a turn, like a firefly that has stopped to hover
+        const bob = Math.sin(this._rewardTime * 2.2 + r.phase) * 0.14;
         dummy.position.set(r.x, jungleCourseHeight(r.z) + r.yOffset + bob, r.z);
         dummy.rotation.set(0, this._rewardTime * 3.2 + r.phase, 0);
         dummy.scale.setScalar(1.05);
@@ -2270,6 +2260,7 @@ export class Level01 extends Level {
     }
     this._rewardMesh.instanceMatrix.needsUpdate = true;
     this._rewardDiscMesh.instanceMatrix.needsUpdate = true;
+    if (this._spiritHalo) this._spiritHalo.uniforms.uTime.value = this._rewardTime;
   }
 
   _updateTempleRewards(dt, x, prevZ, state) {
@@ -2290,7 +2281,7 @@ export class Level01 extends Level {
       this.rewardScore += r.value;
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
-      // every token feeds the horn
+      // every light feeds the horn
       if (this._hornCharge < 1) {
         this._hornCharge = Math.min(1, this._hornCharge + 1 / HORN_TOKENS);
         if (this._hornCharge >= 1) this._hornFull();
@@ -2570,7 +2561,7 @@ export class Level01 extends Level {
     const stat = document.createElement("div");
     stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div class="l1h-name">KAI <em><span data-reward-count>0</span> TOKENS · <span data-reward-score>0</span></em></div>
+      <div class="l1h-name">KAI <em><span data-reward-count>0</span> LIGHTS · <span data-reward-score>0</span></em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND ONE</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
@@ -3053,7 +3044,7 @@ export class Level01 extends Level {
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
-      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  ${this.rewardCount} TOKENS  ·  HORN CALLS ${this._hornCalls}` }],
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  ${this.rewardCount} LIGHTS  ·  HORN CALLS ${this._hornCalls}` }],
       action: {
         label: "CONTINUE",
         key: "SPACE",
@@ -4155,6 +4146,20 @@ export class Level01 extends Level {
    */
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
+    // say what the run is, once, as it starts
+    if (!this._toldGoal && this._storyT > 0.6) {
+      this._toldGoal = true;
+      this._showTransientBanner("OUTRUN THE MARSHAL \u00b7 EVERY HIT SLOWS YOU AND LETS HIM CLOSE IN", 4.2);
+    }
+    if (!this._toldLights && this._storyT > 5.5) {
+      this._toldLights = true;
+      this._showTransientBanner("CATCH THE FOREST\u2019S LIGHT \u00b7 20 FILL THE HORN", 3.2);
+    }
+    // the first time he gets close, say how close is too close
+    if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 3) {
+      this._toldClose = true;
+      this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 IF THE GAP HITS 0 M, HE HAS YOU", 2.8);
+    }
     if (!this._saidStart && this._storyT > 1.4) {
       this._saidStart = true;
       kaiThinks("Every sound in the forest stopped when I took it.");
@@ -4372,6 +4377,10 @@ export class Level01 extends Level {
         : OBSTACLE_DAMAGE;
       this._health = Math.max(0, this._health - dmg);
       this._healthFlashT = 0.35; // red flash duration
+      if (!this._toldHit) {
+        this._toldHit = true;
+        this._showTransientBanner("HIT \u00b7 YOU LOSE HEALTH, AND THE MARSHAL GAINS GROUND", 2.4);
+      }
 
       // --- trip / stumble animation ---
       this._stumbleT = this._stumbleDuration;
@@ -4995,7 +5004,7 @@ export class Level01 extends Level {
         this._hornCharge = 0;
         this._hornCalls++;
       } else {
-        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} TOKENS`, 1.2);
+        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} LIGHTS`, 1.2);
       }
     }
     if (this._hornT >= 0) {
