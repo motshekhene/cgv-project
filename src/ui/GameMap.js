@@ -186,7 +186,7 @@ export class GameMap {
     spot(0, 8, '#ff9a3a', 'THE CAMP');
     spot(0, -96.6, '#4fd6e0', 'THE STONE', 0, -12);
     spot(0.5, -18.6, 'rgba(200,190,160,.9)', 'LAST CREW', -8, 0, 'right');
-    spot(-1.5, -27, 'rgba(200,200,190,.9)', 'STAG STATUE', 8, 0, 'left');
+    spot(-1.5, -27, 'rgba(200,200,190,.9)', 'STAG STATUE', -8, 0, 'right');
     for (const L of LANDMARKS) {
       g.strokeStyle = GOLD; g.lineWidth = 1.5;
       g.beginPath(); g.arc(toX(L.x), toY(L.z), 5, 0, Math.PI * 2); g.stroke();
