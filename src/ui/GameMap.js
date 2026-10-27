@@ -80,9 +80,7 @@ export class GameMap {
     this.el.innerHTML = `
       <div class="gm-in plaque">
         <h2>THE MAP</h2>
-        <div class="gm-riddle">${d.taken
-          ? `<b>TODAY’S CARD · FOUND ✓</b>${d.card.name}, marked where you found it. A new one hides tomorrow.`
-          : 'Somewhere in the game today, the forest says where its spirit sleeps: in what Baba Zwane or Kai say, or written by a path. Find the place here.'}</div>
+        ${d.taken ? `<div class="gm-riddle"><b>TODAY\u2019S CARD \u00b7 FOUND \u2713</b>${d.card.name}, marked where you found it.</div>` : '<div class="gm-riddle">&nbsp;</div>'}
         <div class="gm-panels">
           <div class="gm-panel"><h3>PROLOGUE · THE VALLEY</h3><canvas data-l="0" width="300" height="520"></canvas></div>
           <div class="gm-panel"><h3>LEVEL 1 · THE OLD TRAIL</h3><canvas data-l="1" width="300" height="520"></canvas></div>
