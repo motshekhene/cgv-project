@@ -567,6 +567,13 @@ const LEVEL1_HUD_CSS = `
 .l1h-handler.attack { border-color:rgba(242,147,79,.85); box-shadow:0 0 18px rgba(201,68,43,.45); }
 .l1h-handler.attack .l1h-state { color:#ff7a5c; }
 .l1h-handler.calm .l1h-state { color:var(--moss-hi); }
+.l1h-chase { position:relative; height:8px; margin:4px 0 3px; border-radius:4px; background:rgba(0,0,0,.45); box-shadow:inset 0 0 0 1px rgba(227,187,98,.25); }
+.l1h-chase-fill { position:absolute; left:0; top:0; bottom:0; width:0; border-radius:4px; background:linear-gradient(90deg, rgba(158,211,106,.15), rgba(242,147,79,.55) 60%, rgba(255,70,40,.9)); transition:width .2s linear; }
+.l1h-chase-m, .l1h-chase-k { position:absolute; top:50%; width:11px; height:11px; margin:-5.5px 0 0 -5.5px; border-radius:50%; }
+.l1h-chase-m { left:0; background:#ff5a3a; box-shadow:0 0 8px #ff5a3a; transition:left .2s linear; }
+.l1h-chase-k { left:96%; background:#9ed36a; box-shadow:0 0 6px #9ed36a; }
+.l1h-handler.close { animation:l1h-throb .5s ease-in-out infinite alternate; }
+@keyframes l1h-throb { from { box-shadow:0 0 10px rgba(201,68,43,.4); } to { box-shadow:0 0 26px rgba(255,70,40,.9); } }
 @media (max-width: 760px) {
   .l1h-top { grid-template-columns:1fr 1fr; row-gap:8px; }
   .l1h-route { grid-column:1 / span 2; grid-row:2; }
@@ -2571,6 +2578,9 @@ export class Level01 extends Level {
     handlerPanel.className = "l1h-handler plaque";
     handlerPanel.innerHTML = `
       <div class="l1h-name"><span>THE MARSHAL</span><em data-handler-dist>— m</em></div>
+      <div class="l1h-chase" title="How close the Marshal is: when his mark reaches Kai's, he has you">
+        <div class="l1h-chase-fill" data-chase-fill></div><i class="l1h-chase-m" data-chase-m></i><i class="l1h-chase-k"></i>
+      </div>
       <div class="l1h-state" data-handler-state>APPROACH</div>
     `;
 
@@ -2694,6 +2704,8 @@ export class Level01 extends Level {
     this._hudHandlerDist = handlerPanel.querySelector("[data-handler-dist]");
     this._hudHandlerState = handlerPanel.querySelector("[data-handler-state]");
     this._hudHandlerPanel = handlerPanel;
+    this._hudChaseM = handlerPanel.querySelector("[data-chase-m]");
+    this._hudChaseFill = handlerPanel.querySelector("[data-chase-fill]");
     this._hudProgressFill = progress.querySelector("[data-progress-fill]");
     this._hudProgressDot = progress.querySelector("[data-progress-dot]");
     this._hudDistanceLeft = progress.querySelector("[data-distance-left]");
@@ -2893,6 +2905,12 @@ export class Level01 extends Level {
     if (this._hudHandlerDist) {
       const gap = this.state?.handlerGap ?? this.gap;
       this._hudHandlerDist.textContent = `${Math.round(gap)} m`;
+      // the chase meter: Kai's mark at the right, the Marshal's sliding in from
+      // the left as he gains (30 m of gap fills the track)
+      const near = 1 - Math.min(1, Math.max(0, gap / 30));
+      if (this._hudChaseM) this._hudChaseM.style.left = `${(near * 92).toFixed(1)}%`;
+      if (this._hudChaseFill) this._hudChaseFill.style.width = `${(near * 92).toFixed(1)}%`;
+      this._hudHandlerPanel?.classList.toggle("close", gap < 8 && !this.caught);
     }
     if (this._hudHandlerState) {
       const hs = this.state?.handlerState || "APPROACH";
@@ -3474,6 +3492,8 @@ export class Level01 extends Level {
       );
       this.guardianGlow.intensity = 5.5;
       this._shake = Math.max(this._shake, 0.18);
+      this._showTransientBanner("THE SHRINE\u2019S GUARDIAN CHARGES \u00b7 TOO BIG TO JUMP \u00b7 CHANGE LANES", 3.0);
+      kaiThinks("The stag statue. It\u2019s moving.");
       if (this._audio) this._audio.playOneShot("guardianRoar", { volume: 0.9 });
       this._duckMusic(0.45);
     }
