@@ -2164,8 +2164,7 @@ export class Level01 extends Level {
     // two instanced meshes moved by the same matrices. The halo is our own
     // shader: brightest at its middle, falling off toward its rim (the view
     // direction against the sphere's normal), breathing with time. Its
-    // colour is over 1.0, so PostFX's bloom makes it glow. The rare high
-    // ones are paler, nearly white.
+    // colour is over 1.0, so PostFX's bloom makes it glow.
     const body = new THREE.IcosahedronGeometry(0.075, 1);
     const core = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const halo = new THREE.ShaderMaterial({
@@ -2215,8 +2214,8 @@ export class Level01 extends Level {
       m.frustumCulled = false;
     }
     for (let i = 0; i < rewards.length; i++) {
-      // ordinary lights the horn's cyan; the rare high ones paler, nearly white
-      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0x4fd6e0 : 0xc8fbff);
+      // every light the horn's cyan (the high ones a touch brighter), so they all read as one thing
+      const c = new THREE.Color(0x4fd6e0).multiplyScalar(rewards[i].color === 0xffd76b ? 1 : 1.25);
       mesh.setColorAt(i, c.clone().multiplyScalar(3)); // over 1.0: it blooms
       discMesh.setColorAt(i, c);
     }
@@ -2294,42 +2293,47 @@ export class Level01 extends Level {
     this._updateRewardInstances(dt);
   }
 
+  /**
+   * The forest's wind (the old jetpack, rethought for the story): where the
+   * stag has passed, a whirl of glowing leaves hangs over the trail. Run
+   * through it and the wind lifts Kai and carries him over everything for a
+   * while. Same pickup, same flight; it is the forest helping the one who
+   * carries its horn, not a machine.
+   */
   _buildJetpackPickups() {
     const material = new THREE.MeshStandardMaterial({
-      color: 0x9feaff,
-      emissive: new THREE.Color(0x36caff),
-      emissiveIntensity: 2.7,
-      roughness: 0.22,
-      metalness: 0.62,
-    });
-    const dark = new THREE.MeshStandardMaterial({
-      color: 0x2c3d40,
+      color: 0xd8ff9a,
+      emissive: new THREE.Color(0x9aff5a),
+      emissiveIntensity: 1.0,
       roughness: 0.5,
-      metalness: 0.72,
+      side: THREE.DoubleSide,
     });
+    // a leaf: a flat lens, pointed at both ends
+    const leafShape = new THREE.Shape();
+    leafShape.moveTo(0, -0.22);
+    leafShape.quadraticCurveTo(0.13, 0, 0, 0.22);
+    leafShape.quadraticCurveTo(-0.13, 0, 0, -0.22);
+    const leafGeo = new THREE.ShapeGeometry(leafShape, 6);
 
     for (const def of JETPACK_PICKUPS) {
       const group = new THREE.Group();
-      group.name = "jetpack-booster-pickup";
+      group.name = "forest-wind-pickup";
 
-      const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.55, 4, 8), material);
-      core.rotation.z = Math.PI / 2;
-      group.add(core);
-
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.07, 8, 20), material);
+      // a ring of wind, and leaves caught in it at different heights and tilts
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.035, 8, 28), material);
       ring.rotation.x = Math.PI / 2;
       group.add(ring);
-
-      for (const side of [-1, 1]) {
-        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.62, 10), dark);
-        tank.position.set(side * 0.34, -0.05, 0);
-        tank.rotation.z = 0.18 * side;
-        group.add(tank);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        const leaf = new THREE.Mesh(leafGeo, material);
+        leaf.position.set(Math.cos(a) * 0.5, (i % 3 - 1) * 0.28, Math.sin(a) * 0.5);
+        leaf.rotation.set(0.6 * (i % 2 ? 1 : -1), -a, 0.8);
+        group.add(leaf);
       }
 
       const x = LANE_X[def.lane] + this._routeOffsetAt(def.z, 0);
       group.position.set(x, jungleCourseHeight(def.z) + 1.45, def.z);
-      const glow = new THREE.PointLight(0x54dfff, 2.6, 12, 2);
+      const glow = new THREE.PointLight(0xa8ff70, 2.6, 12, 2);
       group.add(glow);
       this.root.add(group);
 
@@ -2495,7 +2499,7 @@ export class Level01 extends Level {
       this.sliding = false;
       this.y = 0;
       this.vy = 0;
-      this._showTransientBanner("JETPACK \u2014 FLY!", 1.6);
+      this._showTransientBanner("THE FOREST\u2019S WIND \u2014 IT LIFTS YOU OVER EVERYTHING", 2.0);
       if (this._audio) this._audio.playOneShot("jetpackIgnite", { volume: 0.48 });
     }
   }
@@ -2564,7 +2568,7 @@ export class Level01 extends Level {
     stat.innerHTML = `
       <div class="l1h-name">KAI <em><span data-reward-count>0</span> LIGHTS · <span data-reward-score>0</span></em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
-      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND ONE</span><span data-health-text>100 / 100</span></div>
+      <div class="l1h-row"><span data-jetpack-status class="l1h-jet">THE WIND — FIND IT</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
     `;
 
@@ -2900,8 +2904,8 @@ export class Level01 extends Level {
       const gap = this.state?.handlerGap ?? this.gap;
       this._hudHandlerDist.textContent = `${Math.round(gap)} m`;
       // the chase meter: Kai's mark at the right, the Marshal's sliding in from
-      // the left as he gains (30 m of gap fills the track)
-      const near = 1 - Math.min(1, Math.max(0, gap / 30));
+      // the left as he gains; at the left end at the furthest he can fall behind
+      const near = 1 - Math.min(1, Math.max(0, gap / HANDLER_MAX_GAP));
       if (this._hudChaseM) this._hudChaseM.style.left = `${(near * 92).toFixed(1)}%`;
       if (this._hudChaseFill) this._hudChaseFill.style.width = `${(near * 92).toFixed(1)}%`;
       this._hudHandlerPanel?.classList.toggle("close", gap < 8 && !this.caught);
@@ -2932,13 +2936,13 @@ export class Level01 extends Level {
 
     if (this._hudJetpack) {
       if (this._jetpackActive) {
-        this._hudJetpack.textContent = `JETPACK — ${this._jetpackT.toFixed(1)} s`;
+        this._hudJetpack.textContent = `THE WIND — ${this._jetpackT.toFixed(1)} s`;
         this._hudJetpack.style.opacity = "1";
       } else if (this._flightLift > 0.2) {
-        this._hudJetpack.textContent = "JETPACK — LANDING";
+        this._hudJetpack.textContent = "THE WIND — SETTING DOWN";
         this._hudJetpack.style.opacity = ".88";
       } else {
-        this._hudJetpack.textContent = "JETPACK — FIND ONE";
+        this._hudJetpack.textContent = "THE WIND — FIND IT";
         this._hudJetpack.style.opacity = ".55";
       }
     }
@@ -4740,12 +4744,11 @@ export class Level01 extends Level {
   }
 
   /**
-   * The jetpack on Kai's back, Subway Surfers style: two fat tanks on a
-   * backplate, brass bands, nozzles at the bottom and long orange flames
-   * roaring out of them, with an exhaust trail left hanging in the air
-   * behind him. It rides his upper spine, so it tips with him as he leans
-   * into the flight. Replaces the capsule's stand-in pack (_buildJetpackFx)
-   * and keeps its names, so _updateJetpack() drives both the same way.
+   * The forest's wind round Kai while it carries him: two streams of green
+   * light from his hips, trailing down and back, and glowing leaves shed
+   * behind him as he flies. Nothing on his back. It rides his spine, so it
+   * tips with him as he leans into the flight. Keeps the old jetpack's names
+   * (the code still calls it that), so _updateJetpack() drives it unchanged.
    */
   _buildKaiJetpack() {
     const spine = this.kai?.bone("Torso");
@@ -4757,27 +4760,12 @@ export class Level01 extends Level {
     pack.scale.setScalar(1 / s); // built in metres; the bone's units are the rig's
     pack.position.set(0, -0.06 / s, -0.05 / s);
 
-    const metal = new THREE.MeshStandardMaterial({ color: 0x8a9196, roughness: 0.32, metalness: 0.85 });
-    const paint = new THREE.MeshStandardMaterial({ color: 0xc8541f, roughness: 0.45, metalness: 0.35 });
-    const brass = new THREE.MeshStandardMaterial({ color: 0xd2a24a, roughness: 0.35, metalness: 0.8 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x1c1f22, roughness: 0.6, metalness: 0.5 });
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.05), dark);
-    plate.position.set(0, 0, -0.12);
-    pack.add(plate);
+    // (the forest's wind: nothing on his back; the "nozzles" are only where
+    // the gusts come from, and the "flames" are the wind itself)
     this._jetpackFlames = [];
     this._jetpackNozzles = [];
     for (const side of [-1, 1]) {
-      const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.24, 6, 14), paint);
-      tank.position.set(side * 0.092, 0.01, -0.2);
-      tank.castShadow = true;
-      pack.add(tank);
-      for (const y of [-0.08, 0.1]) {
-        const band = new THREE.Mesh(new THREE.TorusGeometry(0.077, 0.011, 6, 18), brass);
-        band.rotation.x = Math.PI / 2;
-        band.position.set(side * 0.092, y, -0.2);
-        pack.add(band);
-      }
-      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.062, 0.08, 14, 1, true), metal);
+      const nozzle = new THREE.Object3D(); // where the gust streams from, at his hips
       nozzle.position.set(side * 0.092, -0.2, -0.2);
       pack.add(nozzle);
       // the flame: an orange sheath and a hot yellow core, tips pointing down and back
@@ -4786,12 +4774,12 @@ export class Level01 extends Level {
       flame.rotation.x = Math.PI + 0.25;
       const outer = new THREE.Mesh(
         new THREE.ConeGeometry(0.065, 0.62, 14, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0xff7a1f, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: 0x9aff6a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
       );
       outer.position.y = 0.31;
       const core = new THREE.Mesh(
         new THREE.ConeGeometry(0.035, 0.36, 10, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: 0xeaffd0, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
       );
       core.position.y = 0.18;
       flame.add(outer, core);
@@ -4800,7 +4788,7 @@ export class Level01 extends Level {
       this._jetpackFlames.push(flame);
       this._jetpackNozzles.push(nozzle);
     }
-    const glow = new THREE.PointLight(0xff9a3c, 0, 6, 2);
+    const glow = new THREE.PointLight(0xa8ff70, 0, 6, 2);
     glow.position.set(0, -0.45, -0.25);
     pack.add(glow);
     this._jetpackGlow = glow;
@@ -4833,7 +4821,7 @@ export class Level01 extends Level {
     this._exhaustT = 0;
     for (let i = 0; i < 36; i++) {
       const puff = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: tex, color: 0xffb066, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+        map: tex, color: 0xb8ff7a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
       }));
       puff.visible = false;
       this.root.add(puff);
@@ -4843,7 +4831,7 @@ export class Level01 extends Level {
     this._tmpNozzle = new THREE.Vector3();
   }
 
-  /** Exhaust puffs: two a tick from the nozzles while the pack burns, drifting back and fading. */
+  /** The wind's trail: glowing leaves shed from round his legs while it carries him, drifting down and fading. */
   _updateExhaust(dt) {
     if (!this._exhaust) return;
     if (this._jetpackActive && this._jetpackNozzles) {
@@ -4868,7 +4856,7 @@ export class Level01 extends Level {
       const k = 1 - Math.max(0, e.life) / e.max; // 0 -> 1 over its life
       e.sprite.scale.setScalar(0.25 + k * 1.1);
       e.sprite.material.opacity = 0.55 * (1 - k);
-      e.sprite.material.color.setHex(k < 0.25 ? 0xffb066 : 0x9a8f86); // fire, then smoke
+      e.sprite.material.color.setHex(k < 0.4 ? 0xb8ff7a : 0x5f8a3a); // bright leaves, then falling away green
       e.sprite.position.y -= dt * 0.6;
       if (e.life <= 0) e.sprite.visible = false;
     }
