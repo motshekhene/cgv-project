@@ -8,7 +8,7 @@
  *   invertY      bool  mouse-look up / down flipped
  *   quality      'low' | 'medium' | 'high'   resolution and shadows (Game.applyQuality)
  *   showFps      bool  the frame-rate counter (ui/FpsCounter.js)
- *   voices       bool  the dialogue read aloud (audio/voice.js)
+ *   voices       bool  hints and warnings read aloud (audio/voice.js)
  *
  *   import { settings, setSetting, onSettings } from '../core/settings.js';
  *   setSetting('music', 0.5);

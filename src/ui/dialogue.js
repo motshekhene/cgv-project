@@ -17,7 +17,7 @@
  *   kaiThinks('The whole forest just went quiet.');   // fades itself out
  */
 
-import { speak, hush } from '../audio/voice.js';
+import { hush } from '../audio/voice.js';
 
 export const DIALOGUE_FONT = "'Crimson Pro', Georgia, 'Times New Roman', serif";
 export const CREAM = '#f2e8d5';
@@ -99,7 +99,6 @@ function next() {
   }
   thoughtEl.textContent = n.text;
   thoughtEl.style.opacity = '1';
-  speak(n.text, 'KAI', { thought: true }); // and heard (audio/voice.js)
   n.onShow?.();
   n.onShow = null; // once, even if a hold brings the line back
   thoughtTimer = setTimeout(() => {

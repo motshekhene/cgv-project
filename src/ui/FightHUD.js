@@ -1,4 +1,5 @@
 import { THEME_CSS, END_CSS, showEndScreen } from './theme.js';
+import { hint } from '../audio/voice.js';
 
 /**
  * FightHUD — DOM overlay for the Level 3 fight. Lives inside the shared #hud
@@ -324,6 +325,7 @@ export class FightHUD {
       return;
     }
     this.toastEl.innerHTML = '';
+    hint(`${label}. ${text}`); // tips are said aloud (audio/voice.js)
     const b = document.createElement('b');
     b.textContent = label;
     this.toastEl.append(b, document.createTextNode(text));

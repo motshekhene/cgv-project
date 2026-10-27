@@ -2,16 +2,16 @@ import { settings, onSettings } from '../core/settings.js';
 import { isMuted, onMuteChange } from './masterMute.js';
 
 /**
- * Voice — the dialogue spoken aloud, with the browser's own text-to-speech
- * (the Web Speech API), so every existing line gets a voice without a single
- * recorded file. Each speaker has their own pitch and pace; Kai's thoughts are
- * quieter than what he says out loud. A South African English voice is used
+ * Voice — the game's narrator: hints, tips and warnings (the goal, a hazard
+ * ahead, the horn being ready) read aloud with the browser's own
+ * text-to-speech (the Web Speech API), so the player hears them without
+ * taking their eyes off the trail. The characters themselves (Kai, Baba
+ * Zwane, the Marshal) are text only. A South African English voice is used
  * when the computer has one.
  *
- * OPTIONS > VOICES turns it off; it follows the master volume and the mute.
+ * OPTIONS > VOICE HINTS turns it off; it follows the master volume and the mute.
  *
- *   speak('There it is.', 'KAI', { thought: true });
- *   speak(line.text, 'BABA ZWANE');      // cuts off whatever was being said
+ *   hint('A torn page ahead · run through it to pick it up');
  *   hush();                               // a level tearing down
  */
 const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
@@ -66,6 +66,16 @@ export function speak(text, who = 'KAI', { thought = false } = {}) {
   u.rate = c.rate * (thought ? 0.97 : 1);
   u.volume = Math.min(1, settings.master * (thought ? 0.7 : 1));
   synth.speak(u);
+}
+
+/**
+ * A hint, tip or warning, said by the narrator. Banner text is written in
+ * capitals with · between the parts: said as a sentence with pauses. A new
+ * hint cuts off the one before.
+ */
+export function hint(text) {
+  const said = String(text).replace(/\u00b7|·/g, ',').replace(/\s+—\s+|\s+-\s+/g, ', ').toLowerCase();
+  speak(said, 'NARRATOR');
 }
 
 /** Hold the line mid-word while the game is paused, and carry on after. */

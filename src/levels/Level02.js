@@ -29,6 +29,7 @@ import { Level2Sound } from './level2/sound.js';
 import { MudSplash } from './level2/MudSplash.js';
 import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
+import { hint } from '../audio/voice.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 import { Rain } from './level2/rain.js';
 import { isMuted, toggleMuted } from '../audio/masterMute.js';
@@ -356,6 +357,7 @@ export class Level02 extends Level {
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
   _flash(text, color) {
+    if (!/^LEVEL /.test(text)) hint(text); // a hint, said aloud (the chapter title isn't)
     if (!this._flashEl) {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;left:50%;top:28%;transform:translate(-50%,-50%);'

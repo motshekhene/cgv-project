@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
 import { makeWhistleBuffer } from "../audio/whistle.js";
+import { hint } from "../audio/voice.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -3009,6 +3010,7 @@ export class Level01 extends Level {
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     holdThoughts(seconds + 0.4);
+    hint(text); // and said (audio/voice.js)
 
     const el = document.createElement("div");
     el.textContent = text;

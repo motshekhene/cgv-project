@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
-import { speak } from '../audio/voice.js';
 import { TrailMap } from '../ui/TrailMap.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
@@ -1971,7 +1970,6 @@ export class Prologue extends Level {
     this.hud.subName.textContent = line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = line.text;
-    speak(line.text, line.who);
     this.sfx.duckScore(Math.max(2.5, line.text.split(/\s+/).length * 0.38));
     if (line.who === 'BABA ZWANE') {
       // his words, at his head across the fire
@@ -2028,7 +2026,6 @@ export class Prologue extends Level {
       const n = this.says.shift();
       this.hud.thought.innerHTML = n.text;
       this.hud.thought.style.opacity = '1';
-      speak(n.text, 'KAI', { thought: true });
       this.sayT = n.secs;
     }
   }
