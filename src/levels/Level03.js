@@ -26,6 +26,7 @@ import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
 import { attachHorn, poseHorn, HORN_HAND } from '../intros/cast.js';
 import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
+import { CardPickups } from '../cards/CardPickups.js';
 
 /**
  * Level 03 — FIGHT, "The Falls".
@@ -334,6 +335,8 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
+    // the spirit cards hidden round the falls (cards/cards.js)
+    this._cards = new CardPickups(this.root, 'level03', (spot) => new THREE.Vector3(spot.x, 1.3, spot.z));
     this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
       loadRig(assets, 'kai-bryce', 'kai.fbx'),
@@ -804,6 +807,7 @@ export class Level03 extends Level {
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
+    this._cards?.update(dt, kp, 1.2);
     this.gifts.setMarkersVisible(this.mode === 'FIGHT' && !this._ended);
     this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null, this.game.camera);
     if (fighting || this.mode === 'RISE') {

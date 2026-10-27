@@ -30,6 +30,7 @@ import { MudSplash } from './level2/MudSplash.js';
 import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
 import { hint } from '../audio/voice.js';
+import { CardPickups } from '../cards/CardPickups.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 import { Rain } from './level2/rain.js';
 import { isMuted, toggleMuted } from '../audio/masterMute.js';
@@ -353,6 +354,8 @@ export class Level02 extends Level {
     );
     this.course.build(kit, mats);
     this.obstacles.build(kit, await assets.texture('jungle/models/ruins/bark-texture.jpg').catch(() => null), animals);
+    // the spirit cards hidden along the road (cards/cards.js)
+    this._cards = new CardPickups(this.root, 'level02', (spot) => new THREE.Vector3(spot.x, 1.7, spot.z));
   }
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
@@ -549,6 +552,7 @@ export class Level02 extends Level {
     // answer, crossing the road between Kai and the Marshal (Level 1 used it
     // to clear the trail; Level 3 calls the stag)
     this._updateHorn(dt);
+    this._cards?.update(dt, this.car.mesh.position, 2.4);
 
     // open car picker
     if (this.input.pressed('changeCar')) {

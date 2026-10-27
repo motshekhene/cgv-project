@@ -17,6 +17,8 @@ import { TitleScreen } from "./ui/TitleScreen.js";
 import { TitleScene } from "./levels/TitleScene.js";
 import { OptionsMenu } from "./ui/OptionsMenu.js";
 import { CreditsMenu } from "./ui/CreditsMenu.js";
+import { CardAlbum } from "./ui/CardAlbum.js";
+import { GameMap } from "./ui/GameMap.js";
 import { mountFpsCounter } from "./ui/FpsCounter.js";
 
 /**
@@ -86,6 +88,9 @@ const controlsOverlay = mountControlsOverlay(game);
 const options = new OptionsMenu();
 // CREDITS, from the title menu: every asset the team didn't make, with links
 const credits = new CreditsMenu();
+// SPIRIT CARDS and MAP, from the title menu: the collection and where to look for today's spirit
+const gameMap = new GameMap();
+const cardAlbum = new CardAlbum({ onMap: () => gameMap.open() });
 mountFpsCounter();
 
 game.onLevelLoading = (name) => loading.show(name);
@@ -112,6 +117,8 @@ game.onLevelChanged = (name) => {
       onOptions: () => options.open(),
       onControls: () => controlsOverlay.show(),
       onCredits: () => credits.open(),
+      onCards: () => cardAlbum.open(),
+      onMap: () => gameMap.open(),
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
   }

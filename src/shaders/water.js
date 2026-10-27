@@ -113,7 +113,7 @@ export function createWaterMaterial({
   opacity = 0.88,
   envMap = null,
 } = {}) {
-  return new THREE.ShaderMaterial({
+  const mat = new THREE.ShaderMaterial({
     defines: envMap ? { USE_POOL_ENV: '' } : {},
     vertexShader: vertex,
     fragmentShader: fragment,
@@ -134,9 +134,12 @@ export function createWaterMaterial({
         uSunColor: { value: new THREE.Color(sunColor) },
         uFoamAt: { value: foamAt.clone() },
         uOpacity: { value: opacity },
-        uEnv: { value: envMap },
+        uEnv: { value: null },
         uEnvAmt: { value: envMap ? 1 : 0 },
       },
     ]),
   });
+  // set after the merge: mergeUniforms() won't copy a render target's texture (it would come out null)
+  mat.uniforms.uEnv.value = envMap;
+  return mat;
 }

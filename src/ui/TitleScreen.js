@@ -18,6 +18,8 @@ import { settings, onSettings } from '../core/settings.js';
  *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   the same H panel every level has
  *   CREDITS    every asset the team didn't make, with links (ui/CreditsMenu.js)
+ *   SPIRIT CARDS  the card album, and today's spirit's riddle (ui/CardAlbum.js)
+ *   MAP        the three levels' landmarks, found cards, today's spirit (ui/GameMap.js)
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
  * main.js passes onStart(levelName), onOptions, onControls and onCredits.
@@ -28,6 +30,8 @@ const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background
 const MENU = [
   { id: 'new', label: 'NEW GAME' },
   { id: 'chapters', label: 'CHAPTERS' },
+  { id: 'cards', label: 'SPIRIT CARDS' },
+  { id: 'map', label: 'MAP' },
   { id: 'options', label: 'OPTIONS' },
   { id: 'controls', label: 'CONTROLS' },
   { id: 'credits', label: 'CREDITS' },
@@ -78,7 +82,9 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onOptions, onControls, onCredits, skipPress = false }) {
+  constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, skipPress = false }) {
+    this.onCards = onCards;
+    this.onMap = onMap;
     ensureDialogueFont();
     this.onStart = onStart;
     this.onOptions = onOptions;
@@ -204,6 +210,8 @@ export class TitleScreen {
     else if (it.id === 'options') this.onOptions?.();
     else if (it.id === 'controls') this.onControls?.();
     else if (it.id === 'credits') this.onCredits?.();
+    else if (it.id === 'cards') this.onCards?.();
+    else if (it.id === 'map') this.onMap?.();
     else if (it.id === 'back') this._showMain();
     else if (it.id === 'chapter') this._start(it.name);
   }
