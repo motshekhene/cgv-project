@@ -164,12 +164,12 @@ export const PROFILES = {
   // the fire, the night, the horn: the hot things glow
   prologue: { bloom: 0.75, threshold: 1.5, white: [1.04, 0.99, 0.94], lift: [0.0, 0.005, 0.02], vignette: 0.6, contrast: 1.1 },
   // misty green jungle morning: rich greens and earth, the sun shafts glow
-  level01: { bloom: 0.25, threshold: 3.5 },
+  level01: { bloom: 0.35, threshold: 2.5, contrast: 1.1, saturation: 1.12, vignette: 0.42 },
   "level02-intro": { bloom: 0.6, threshold: 1.8, white: [1.05, 0.99, 0.92], gain: [1.03, 0.99, 0.94] },
   // sunset into the storm: warm highlights, cooler shadows, headlights and lamps bloom
-  level02: { bloom: 0.4, threshold: 2.5, white: [1.03, 0.99, 0.95], gain: [1.03, 0.99, 0.94] },
+  level02: { bloom: 0.5, threshold: 2.0, white: [1.03, 0.99, 0.95], gain: [1.03, 0.99, 0.94], contrast: 1.1, saturation: 1.12 },
   // the falls: cold water, golden Key light
-  level03: { bloom: 0.45, threshold: 2.2, white: [0.98, 1.0, 1.03], gain: [1.03, 1.0, 0.96], contrast: 1.08, vignette: 0.5 },
+  level03: { bloom: 0.6, threshold: 1.4, white: [1.04, 1.0, 0.94], contrast: 1.15, saturation: 1.18, vignette: 0.55 },
   epilogue: { bloom: 0.7, threshold: 1.6, white: [1.06, 1.0, 0.92], lift: [0.015, 0.01, 0.0] },
 };
 
