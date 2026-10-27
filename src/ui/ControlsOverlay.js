@@ -79,6 +79,7 @@ const LEVEL_CONTROLS = {
     rows: [
       { label: 'LOOK', keys: 'MOUSE' },
       { label: 'WALK', keys: 'W A S D' },
+      { label: 'MAP (BIGGER · SMALLER)', keys: 'N' },
       { label: 'USE \u00b7 CONFIRM', action: 'interact' },
       { label: 'REFUSE', action: 'decline' },
       { label: 'SKIP THE INTRO', action: 'skipScene' },

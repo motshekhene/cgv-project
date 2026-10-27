@@ -3,6 +3,7 @@ import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import { speak } from '../audio/voice.js';
+import { TrailMap } from '../ui/TrailMap.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
 import { GAME_TITLE } from '../ui/brand.js';
 import { lookScale } from '../core/settings.js';
@@ -113,21 +114,27 @@ const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire lin
 const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
 // the old path to the stone: round the fire on the left, then ~50 m north
-const PATH_END_Z = -48;
-// out of the camp, then the old path winds up through the trees: right, back
-// left past the stag, right again, so the glade only shows round the last bend
+const PATH_END_Z = -90;
+// out of the camp, then the old path winds up through the forest for ~140 m:
+// a long bend right, a hard left past the stag, north along a ridge, right
+// again, and a last left into the glade, which only shows round that bend
 const WALK_PTS = [
   [-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4],
-  [2.2, -10], [2.6, -16], [0.4, -21], [-2.0, -26], [-2.4, -32], [-0.6, -37], [1.8, -41],
+  [3.0, -9], [6.5, -13], [8.0, -19],
+  [6.0, -25], [1.0, -28], [-4.5, -31],
+  [-7.5, -37], [-7.0, -44],
+  [-3.5, -49], [2.5, -52], [6.5, -57],
+  [6.5, -64], [3.0, -69],
+  [-2.5, -72], [-5.0, -77], [-3.0, -82],
   [0, PATH_END_Z + 4], [0, PATH_END_Z],
 ];
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
 const STONE_CLEAR = 1.15;                  // how close his feet may come to its middle (it is ~1.5 x 1.05 m)
-const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, halfway up
-const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it
-const GATE_ZS = [-1.5, -24, PATH_END_Z];   // the three gates on the way up
+const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, at the hard left (x set beside the path in _buildRoute)
+const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it (x set off the path in _buildRoute)
+const GATE_ZS = [-1.5, -40, -66, PATH_END_Z];   // the gates on the way up
 // the way out: dead straight, east from the glade. Lined with cairns both
 // sides and a gate near the start, so there is never a question where to run.
 const RUN_Z = GLADE.z + 0.8;
@@ -911,9 +918,12 @@ export class Prologue extends Level {
     const curve = new THREE.CatmullRomCurve3(
       WALK_PTS.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal',
     );
-    const N = 80;
     this.walkLen = curve.getLength();
-    this.walkPath = curve.getSpacedPoints(N).map((p, i) => ({ x: p.x, z: p.z, s: (i / N) * this.walkLen }));
+    this.walkPath = curve.getSpacedPoints(Math.round(this.walkLen / 1.5)).map((p, i, all) => ({ x: p.x, z: p.z, s: (i / (all.length - 1)) * this.walkLen }));
+    // what stands beside the path goes where the path is
+    STAG_AT.x = this._pathAtZ(STAG_AT.z).x + 4.6;
+    CREW_CAMP.x = this._pathAtZ(CREW_CAMP.z).x - 7.4;
+    this._campS = this._pathS(CREW_CAMP.x + 7.4, CREW_CAMP.z); // how far up the walk the camp comes
     const strips = [];
     for (let i = 1; i < this.walkPath.length; i++) {
       const a = this.walkPath[i - 1], b = this.walkPath[i];
@@ -989,6 +999,18 @@ export class Prologue extends Level {
     this._buildCreatures();
     this._buildFigures(cast);
     this._buildHud();
+    // the old map of the way up, in the corner while he walks it (N: bigger)
+    this.map = new TrailMap({
+      path: this.walkPath,
+      marks: [
+        { x: FIRE.x, z: FIRE.z, kind: 'fire', label: 'the fire' },
+        { x: CREW_CAMP.x, z: CREW_CAMP.z, kind: 'camp', label: 'the last crew' },
+        { x: STAG_AT.x, z: STAG_AT.z, kind: 'stag', label: 'the stag' },
+        ...GATE_ZS.map((z) => ({ x: this._pathAtZ(z).x, z, kind: 'gate' })),
+        { x: STONE.x, z: STONE.z, kind: 'stone', label: 'the stone' },
+      ],
+    });
+    this._mapHeading = Math.PI;
 
     this._onClick = () => {
       this.sfx.start();                       // audio needs a gesture
@@ -1366,7 +1388,7 @@ export class Prologue extends Level {
 
     let n = 0;
     for (let gx = -24; gx <= 72; gx += 4.8) {
-      for (let gz = -72; gz <= 28; gz += 4.8) {
+      for (let gz = GLADE.z - 20; gz <= 28; gz += 4.8) {
         const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
         const out = outside(clear, x, z);
         if (out < 1.5 || out > 9.5) continue;
@@ -1378,7 +1400,7 @@ export class Prologue extends Level {
     // in leaves as well as in mud
     let b = 0;
     for (let gx = -16; gx <= 64; gx += 2.7) {
-      for (let gz = -64; gz <= 20; gz += 2.7) {
+      for (let gz = GLADE.z - 12; gz <= 20; gz += 2.7) {
         const x = gx + (rnd() - 0.5) * 2, z = gz + (rnd() - 0.5) * 2;
         const out = outside(clear, x, z);
         if (out < 0.3 || out > 2.4 || rnd() < 0.3) continue;
@@ -1387,7 +1409,7 @@ export class Prologue extends Level {
       }
     }
     for (let i = 0, tries = 0; i < 30 && tries < 500; tries++) {
-      const x = -14 + rnd() * 76, z = -62 + rnd() * 78;
+      const x = -14 + rnd() * 76, z = GLADE.z - 10 + rnd() * (26 - GLADE.z);
       const out = outside(clear, x, z);
       if (out < 0.6 || out > 4) continue;
       put(this.kit['rock' + (1 + (i % 3))], x, -0.15, z, 0.011 + rnd() * 0.007, rnd() * Math.PI * 2);
@@ -1399,12 +1421,16 @@ export class Prologue extends Level {
     // anyone cut a line through it: a pair of columns either side of the
     // way, a dead tree, the stag watching the halfway gate, a second pair
     // of columns, and the fox watching the stone
-    placeProp(this.root, cloneProp(this.kit.column), -4.2, 0, -9, { s: 0.014, ry: 0.2 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), 4.2, 0, -11.5, { s: 0.012, ry: 1.4 });
-    placeProp(this.root, cloneProp(this.kit.deadTree), 4.6, 0, -17, { s: 0.02, ry: 1.1 });
+    const px = (z) => this._pathAtZ(z).x; // the relics stand beside the path, wherever it bends
+    placeProp(this.root, cloneProp(this.kit.column), px(-9) - 4.2, 0, -9, { s: 0.014, ry: 0.2 });
+    placeProp(this.root, cloneProp(this.kit.columnShort), px(-11.5) + 4.2, 0, -11.5, { s: 0.012, ry: 1.4 });
+    placeProp(this.root, cloneProp(this.kit.deadTree), px(-17) + 4.6, 0, -17, { s: 0.02, ry: 1.1 });
     placeProp(this.root, cloneProp(this.kit.stag), STAG_AT.x, 0, STAG_AT.z, { s: 0.0105, ry: -1.3 });
-    placeProp(this.root, cloneProp(this.kit.column), -4.2, 0, -36, { s: 0.014, ry: 2.3 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), 4.2, 0, -38.5, { s: 0.012, ry: 0.6 });
+    placeProp(this.root, cloneProp(this.kit.column), px(-36) - 4.2, 0, -36, { s: 0.014, ry: 2.3 });
+    placeProp(this.root, cloneProp(this.kit.columnShort), px(-38.5) + 4.2, 0, -38.5, { s: 0.012, ry: 0.6 });
+    placeProp(this.root, cloneProp(this.kit.deadTree), px(-60) - 4.4, 0, -60, { s: 0.022, ry: 2.6 });
+    placeProp(this.root, cloneProp(this.kit.column), px(-75) + 4.2, 0, -75, { s: 0.014, ry: 1.0 });
+    placeProp(this.root, cloneProp(this.kit.columnShort), px(-78) - 4.2, 0, -78, { s: 0.012, ry: 2.2 });
     placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, GLADE.z - 2.6, { s: 0.0105, ry: 0.9 });
 
     this._buildCrewCamp();
@@ -2339,7 +2365,14 @@ export class Prologue extends Level {
     this._mouseIdle += dt;
     this._tickSay(dt);
     this._tickTimers(dt);
+    const mx = this.px, mz = this.pz;
     if (this.standing && this.phase !== 'done') this._move(dt);
+    if (this.map) {
+      // the arrow points the way he is going (north, -z, is up the map)
+      if (Math.hypot(this.px - mx, this.pz - mz) > 1e-3) this._mapHeading = Math.atan2(this.px - mx, -(this.pz - mz));
+      this.map.show(this.phase === 'walk' || this.phase === 'choice');
+      this.map.update(this.px, this.pz, this._mapHeading, this.walkS || 0);
+    }
     // leave the mouse alone while walking and the camera swings back in
     // behind him, onto the way ahead
     if (this.standing && this._moving && this._mouseIdle > 0.7) {
@@ -2747,7 +2780,7 @@ export class Prologue extends Level {
    * rather than said out of place.
    */
   _walkBeats() {
-    const s = this.walkS, b = this.beats;
+    const s = this.walkS, b = this.beats, L = this.walkLen;
     if (s > 12 && !b.birds) {
       b.birds = true;
       this._startFlock();
@@ -2755,7 +2788,7 @@ export class Prologue extends Level {
       this._shake = 0.25;
       this._later(0.7, () => this._walkSay('Just birds.', 2.2));
     }
-    if (s > 32 && !b.growl) {
+    if (s > L * 0.45 && !b.growl) {
       b.growl = true;
       this._eyesAt(this._pathAtZ(this.pz - 13).x - 3.6, this.pz - 13, 2.8, -2.2);
       this.sfx.growl(-0.6);
@@ -2763,7 +2796,7 @@ export class Prologue extends Level {
       this._shake = 0.35;
       this._walkSay('Something\u2019s out there.', 2.6);
     }
-    if (s > 40 && !b.stalk) {
+    if (s > L * 0.45 + 9 && !b.stalk) {
       b.stalk = true;
       this.sfx.snap(0.5);
       this._shake = 0.2;
@@ -2778,7 +2811,7 @@ export class Prologue extends Level {
     if (this._talking()) return;
     const list = [
       ['markers', 2, 11, 'The old markers. Stay between them.', 3.0],
-      ['camp', 21, 31, 'The last crew\u2019s camp. They left everything.', 3.4],
+      ['camp', this._campS - 9, this._campS + 3, 'The last crew\u2019s camp. They left everything.', 3.4],
     ];
     for (const [key, from, until, line, secs] of list) {
       if (b[key]) continue;
@@ -2796,6 +2829,7 @@ export class Prologue extends Level {
   /* ==================================================== teardown */
   teardown() {
     this.sfx.stop();
+    this.map?.dispose();
     this.game.renderer.domElement.removeEventListener('click', this._onClick);
     document.removeEventListener('pointerlockchange', this._onLockChange);
     document.removeEventListener('pointerlockerror', this._onLockError);
