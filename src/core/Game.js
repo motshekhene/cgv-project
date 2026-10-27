@@ -3,7 +3,7 @@ import { Input } from "./Input.js";
 import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
-import { settings, onSettings } from "./settings.js";
+import { settings, onSettings, qualityChosen } from "./settings.js";
 import { PostFX } from "./PostFX.js";
 import { hush, pauseVoice } from "../audio/voice.js";
 import { windTime } from "../shaders/wind.js";
@@ -56,6 +56,16 @@ export class Game {
     this.renderer.toneMappingExposure = 1.25; // overall brightness
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // lighting is computed in linear space, shown in sRGB
     this.parent.appendChild(this.renderer.domElement);
+    // until the player picks a GRAPHICS level, start from one that suits the GPU:
+    // integrated and software graphics (lab machines) start on MEDIUM
+    if (!qualityChosen) {
+      const gl = this.renderer.getContext();
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
+      if (/intel|uhd|iris|radeon\(tm\) graphics|vega|llvmpipe|swiftshader|mali|adreno|powervr/i.test(gpu)) settings.quality = "medium";
+    }
+    this._fpsWatch = { t: 0, frames: 0, slow: 0 };
+
     // HDR bloom, colour grade, vignette, grain, the damage pulse (core/PostFX.js)
     this.postfx = new PostFX(this.renderer);
     this._lastHealth = null; // to see Kai get hurt, whichever level hurt him
@@ -238,6 +248,7 @@ export class Game {
       windTime.value += dt; // every swaying plant's clock (shaders/wind.js)
     }
     this.input.endFrame();
+    this._watchFrameRate(now);
     if ((this._qualityT += raw) > 1) {
       this._qualityT = 0;
       this.applyQuality();
@@ -292,6 +303,36 @@ export class Game {
         this.renderer.render(s, c);
       }
       this.renderer.autoClear = true;
+    }
+  }
+
+  /**
+   * Optimisation: if the player hasn't chosen a GRAPHICS level and the game
+   * runs under ~35 fps for four seconds in a row, step down one level (HIGH to
+   * MEDIUM to LOW) for this session. A choice in OPTIONS always wins.
+   */
+  _watchFrameRate(now) {
+    const w = this._fpsWatch;
+    if (qualityChosen || this.paused || document.hidden) {
+      w.t = 0;
+      return;
+    }
+    if (!w.t) {
+      w.t = now;
+      w.frames = 0;
+      return;
+    }
+    w.frames++;
+    if (now - w.t < 1000) return;
+    const fps = (w.frames * 1000) / (now - w.t);
+    w.t = now;
+    w.frames = 0;
+    w.slow = fps < 35 ? w.slow + 1 : 0;
+    if (w.slow >= 4 && settings.quality !== "low") {
+      settings.quality = settings.quality === "high" ? "medium" : "low"; // not saved: the next visit measures again
+      w.slow = 0;
+      this.applyQuality();
+      console.log("[game] running slowly, graphics stepped down to", settings.quality);
     }
   }
 

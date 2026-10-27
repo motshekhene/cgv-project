@@ -300,9 +300,12 @@ export class PostFX {
   }
 
   _resize(w, h) {
-    if (this.sceneRT.width === w && this.sceneRT.height === h && this._mipCount === this._wantMips()) return;
+    if (this.sceneRT.width === w && this.sceneRT.height === h && this._mipCount === this._wantMips() && this._rq === settings.quality) return;
+    this._rq = settings.quality;
     this.sceneRT.setSize(w, h);
-    this.raysRT.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+    // god rays are soft: half resolution on HIGH, a quarter on MEDIUM
+    const rs = settings.quality === "high" ? 1 : 2;
+    this.raysRT.setSize(Math.max(1, w >> rs), Math.max(1, h >> rs));
     for (const m of this.mips) m.dispose();
     this.mips = [];
     this._mipCount = this._wantMips();
