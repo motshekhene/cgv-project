@@ -16,6 +16,9 @@ export const LICENCES = {
   OFL: { name: 'SIL OFL 1.1', url: 'https://openfontlicense.org/' },
   MIT: { name: 'MIT', url: 'https://opensource.org/license/mit' },
   Mixamo: { name: 'ROYALTY-FREE', url: 'https://www.mixamo.com/' },
+  // a published method we wrote our own shader code from: the link is the source itself
+  Technique: { name: 'TECHNIQUE, OUR CODE', url: null },
+  Browser: { name: 'BROWSER BUILT-IN', url: 'https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API' },
 };
 
 export const CREDIT_SECTIONS = [
@@ -81,6 +84,22 @@ export const CREDIT_SECTIONS = [
         url: 'https://pixabay.com/sound-effects/collect-points-190037/', use: 'The coins on the trail' },
       { title: '“Car crash (swerving, and crash)”', by: 'RSF_STUDIOS', licence: 'Pixabay',
         url: 'https://pixabay.com/sound-effects/car-crash-swerving-and-crash-592672/', use: 'Wrecks on the River Road' },
+    ],
+  },
+  {
+    title: 'TECHNIQUES WE ADAPTED',
+    note: 'The shader code is our own (src/core/PostFX.js, src/shaders/); these are the published methods it follows.',
+    items: [
+      { title: 'Next Generation Post Processing in Call of Duty: Advanced Warfare', by: 'Jorge Jimenez, SIGGRAPH 2014', licence: 'Technique',
+        url: 'https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare/',
+        use: 'The bloom: the 13-tap downsample and tent-filter upsample chain' },
+      { title: 'Volumetric Light Scattering as a Post-Process', by: 'Kenny Mitchell, GPU Gems 3 ch. 13', licence: 'Technique',
+        url: 'https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-13-volumetric-light-scattering-post-process',
+        use: 'The god rays through the canopy' },
+      { title: 'ACES Filmic tone curve (fitted)', by: 'Stephen Hill, via three.js', licence: 'MIT', url: 'https://threejs.org/',
+        use: 'The tone curve, and its inverse that keeps the sky and fog true under post-processing' },
+      { title: 'Web Speech API', by: 'the browser', licence: 'Browser', url: 'https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API',
+        use: 'The voices that read the dialogue aloud' },
     ],
   },
   {
