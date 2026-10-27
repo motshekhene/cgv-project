@@ -3,7 +3,7 @@
  *
  * Every Level 2 sound comes from the shared jungle engine
  * (src/audio/jungleAudio.js) — synthesised live with the Web Audio API,
- * plus the recorded Pixabay assets (the theme loop and the traffic wreck,
+ * plus the recorded Pixabay assets (the traffic wreck,
  * peak-normalised on load; see public/assets/audio/CREDITS.md). Either way
  * the same buffers, the same headroom: Level 2 sounds like the same world,
  * at the same loudness, as the intro and Level 1.
@@ -43,9 +43,9 @@ import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
   loadAudioFileBuffer,
-  loadJungleTheme,
 } from "../../audio/jungleAudio.js";
 import { musicVolumeNode } from "../../audio/masterMute.js";
+import { renderScore } from "../../audio/chaseScore.js";
 
 export class Level2Sound {
   constructor({ volume = 0.75 } = {}) {
@@ -245,9 +245,10 @@ export class Level2Sound {
     this._musicSrc.loop = true;
     this._musicSrc.connect(this.music);
     this._musicSrc.start();
-    // the recorded theme replaces the arrangement when it decodes; the
-    // gain bus is untouched, so N and ducking keep working
-    loadJungleTheme(ctx).then((buf) => {
+    // Level 2's own score (audio/chaseScore.js 'drive') replaces the
+    // arrangement once it has rendered; the gain bus is untouched, so N and
+    // ducking keep working. (The menu's stock track used to play here.)
+    renderScore('drive', ctx.sampleRate).then((buf) => {
       if (!buf || !this.ctx || !this.music) return;
       const src = ctx.createBufferSource();
       src.buffer = buf;

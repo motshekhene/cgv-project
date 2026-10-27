@@ -21,8 +21,8 @@ import {
   JungleBed,
   createJungleCueBuffers,
   createJungleMusicBuffer,
-  loadJungleTheme,
 } from '../../audio/jungleAudio.js';
+import { renderScore } from '../../audio/chaseScore.js';
 import { musicVolumeNode } from '../../audio/masterMute.js';
 
 export class Level3Sound {
@@ -97,7 +97,15 @@ export class Level3Sound {
       this._musicSrc = src;
       this.music.gain.setTargetAtTime(this._musicBase, ctx.currentTime + 0.2, 1.2);
     };
-    loadJungleTheme(ctx).then((buf) => up(buf || createJungleMusicBuffer(ctx, 'battle')));
+    // Level 3's own score (audio/chaseScore.js 'fight'): the old arrangement
+    // first, swapped for the score as soon as it has rendered
+    up(createJungleMusicBuffer(ctx, 'battle'));
+    renderScore('fight', ctx.sampleRate).then((buf) => {
+      if (!buf || !this.ctx || !this.music) return;
+      const old = this._musicSrc;
+      up(buf);
+      try { old?.stop(); } catch { /* already stopped */ }
+    });
   }
 
   /** Dips the music under a cue, then eases it back — effects first. */
