@@ -29,7 +29,6 @@ import { Level2Sound } from './level2/sound.js';
 import { MudSplash } from './level2/MudSplash.js';
 import { createRainMaterial } from '../shaders/rain.js';
 import { kaiThinks, clearThoughts } from '../ui/dialogue.js';
-import { hint } from '../audio/voice.js';
 import { CardPickups } from '../cards/CardPickups.js';
 import { clueFor } from '../cards/cards.js';
 import { createClueBoard } from '../cards/clueSign.js';
@@ -185,7 +184,7 @@ export class Level02 extends Level {
       this.handler.giveSpace(2.5);                 // no follow-up while you recover
       this._flash(`${hit.label}  -${hit.damage}${extra}`, '#f2934f');
     };
-    this.weapons.onWarn = (text) => { this._flash(text, '#e3bb62'); this.sound.warn(); };
+    this.weapons.onWarn = () => this.sound.warn();
     this.weapons.onMiss = (text) => { this._flash(text, '#bcd96a'); this.sound.dodge(); };
 
     // ---- sound: everything synthesised, no audio files (level2/sound.js) ----
@@ -371,7 +370,6 @@ export class Level02 extends Level {
 
   /** Big centre-screen callout ("DODGED", "RAMMED -14"), fades by itself. */
   _flash(text, color) {
-    if (!/^LEVEL /.test(text)) hint(text); // a hint, said aloud (the chapter title isn't)
     if (!this._flashEl) {
       const el = document.createElement('div');
       el.style.cssText = 'position:fixed;left:50%;top:28%;transform:translate(-50%,-50%);'
@@ -494,7 +492,6 @@ export class Level02 extends Level {
     const was = this._hornCharge ?? 0;
     this._hornCharge = Math.min(1, was + dt / 30); // full every 30 s
     if (was < 1 && this._hornCharge >= 1) {
-      this._flash('THE HORN IS READY \u00b7 F', '#4fd6e0');
       if (!this._hornTold) {
         this._hornTold = true;
         setTimeout(() => this.scene && kaiThinks('The horn. The animals came when I blew it on the trail.'), 2200);
@@ -522,13 +519,17 @@ export class Level02 extends Level {
 
   update(dt, state) {
     dt = this._steady(dt);
+    // Kai's thoughts are for the drive: none once the car is wrecked or the road is done
+    const driving = this._announced && !this._wreck && !this._gameOver && !this._finale;
     // today's card clue, if Kai is the one who remembers it today
-    if (this._announced && this._clueThought && (this._clueT2 = (this._clueT2 || 0) + dt) > 75) {
+    if (driving && this._clueThought && (this._clueT2 = (this._clueT2 || 0) + dt) > 75) {
       kaiThinks(this._clueThought);
       this._clueThought = null;
     }
     // A CLUE: how he drives. Once, well into the chase.
-    if (this._announced && !this._clueSaid && (this._clueT = (this._clueT || 0) + dt) > 45) {
+    // (said while he's right there, close behind, taking a bend with Kai)
+    if (driving && !this._clueSaid && (this._clueT = (this._clueT || 0) + dt) > 45
+      && this.handler?.mesh && this.handler.mesh.position.distanceTo(this.car.mesh.position) < 35) {
       this._clueSaid = true;
       kaiThinks('He takes every bend before it comes. Like someone who\u2019s known this road all his life.');
     }
@@ -686,13 +687,13 @@ export class Level02 extends Level {
 
     // ---- story: the company's road ----
     const kz = this.car.mesh.position.z;
-    if (!this._saidBlocks && kz > ROADBLOCKS[0].z - 560) {
+    if (!this._saidBlocks && kz > ROADBLOCKS[0].z - 220) { // once the first one is in sight
       this._saidBlocks = true;
-      kaiThinks('Company trucks across the road. How did they know I’d come this way?');
+      kaiThinks('The company\u2019s barricades, right across the road. How did they know I\u2019d come this way?', null, null, { now: true });
     }
     if (!this._saidKnew && kz > ROADBLOCKS[ROADBLOCKS.length - 1].z + 60) {
       this._saidKnew = true;
-      kaiThinks('Only one man knew I’d take the river road.');
+      kaiThinks('Only one man knew I\u2019d take the river road.', null, null, { now: true });
     }
 
     // ---- sound ----
@@ -751,6 +752,7 @@ export class Level02 extends Level {
 
     // game over: it blows up, rolls to a stop burning, and then the card
     if (this.car.health <= 0 && !this._wreck && !this._gameOver && !this._finale) {
+      clearThoughts(); // nothing more to think about on this drive
       this._wreck = { t: 0 };
       if (this._view === 'driver') this._toggleView(); // out of the car, to see it go up
       this.damage.explode(this.car);
@@ -1175,7 +1177,7 @@ export class Level02 extends Level {
     const h = this.handler;
     const show = handlerState === 'TELEGRAPH' && h.nextMove;
     if (!show) { el.style.opacity = '0'; return; }
-    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', BRAKECHECK: 'BRAKE CHECK', RAM: 'RAMMING — MOVE!', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
+    const move = { SLAM: 'SIDE SLAM', PIT: 'PIT', SHUNT: 'REAR SHUNT', PIN: 'WALL PIN', BRAKECHECK: 'BRAKE CHECK', RAM: 'RAMMING', SHOOT: 'TYRE SHOT', DRONE: 'DRONE' }[h.nextMove] || h.nextMove;
     const behind = h.nextMove === 'SHUNT' || h.nextMove === 'DRONE' || (h.nextMove === 'RAM' && h.ramFrom < 0);
     const inFront = h.nextMove === 'BRAKECHECK' || (h.nextMove === 'RAM' && h.ramFrom > 0);
     // camera looks down +z, so world +x is the LEFT of the screen

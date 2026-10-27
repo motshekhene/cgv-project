@@ -983,8 +983,15 @@ export class Prologue extends Level {
 
     this._ensureSerif();
     this._buildSky();
-    const [kit, cast] = await Promise.all([loadJungleKit(assets), loadCast(assets)]);
+    const [kit, cast, hut, truck] = await Promise.all([
+      loadJungleKit(assets), loadCast(assets),
+      // two landmarks are real models (credits.js): the hut, and the crew's pickup (Level 2's traffic pickup)
+      assets.model('prologue/hut.glb').catch(() => null),
+      assets.model('level2/traffic/pickup.glb').catch(() => null),
+    ]);
     if (!this.scene) return; // torn down while loading
+    this._hutModel = hut?.scene || null;
+    this._truckModel = truck?.scene || null;
     const mats = await createJungleMaterials(assets, 60);
     if (!this.scene) return;
     this.kit = kit;
@@ -1496,8 +1503,26 @@ export class Prologue extends Level {
         this.root.add(root);
       }
     }
-    // THE CREW'S TRUCK: the company's flatbed, left where it died, doors open
-    {
+    // THE CREW'S TRUCK: the company's pickup, left where it died, nose down in the mud
+    if (this._truckModel) {
+      const L = at('truck');
+      const g = this._putFit(this._truckModel, L.x, L.z, 5.6, 0.7);
+      // years in the rain: its own colours, darkened and rusted (copies, so Level 2's traffic keeps its paint)
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = o.receiveShadow = true;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+        for (const m of [].concat(o.material)) {
+          if (m.color) m.color.multiplyScalar(0.62).lerp(new THREE.Color(0x6b3a1c), 0.25);
+          if ('roughness' in m) m.roughness = Math.max(m.roughness, 0.85);
+        }
+      });
+      g.rotation.z = 0.06;
+      g.rotation.x = 0.05;
+      solid(L.x + 0.6, L.z + 0.6, 1.6);
+      solid(L.x - 0.6, L.z - 0.6, 1.6);
+      solid(L.x - 1.4, L.z - 1.7, 1.4);
+    } else {
       const L = at('truck');
       const paint = new THREE.MeshStandardMaterial({ color: 0xd06a1e, roughness: 0.65, metalness: 0.25 });
       const dark = new THREE.MeshStandardMaterial({ color: 0x1e2022, roughness: 0.9 });
@@ -1578,8 +1603,19 @@ export class Prologue extends Level {
       for (let i = -4; i <= 4; i++) solid(L.x + Math.cos(0.5) * i * 1.6, L.z - Math.sin(0.5) * i * 1.6, 1.0);
       solid(L.x + Math.cos(0.5) * 7.2, L.z - Math.sin(0.5) * 7.2, 2.2);
     }
-    // THE RUINED HUT: four broken walls and no roof, where someone lived once
-    {
+    // THE RUINED HUT: a round thatched hut, long empty, where someone lived once
+    if (this._hutModel) {
+      const L = at('hut');
+      const g = this._putFit(this._hutModel, L.x, L.z, 5.2, 0.9);
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = o.receiveShadow = true;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+        for (const m of [].concat(o.material)) if (m.color) m.color.multiplyScalar(0.8); // weathered
+      });
+      g.rotation.z = 0.03; // settling, a little
+      solid(L.x, L.z, 2.8);
+    } else {
       const L = at('hut');
       for (const [dx, dz, ry] of [[0, -2.4, 0], [0, 2.4, Math.PI], [-2.4, 0, Math.PI / 2], [2.4, 0.8, -Math.PI / 2]]) {
         this._putFit(k.wall, L.x + dx, L.z + dz, 4.6, ry);
@@ -3020,7 +3056,7 @@ export class Prologue extends Level {
 
   /** A line on the walk — dropped if he has already reached the stone. */
   _walkSay(text, secs) {
-    if (this.phase === 'walk') this._say(text, secs);
+    if (this.phase === 'walk') this._say(text, secs, true); // a reaction: said now, ahead of anything waiting
   }
 
   /* ==================================================== teardown */

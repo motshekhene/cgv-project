@@ -31,8 +31,6 @@ const ROWS = [
   { key: 'quality', label: 'GRAPHICS', show: (v) => v.toUpperCase(), change: (v, d) => next(QUALITIES, v, d),
     help: { low: 'No shadows, a lower resolution: for slower computers.', medium: 'Shadows at half detail, normal resolution.',
       high: 'Full shadows, full resolution.' } },
-  { key: 'voices', label: 'VOICE HINTS', show: (v) => (v ? 'ON' : 'OFF'), change: (v) => !v,
-    help: 'Tips and warnings read aloud, so you hear them without looking away.' },
   { key: 'showFps', label: 'SHOW FPS', show: (v) => (v ? 'ON' : 'OFF'), change: (v) => !v,
     help: 'A frame-rate counter at the left of the screen.' },
   { key: 'back', label: 'BACK', help: 'Esc closes this panel too.' },

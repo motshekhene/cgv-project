@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
 import { makeWhistleBuffer } from "../audio/whistle.js";
-import { hint } from "../audio/voice.js";
 import { CardPickups } from "../cards/CardPickups.js";
 import { clueFor } from "../cards/cards.js";
 import { createClueBoard } from "../cards/clueSign.js";
@@ -1094,7 +1093,6 @@ export class Level01 extends Level {
   _updateRouteChoice(localX) {
     if (!this._routeCueShown && this.z <= -620) {
       this._routeCueShown = true;
-      this._showTransientBanner("FORK AHEAD — LEFT IS SAFER • RIGHT IS THE SHRINE TRIAL", 2.8);
     }
     if (this._routeSide !== 0 || this.z > ROUTE_CHOICE_Z) return;
 
@@ -1104,10 +1102,6 @@ export class Level01 extends Level {
     else if (this.z <= ROUTE_SPLIT_START_Z - 15) this._routeSide = -1; // last-resort fallback
     else return;
 
-    this._showTransientBanner(
-      this._routeSide < 0 ? "RELIC PATH — KEEP MOVING" : "SHRINE TRIAL — NO EASY LINE",
-      1.4,
-    );
   }
 
   _buildDarkShrine(mats) {
@@ -1600,12 +1594,9 @@ export class Level01 extends Level {
       }
 
       if (!h.active && this.z <= h.triggerZ) {
-        if (h.type === "stampede") this._showTransientBanner("KUDU BOLTING ACROSS \u2014 CHANGE LANES", 1.8);
-        if (h.type === "rollingLog") this._showTransientBanner("ROLLING TIMBER \u2014 JUMP IT OR TAKE THE OPEN LANE", 1.8);
         h.active = true;
         h.t = 0;
         if (this._audio) this._audio.playOneShot("stoneGrind", { volume: h.type === "boulder" ? 0.52 : 0.38 });
-        if (h.type === "swing") this._showTransientBanner("SWINGING STONE — TIME THE GAP", 1.7);
       }
       if (!h.active) continue;
       h.t += dt;
@@ -1760,7 +1751,6 @@ export class Level01 extends Level {
 
     state.handlerState = "TRIGGERED";
     state.handlerGap = this.gap;
-    this._showTransientBanner("IMPACT ALERTED THE MARSHAL — RUN!", 1.25);
   }
 
   _buildHandlerPressureProps() {
@@ -2039,7 +2029,6 @@ export class Level01 extends Level {
   _updateCollapsingBridge(dt, x, prevZ, state) {
     if (!this._bridgeCueShown && this.z <= BRIDGE_START_Z + 34) {
       this._bridgeCueShown = true;
-      this._showTransientBanner("BRIDGE COLLAPSING — DODGE THE GAPS AND DON'T STOP", 2.3);
     }
 
     if (this._flightLift < JETPACK_SAFE_LIFT) {
@@ -2081,6 +2070,7 @@ export class Level01 extends Level {
   _instantLose(state, cause, message) {
     if (this.caught || this.escaped) return;
     this.caught = true;
+    clearThoughts(); // no thoughts over the ending
     this.failCause = cause;
     this.finished = true;
     state.alive = false;
@@ -3025,7 +3015,6 @@ export class Level01 extends Level {
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     holdThoughts(seconds + 0.4);
-    hint(text); // and said (audio/voice.js)
 
     const el = document.createElement("div");
     el.textContent = text;
@@ -3526,8 +3515,7 @@ export class Level01 extends Level {
       );
       this.guardianGlow.intensity = 5.5;
       this._shake = Math.max(this._shake, 0.18);
-      this._showTransientBanner("THE SHRINE\u2019S GUARDIAN CHARGES \u00b7 TOO BIG TO JUMP \u00b7 CHANGE LANES", 3.0);
-      kaiThinks("The stag statue. It\u2019s moving.");
+      kaiThinks("The stag statue. It\u2019s moving.", null, null, { now: true });
       if (this._audio) this._audio.playOneShot("guardianRoar", { volume: 0.9 });
       this._duckMusic(0.45);
     }
@@ -3558,6 +3546,7 @@ export class Level01 extends Level {
 
     if (zOverlap && xOverlap && this._flightLift < JETPACK_SAFE_LIFT) {
       this.caught = true;
+      clearThoughts(); // no thoughts over the ending
       this.failCause = "guardian";
       this.finished = true;
       state.alive = false;
@@ -3645,7 +3634,7 @@ export class Level01 extends Level {
     if (!this._handlerSealed && (this._gatePhase === "slamming" || this._gatePhase === "closed")) {
       this._handlerSealed = true;
       state.handlerState = "SEALED";
-      kaiThinks("The gate! That won\u2019t hold him for long.");
+      kaiThinks("The gate! That won\u2019t hold him for long.", null, null, { now: true });
       // Where he comes to rest. Normally the standoff in front of the bars, but
       // never further back than he already is: a Handler who was 1 m off Kai's
       // heels is inside the standoff already, and walking him backwards to it
@@ -3675,13 +3664,18 @@ export class Level01 extends Level {
     if (!this.caught && !this.escaped) {
       // A CLUE: now and then he whistles Baba Zwane's two notes from the fire.
       // Kai half-knows it; the player who listened at the fire knows it.
-      this._whistleT = (this._whistleT ?? 16) - dt;
-      if (this._whistleT <= 0 && this.gap < 20 && this._audio && this.handler) {
-        this._whistleT = 22 + Math.random() * 10;
-        this._whistles = (this._whistles || 0) + 1;
-        this._audio.playPositional(this.handler, "zwaneWhistle", { volume: 0.85, refDistance: 9, maxDistance: 60 });
-        if (this._whistles === 1) setTimeout(() => this.scene && kaiThinks("That whistle. Where have I heard that?"), 1300);
-        if (this._whistles === 3) setTimeout(() => this.scene && kaiThinks("Two notes, high then low. Someone used to call me like that."), 1300);
+      if (this._saidMarshal) this._whistleT = (this._whistleT ?? 8) - dt;
+      if (this._saidMarshal && this._whistleT <= 0 && this._audio && this.handler) { // after Kai has seen him; heard at any gap, even at a sprint
+        const sound = this._audio.playPositional(this.handler, "zwaneWhistle", { volume: 1.0, refDistance: 28, maxDistance: 90 });
+        if (sound) {
+          this._whistleT = 22 + Math.random() * 10;
+          this._whistles = (this._whistles || 0) + 1;
+          this._duckMusic(0.45); // the music steps back so the whistle is heard
+          // Kai's thought comes as the whistle ends, never before it
+          const after = (sound.buffer?.duration ?? 1.2) * 1000 + 250;
+          const line = { 1: "That whistle. Where have I heard that?", 3: "Two notes, high then low. Someone used to call me like that." }[this._whistles];
+          if (line) setTimeout(() => this.scene && !this.caught && kaiThinks(line, null, null, { now: true }), after);
+        }
       }
       if (this._handlerRageT > 0) this._handlerRageT = Math.max(0, this._handlerRageT - dt);
       const rageBoost = this._handlerRageT > 0 ? HANDLER_RAGE_SPEED : 0;
@@ -3693,6 +3687,7 @@ export class Level01 extends Level {
       if (this.gap <= 0) {
         this.gap = 0;
         this.caught = true;
+        clearThoughts(); // no thoughts over the ending
         this.failCause = "handler";
         this.finished = true; // no reader in Game yet — see the header note
         state.alive = false;
@@ -3768,7 +3763,7 @@ export class Level01 extends Level {
   _startFinale(x) {
     // why there's a car: this is the logging company's camp at the foot of the
     // mountain, and Kai is one of its guides (Baba Zwane got him the work)
-    kaiThinks("The company\u2019s camp. They always leave the keys in the crew car.");
+    kaiThinks("The company\u2019s camp. They always leave the keys in the crew car.", null, null, { now: true });
     const vehicle = this.serviceVehicle;
     if (!vehicle) {
       this._showEscapedCard();
@@ -4219,11 +4214,9 @@ export class Level01 extends Level {
     // the rules are in the PLAYBOOK (ui/Playbook.js); here, only where to find it, and a warning when he's close
     if (!this._toldGoal && this._storyT > 0.6) {
       this._toldGoal = true;
-      this._showTransientBanner("RUN \u00b7 ESC \u00b7 PLAYBOOK FOR THE RULES", 2.6, { info: true });
     }
     if (!this._toldClose && this.gap > 0 && this.gap < 6 && !this.caught && this._storyT > 5) {
       this._toldClose = true;
-      this._showTransientBanner("HE\u2019S ALMOST ON YOU \u00b7 SPRINT", 2.0);
     }
     if (this._clueThought && this._storyT > 70) {
       kaiThinks(this._clueThought);
@@ -4236,7 +4229,7 @@ export class Level01 extends Level {
         if (!this.caught && !this._finale) this._autoLook = Math.max(this._autoLook, 2.6);
       });
     }
-    if (!this._saidRuins && this.z <= HIGH_RUINS_Z + 20) {
+    if (!this._saidRuins && this.z <= HIGH_RUINS_Z + 70) { // said as they come into view, even at a sprint
       this._saidRuins = true;
       kaiThinks("The old path over the ruins. The camp’s on the far side of them.");
     }
@@ -4520,6 +4513,7 @@ export class Level01 extends Level {
     // itself instead of parking on screen.
     if (this._updateTrain(dt, x, prevZ)) {
       this.caught = true;
+      clearThoughts(); // no thoughts over the ending
       this.failCause = "southbound";
       this.finished = true; // no reader in Game yet — see the header note
       state.alive = false;
@@ -4734,8 +4728,8 @@ export class Level01 extends Level {
         const opts = { refDistance: 9, maxDistance: HANDLER_LIGHT_RANGE };
         if (this.gap < 24) {
           const r = Math.random();
-          if (r < 0.45) this._audio.playPositional(this.handler, "shout", { volume: 0.9, ...opts });
-          else if (r < 0.75) this._audio.playPositional(this.handler, "whistle", { volume: 0.6, ...opts });
+          // no whistle here: the only whistle he gives is Baba Zwane's call (the clue, above)
+          if (r < 0.6) this._audio.playPositional(this.handler, "shout", { volume: 0.9, ...opts });
           else this._audio.playPositional(this.handler, "radio", { volume: 0.5, ...opts });
         } else {
           this._audio.playPositional(this.handler, "radio", { volume: 0.45, ...opts });
@@ -5143,11 +5137,10 @@ export class Level01 extends Level {
 
   /** The horn is full: tell him, once with a thought, every time with the banner. */
   _hornFull() {
-    this._showTransientBanner("THE HORN IS FULL \u00b7 PRESS V", 2.2);
     if (this._audio) this._audio.playOneShot("coin", { volume: 0.55, rate: 0.62 });
     if (!this._saidHornFull) {
       this._saidHornFull = true;
-      kaiThinks("The horn\u2019s warm against my hip. Like it wants to be blown.");
+      kaiThinks("The horn\u2019s warm against my hip. Like it wants to be blown.", null, null, { now: true });
     }
   }
 
@@ -5204,7 +5197,7 @@ export class Level01 extends Level {
       fx.roots.fire(this.handler.position, HORN_HOLD + 1.6);
     }
     this._showTransientBanner(cleared ? `THE FOREST ANSWERS \u00b7 ${cleared} CLEARED` : "THE FOREST ANSWERS", 1.8);
-    if (this._hornCalls === 1) kaiThinks("It answered me. The whole forest answered.");
+    if (this._hornCalls === 1) kaiThinks("It answered me. The whole forest answered.", null, null, { now: true });
   }
 
   /**

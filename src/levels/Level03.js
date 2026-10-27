@@ -430,7 +430,6 @@ export class Level03 extends Level {
     state.awards.length = 0; // every attempt starts with all three spirits awake
     this.gifts = new ShrineGifts(this.arena, state, (id, gift) => this._onGift(id, gift));
     this.gifts.onReady = (id, gift) => {
-      this.hud.toast(gift.name, 'its spirit has woken: it can heal you again', 3);
       this.sound?.play('shrinePulse', { volume: 0.5 });
       this._applyGifts();
     };
@@ -1301,7 +1300,7 @@ export class Level03 extends Level {
     this._fightCall = VS_TIME;
     this.stag.begin();
     this.stag.restFor = VS_TIME + 0.4;
-    this._fightToasts = [[STAG_NAME, 'armoured: strike when its cracks burn cyan \u00b7 open, E leaps onto its back \u00b7 lure its charge into a tree', 7]];
+    this._fightToasts = [];
   }
 
   _finish(state) {
@@ -2291,7 +2290,6 @@ export class Level03 extends Level {
     this._forestT = 4.5; // the first bolt comes quickly, so the player learns what it means
     this._forestWarned = false;
     this.hud.popup('PHASE 4 — THE HORN', '#4fd6e0');
-    this.hud.toast('THE HORN', 'He has it, and the forest will make him pay: when the lightning hits him, he’s yours.', 5.5);
   }
 
   /**

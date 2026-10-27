@@ -66,12 +66,26 @@ export function holdThoughts(secs) {
  * no speaker name. Queued, so two never land on top of each other; each one
  * stays up long enough to read (or `secs`). Safe to call from any level.
  * `onShow` runs when it actually comes up (a camera move timed to the line).
+ *
+ * A thought belongs to its moment: one still waiting `within` seconds after it
+ * was asked for is dropped, never shown late about something long passed.
+ * `now: true` is a reaction to what just happened on screen (a whistle, the
+ * gate slamming): it cuts in at once, ahead of anything waiting.
  */
-export function kaiThinks(text, secs = null, onShow = null) {
+export function kaiThinks(text, secs = null, onShow = null, { now = false, within = 5 } = {}) {
   if (typeof document === 'undefined') return;
   ensureDialogueFont();
   const words = text.trim().split(/\s+/).length;
-  queue.push({ text, secs: secs ?? Math.max(2.6, 1.4 + words * 0.32), onShow });
+  const item = { text, secs: secs ?? Math.max(2.6, 1.4 + words * 0.32), onShow, at: performance.now(), within };
+  if (now) {
+    queue.unshift(item);
+    holdUntil = 0;
+    shown = null;
+    clearTimeout(thoughtTimer);
+    next();
+    return;
+  }
+  queue.push(item);
   if (!thoughtTimer) next();
 }
 
@@ -81,6 +95,8 @@ function next() {
     thoughtTimer = setTimeout(next, wait);
     return;
   }
+  // a thought that never got its moment is let go (one a hold put back has been seen, and comes back)
+  while (queue.length && !queue[0].seen && performance.now() - queue[0].at > queue[0].within * 1000) queue.shift();
   const n = queue.shift();
   shown = n || null;
   if (!n) {
@@ -99,6 +115,7 @@ function next() {
   }
   thoughtEl.textContent = n.text;
   thoughtEl.style.opacity = '1';
+  n.seen = true;
   n.onShow?.();
   n.onShow = null; // once, even if a hold brings the line back
   thoughtTimer = setTimeout(() => {

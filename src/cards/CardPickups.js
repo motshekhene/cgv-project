@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { cardsForLevel, collect, foundCount, CARDS } from './cards.js';
 import { cardCanvas, cardBackCanvas } from './cardArt.js';
-import { hint } from '../audio/voice.js';
 
 /**
  * The spirit cards hidden in one level (cards.js), as 3D pickups: each one a
@@ -112,7 +111,6 @@ export function showCardReveal(card, again = false) {
   el.innerHTML = `<b>${title}</b><img alt="${card.name}" src="${cardCanvas(card).toDataURL()}"><small>${card.name} · ${foundCount()} / ${CARDS.length} SPIRIT CARDS · A NEW ONE HIDES TOMORROW</small>`;
   document.body.appendChild(el);
   revealEl = el;
-  hint(`${title} ${card.name}.`);
   revealTimer = setTimeout(() => {
     el.classList.add('out');
     revealTimer = setTimeout(() => el.remove(), 600);

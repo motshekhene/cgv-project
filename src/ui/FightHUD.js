@@ -1,5 +1,4 @@
 import { THEME_CSS, END_CSS, showEndScreen } from './theme.js';
-import { hint } from '../audio/voice.js';
 
 /**
  * FightHUD — DOM overlay for the Level 3 fight. Lives inside the shared #hud
@@ -285,9 +284,9 @@ export class FightHUD {
   /** The round icon (TouchControls) shows the camera mode; this confirms a switch with a short toast. */
   setCamMode(mode) {
     const help = {
-      follow: ['FOLLOW', 'the mouse looks around (click to capture it) · TAB: lock-on'],
-      lock: ['LOCK-ON', 'camera stays on your opponent · left / right strafe · TAB: 360° view'],
-      orbit: ['360° VIEW', 'drag · hold ◀ ▶ · wheel · TAB: follow'],
+      follow: ['FOLLOW', 'camera'],
+      lock: ['LOCK-ON', 'camera'],
+      orbit: ['360° VIEW', 'camera'],
     }[mode];
     if (help) this.toast(help[0], help[1]);
   }
@@ -325,7 +324,6 @@ export class FightHUD {
       return;
     }
     this.toastEl.innerHTML = '';
-    hint(`${label}. ${text}`); // tips are said aloud (audio/voice.js)
     const b = document.createElement('b');
     b.textContent = label;
     this.toastEl.append(b, document.createTextNode(text));
