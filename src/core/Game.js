@@ -5,6 +5,7 @@ import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
 import { settings, onSettings } from "./settings.js";
 import { PostFX } from "./PostFX.js";
+import { windTime } from "../shaders/wind.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -226,7 +227,10 @@ export class Game {
       return;
     }
 
-    if (!this.paused && this.level) this.level.update(dt, this.state);
+    if (!this.paused && this.level) {
+      this.level.update(dt, this.state);
+      windTime.value += dt; // every swaying plant's clock (shaders/wind.js)
+    }
     this.input.endFrame();
     if ((this._qualityT += raw) > 1) {
       this._qualityT = 0;
