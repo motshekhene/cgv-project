@@ -79,7 +79,7 @@ export const CREDIT_SECTIONS = [
     note: 'Every other sound in the game is synthesised in code with the Web Audio API.',
     items: [
       { title: '“Repeat (Gaming Background Music)”', by: 'SoundUniverseStudio', licence: 'Pixabay',
-        url: 'https://pixabay.com/music/video-games-repeat-gaming-background-music-instrumental-218942/', use: 'The title screen2019s music' },
+        url: 'https://pixabay.com/music/video-games-repeat-gaming-background-music-instrumental-218942/', use: 'The music on the title screen' },
       { title: '“Collect Points”', by: 'Liecio', licence: 'Pixabay',
         url: 'https://pixabay.com/sound-effects/collect-points-190037/', use: 'The coins on the trail' },
       { title: '“Car crash (swerving, and crash)”', by: 'RSF_STUDIOS', licence: 'Pixabay',
