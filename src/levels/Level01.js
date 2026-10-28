@@ -454,6 +454,11 @@ const REWARD_PICKUP_Z = 1.05;
 const REWARD_VISIBLE_AHEAD = 230;
 const REWARD_VISIBLE_BEHIND = 24;
 
+// --- torn pages: the heads-up as one comes into range ---
+const PAGE_CUE_AHEAD = 60; // m before a page that its heads-up shows
+const PAGE_SIDE = ["LEFT", "MIDDLE", "RIGHT"]; // by lane
+const PAGE_ARROW = ["←", "↑", "→"];
+
 const JETPACK_PICKUPS = [
   { z: -1668, lane: 1 },
   { z: -2635, lane: 0 },
@@ -2038,6 +2043,52 @@ export class Level01 extends Level {
         if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.46 });
       }
     }
+    this._updatePageCue();
+  }
+
+  /**
+   * A torn page coming up: PAGE_CUE_AHEAD m out, a soft chime and a small
+   * parchment tag say which side of the trail it's on and count the metres
+   * down, so a runner has time to change lanes for it. Its own tag, not the
+   * shared banner, so it never covers a hazard warning.
+   */
+  _updatePageCue() {
+    if (typeof document === "undefined") return;
+    let next = null;
+    let ahead = Infinity;
+    for (const letter of this._storyLetters) {
+      if (letter.collected) continue;
+      const d = this.z - letter.z; // metres still to go (the trail runs toward -z)
+      if (d >= -1 && d <= PAGE_CUE_AHEAD && d < ahead) {
+        next = letter;
+        ahead = d;
+      }
+    }
+    if (!next) {
+      if (this._pageCue) this._pageCue.style.opacity = "0";
+      return;
+    }
+    this._pageCued ??= new Set();
+    if (!this._pageCued.has(next.id)) {
+      this._pageCued.add(next.id);
+      if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.24, rate: 1.6 });
+    }
+    if (!this._pageCue) {
+      const el = document.createElement("div");
+      Object.assign(el.style, {
+        position: "fixed", left: "50%", top: "19%", transform: "translateX(-50%) rotate(-1deg)",
+        zIndex: "8998", padding: "7px 16px 8px", color: "#2b2219", background: "#efe6d2",
+        borderRadius: "2px", fontFamily: DIALOGUE_FONT, fontWeight: "600", fontSize: "15px", letterSpacing: ".14em",
+        whiteSpace: "nowrap", pointerEvents: "none", boxShadow: "0 6px 18px #0008, 0 0 18px rgba(79,255,208,.35)",
+        transition: "opacity .25s ease", opacity: "0",
+      });
+      document.body.append(el);
+      this._pageCue = el;
+    }
+    // both fork copies of the first page sit in the middle of their route
+    const lane = next.lane ?? 1;
+    this._pageCue.textContent = `${PAGE_ARROW[lane]}  TORN PAGE AHEAD · ${PAGE_SIDE[lane]} · ${Math.max(0, Math.round(ahead))} M`;
+    this._pageCue.style.opacity = "1";
   }
 
   _updateCollapsingBridge(dt, x, prevZ, state) {
@@ -3053,6 +3104,7 @@ export class Level01 extends Level {
 
   _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
+    if (this._pageCue) this._pageCue.style.opacity = "0"; // nothing ahead now
 
     // the losing card every level shows (ui/EndCard.js). No checkpoints:
     // caught anywhere, TRY AGAIN starts the run again from the stone
@@ -5251,8 +5303,10 @@ export class Level01 extends Level {
     if (this._storyTimer) clearTimeout(this._storyTimer);
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
     if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
+    this._pageCue?.remove();
     this._transientBanner = null;
     this._storyCard = null;
+    this._pageCue = null;
     if (this._musicTrack) {
       if (this._musicTrack.isPlaying) this._musicTrack.stop();
       this._musicTrack = null;
