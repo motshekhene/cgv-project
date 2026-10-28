@@ -5,6 +5,7 @@ import { loadCast, makeKai, poseHorn, HORN_HAND } from '../intros/cast.js';
 import { dotTexture } from '../intros/fx.js';
 import { kaiThinks, clearThoughts, DIALOGUE_FONT } from '../ui/dialogue.js';
 import { showEndCard } from '../ui/EndCard.js';
+import { say } from '../player/roster.js';
 import { Sfx } from './Prologue.js';
 
 /**
@@ -479,7 +480,7 @@ export class Epilogue extends Level {
       kind: 'win',
       title: all ? 'THE TRUE ENDING' : 'THE END',
       sub: all
-        ? 'The horn is back on its stone, and the forest is awake. Kai carried the six torn pages, the company’s own words, down to the valley. Everyone read what it had paid for, and no crew ever came back.'
+        ? say('The horn is back on its stone, and the forest is awake. {name} carried the six torn pages, the company’s own words, down to the valley. Everyone read what it had paid for, and no crew ever came back.')
         : 'The horn is back on its stone, and the forest is awake.',
       lines: [{ text: all ? 'ALL 6 TORN PAGES FOUND' : `${pages} / 6 TORN PAGES FOUND · FIND THEM ALL FOR THE TRUE ENDING` }],
       // the credits are on the main menu now (CREDITS), with links

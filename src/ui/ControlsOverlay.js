@@ -1,36 +1,25 @@
 /**
- * ControlsOverlay — what the inputs do, one keypress away.
+ * ControlsOverlay — what every level is played with (LEVEL_CONTROLS, read
+ * from the live Input bindings so it can never lie about a key), for the
+ * pause menu's list and the main menu's CONTROLS (ui/ControlsMenu.js), and
+ * the one thing every level shows of it: ESC · PAUSE, in a corner.
  *
- * Every level reads its inputs from Input.DEFAULT_BINDINGS, but until now the
- * only place a player could learn that SHIFT is boost or SPACE is the level-2
- * handbrake was the source code. Levels hint locally (level 01 has labelled
- * on-screen buttons, the prologue prompts E when there is something to use),
- * but nothing says the whole picture, and level 03 said nothing at all.
+ * The pill: when a level starts it opens out to PRESS ESC TO PAUSE for a few
+ * seconds, glowing, then settles to ESC · PAUSE; it hides while the game is
+ * paused (the pause menu has the keys) and while a level loads, and a click
+ * on it pauses. A level with something of its own in that corner docks it
+ * elsewhere (`dock: 'top'` in LEVEL_CONTROLS): Level 2's minimap is down
+ * there, so on the River Road it sits top right, under the CAR · VIEW row.
  *
- * This is the whole picture. Press H — or click the "H · CONTROLS" pill in the
- * bottom-right corner — for the current level's bindings. The keys column is
- * generated from the live Input bindings at open time, so if a binding moves,
- * this panel cannot lie about it.
+ *   import { mountPauseHint, controlRows } from './ui/ControlsOverlay.js';
+ *   const hint = mountPauseHint(game);                    // in main.js
+ *   game.onLevelChanged = (name) => hint.setLevel(name);
+ *   game.onPaused = (paused) => hint.setPaused(paused);
  *
- * A level with something of its own in that corner docks the pill elsewhere
- * (`dock: 'top'` in LEVEL_CONTROLS): Level 2's minimap is down there, so on
- * the River Road the pill sits top right, under the CAR · VIEW row, and the
- * panel opens downward from it.
- *
- *   import { mountControlsOverlay } from './ui/ControlsOverlay.js';
- *   const controls = mountControlsOverlay(game);          // in main.js
- *   game.onControlsToggle = () => controls.toggle();      // H (Game polls it)
- *   game.onLevelChanged = (name) => controls.setLevel(name);
- *
- * Per-level content lives in LEVEL_CONTROLS below. A row either resolves its
- * keys from a binding action (`action: 'boost'`) or states them literally
- * (`keys: 'MOUSE'`) for things that are not bindings, like mouse-look.
+ * A row either resolves its keys from a binding action (`action: 'boost'`)
+ * or states them literally (`keys: 'MOUSE'`) for things that are not
+ * bindings, like mouse-look.
  */
-
-// (on the main menu CONTROLS is a panel of its own, ui/ControlsMenu.js: this pill and panel are for the levels)
-const ACCENT = '#9ed36a';   // the jungle accent
-const DIM = '#8f9bb0';
-const PANEL_BG = 'rgba(8,11,17,.94)';
 
 /** Pretty-print one Input code the way it is drawn on a keyboard. */
 const KEY_LABELS = {
@@ -148,110 +137,67 @@ export function controlRows(game, levelName) {
   return [...spec.rows, ...SHARED_ROWS].map((row) => ({ label: row.label, keys: keysFor(game, row) }));
 }
 
-export function mountControlsOverlay(game) {
-  const state = { levelName: game.levelName || null, visible: false };
-
-  const root = document.createElement('div');
-  root.style.cssText =
-    // above the title screen (9500) and the pause menu (9300), below the loading screen
-    'position:fixed;z-index:9700;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;' +
-    "font-family:ui-monospace,'JetBrains Mono',Menlo,monospace";
-  document.body.appendChild(root);
-
-  const pill = document.createElement('div');
-  pill.style.cssText =
-    'pointer-events:auto;cursor:pointer;text-align:right;' +
-    `color:${DIM};background:${PANEL_BG};border:1px solid rgba(143,155,176,.3);` +
-    'border-radius:3px;padding:6px 10px;font-size:10px;letter-spacing:.22em;' +
-    'user-select:none';
-  pill.innerHTML = '<b style="color:' + ACCENT + '">H</b>&nbsp;&middot;&nbsp;CONTROLS';
-  pill.addEventListener('click', () => toggle());
-  root.appendChild(pill);
-
-  // Click anywhere outside the panel and it gets out of the way again — so on
-  // level 01, where the on-screen buttons share the bottom of the screen, the
-  // panel never fences them off for longer than the player wants to read it.
-  document.addEventListener('click', (e) => {
-    if (!state.visible) return;
-    if (panel.contains(e.target) || pill.contains(e.target)) return;
-    hide();
+/**
+ * ESC · PAUSE, in the corner of every level (not the main menu): opens out to
+ * PRESS ESC TO PAUSE as each level starts, hides while paused or loading.
+ */
+export function mountPauseHint(game) {
+  const style = document.createElement('style');
+  style.textContent = `
+.ph { position:fixed; z-index:9200; display:flex; align-items:center; gap:10px; padding:6px 13px 6px 7px; cursor:pointer; user-select:none;
+  font:700 10px 'Segoe UI', system-ui, sans-serif; letter-spacing:.24em; color:#efe4c8;
+  background:linear-gradient(180deg, rgba(38,44,28,.88), rgba(13,17,11,.86)); border:1px solid rgba(227,187,98,.45); border-radius:999px;
+  box-shadow:0 4px 14px rgba(0,0,0,.45); transition:opacity .35s ease, box-shadow .4s ease, border-color .4s ease; }
+.ph:hover { border-color:#e3bb62; }
+.ph kbd { padding:3px 7px 4px; font:700 10px 'Segoe UI', system-ui, sans-serif; letter-spacing:.06em; color:#f6e7c1;
+  border:1px solid rgba(227,187,98,.6); border-bottom-width:2px; border-radius:4px; background:rgba(0,0,0,.4); }
+.ph b { font-weight:700; white-space:nowrap; }
+.ph b span { display:inline-block; max-width:0; overflow:hidden; vertical-align:bottom; transition:max-width .6s ease; }
+.ph.big { box-shadow:0 0 22px rgba(227,187,98,.45), 0 4px 14px rgba(0,0,0,.45); border-color:#e3bb62; animation:phPulse 1.1s ease-in-out infinite alternate; }
+.ph.big b span { max-width:14em; }
+.ph.off { opacity:0; pointer-events:none; }
+@keyframes phPulse { to { box-shadow:0 0 34px rgba(227,187,98,.75), 0 4px 14px rgba(0,0,0,.45); } }
+`;
+  document.head.appendChild(style);
+  const el = document.createElement('div');
+  el.className = 'ph off';
+  el.innerHTML = '<kbd>ESC</kbd><b><span>PRESS ESC TO&nbsp;</span>PAUSE</b>';
+  el.title = 'Pause the game';
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (game.level && !game.loading) game.setPaused(true, 'user');
   });
+  document.body.appendChild(el);
 
-  const panel = document.createElement('div');
-  panel.style.cssText =
-    'pointer-events:auto;display:none;width:270px;' +
-    `color:#eef2fb;background:${PANEL_BG};border:1px solid rgba(143,155,176,.3);` +
-    'border-radius:4px;padding:14px 16px 10px;font-size:11px;letter-spacing:.08em;' +
-    'max-height:min(70vh,520px);overflow-y:auto;user-select:none';
-  root.appendChild(panel);
-
-  /**
-   * Bottom right, the panel opening upward above the pill; or, for a level
-   * docked 'top', top right under Level 2's CAR · VIEW row (which drops a
-   * row on narrow screens, levels/level2/controls.js), the panel opening downward.
-   */
-  function place() {
-    const top = (LEVEL_CONTROLS[state.levelName] || {}).dock === 'top';
-    root.style.right = top ? '12px' : '14px';
-    root.style.top = top ? `${window.innerWidth <= 760 ? 152 : 116}px` : 'auto';
-    root.style.bottom = top ? 'auto' : '6px'; // under Level 3's PUNCH button, not on it
-    root.style.flexDirection = top ? 'column' : 'column-reverse';
-    panel.style.margin = top ? '6px 0 0' : '0 0 6px';
-  }
-  place();
+  const state = { level: null, paused: false, timer: 0 };
+  const place = () => {
+    const top = (LEVEL_CONTROLS[state.level] || {}).dock === 'top';
+    Object.assign(el.style, top
+      ? { top: `${window.innerWidth <= 760 ? 152 : 116}px`, bottom: 'auto', right: '12px' }
+      : { top: 'auto', bottom: '8px', right: '14px' });
+  };
+  const show = () => el.classList.toggle('off', !state.level || state.level === 'title' || state.paused);
   window.addEventListener('resize', place);
 
-  function render() {
-    const spec = LEVEL_CONTROLS[state.levelName] || { title: 'CONTROLS', rows: [] };
-    const rows = state.levelName === 'title' ? spec.rows : [...spec.rows, ...SHARED_ROWS]; // nothing to pause or mute on the menu
-
-    let html =
-      `<div style="color:${ACCENT};font-size:10px;letter-spacing:.28em;margin-bottom:10px">` +
-      `${spec.title} \u00b7 CONTROLS</div>`;
-    for (const row of rows) {
-      html +=
-        '<div style="display:flex;justify-content:space-between;gap:14px;' +
-        'padding:3px 0">' +
-        `<span style="color:${DIM};letter-spacing:.16em">${row.label}</span>` +
-        `<span style="color:#eef2fb;text-align:right">${keysFor(game, row)}</span>` +
-        '</div>';
-    }
-    html +=
-      `<div style="color:${DIM};opacity:.75;font-size:9px;letter-spacing:.22em;` +
-      'margin-top:10px;border-top:1px solid rgba(143,155,176,.2);padding-top:8px">' +
-      'H \u2014 OPEN / CLOSE</div>';
-    panel.innerHTML = html;
-  }
-
-  function show() {
-    render();
-    panel.style.display = 'block';
-    state.visible = true;
-  }
-
-  function hide() {
-    panel.style.display = 'none';
-    state.visible = false;
-  }
-
-  function toggle() {
-    if (state.visible) hide();
-    else show();
-  }
-
   return {
-    toggle,
-    show,
-    hide,
-    get visible() { return state.visible; },
-    /** Called on level change — the panel re-renders next time it opens. */
+    /** A level has started: say it big for a few seconds, then small. */
     setLevel(name) {
-      state.levelName = name;
-      // the main menu has CONTROLS (ui/ControlsMenu.js) instead: no pill, no corner panel there
-      root.style.display = name === 'title' ? 'none' : '';
-      if (name === 'title') hide();
+      state.level = name;
+      state.paused = false;
       place();
-      if (state.visible) render();
+      show();
+      clearTimeout(state.timer);
+      el.classList.toggle('big', !!name && name !== 'title');
+      state.timer = setTimeout(() => el.classList.remove('big'), 5000);
+    },
+    /** A level is loading: out of the way. */
+    loading() {
+      state.level = null;
+      show();
+    },
+    setPaused(paused) {
+      state.paused = paused;
+      show();
     },
   };
 }

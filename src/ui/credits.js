@@ -13,13 +13,13 @@
 
 /** The developers, in the order the team gave them. */
 export const TEAM = [
-  'Sebetola Motshekhene',
-  'Mahlatse Maredi',
-  'Nontokozo Mbatha',
-  'Realeboha Monaiwa',
-  'Keamogetswe Modiakgotla',
+  'Sebetola Junior',
+  'Maredi Mahlatse',
+  'Mbatha Nontokozo',
+  'Monaiwa Realeboha',
+  'Keamogetswe Modiakgotle',
   'Kgothatso Nkadimeng',
-];
+]
 
 /** The cast, each in the colour their lines are written in (ui/dialogue.js SPEAKERS). */
 export const CAST = [

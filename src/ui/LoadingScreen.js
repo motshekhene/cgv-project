@@ -1,57 +1,65 @@
-import * as THREE from 'three';
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { Fireflies } from './artwork.js';
-import { makeHorn } from '../intros/cast.js';
 import { GAME_TITLE } from './brand.js';
 
 /**
  * LoadingScreen — the one loading screen in the game, used for every level
  * switch (main.js hangs it on game.onLevelLoading), so they all look alike:
  *
- *   the horn itself, in 3D, turning slowly in the dark with fireflies round
- *   it; its cyan wakes as the level loads, until it is lit when the level is
- *   ready. Under it the chapter's name, a line from the story, and a thin
- *   gold bar.
+ *   the chapter's own picture (a frame from the game, public/assets/guide/)
+ *   filling the screen under a slow zoom, darkened toward the bottom left;
+ *   there the chapter's number and name, a line from its part of the story,
+ *   and a thin gold line along the bottom of the screen for how far it has
+ *   loaded. Fireflies drift over it.
  *
  *   const loading = new LoadingScreen();
  *   loading.show('level01');   loading.progress(0.4);   loading.hide();
  */
 
-/** What each chapter is called, and a line from its part of the story. */
+/** What each chapter is called, a line from its part of the story, and its picture. */
 export const CHAPTERS = {
-  title: { kicker: '', title: GAME_TITLE, lore: '' },
-  prologue: { kicker: 'PROLOGUE', title: 'THE FIRE AND THE STONE',
+  title: { kicker: '', title: GAME_TITLE, lore: '', img: 'ch-prologue' },
+  prologue: { kicker: 'PROLOGUE', title: 'THE FIRE AND THE STONE', img: 'ch-prologue',
     lore: 'They say if the horn ever leaves the stone, the whole forest goes silent.' },
-  level01: { kicker: 'LEVEL 1', title: 'THE OLD TRAIL',
+  level01: { kicker: 'LEVEL 1', title: 'THE OLD TRAIL', img: 'ch-level01',
     lore: 'The last crew that went past the stone never came back.' },
-  'level02-intro': { kicker: 'LEVEL 2', title: 'THE RIVER ROAD',
+  'level02-intro': { kicker: 'LEVEL 2', title: 'THE RIVER ROAD', img: 'tr-road',
     lore: 'A year of the company’s wages, for one morning’s work.' },
-  level02: { kicker: 'LEVEL 2', title: 'THE RIVER ROAD',
+  level02: { kicker: 'LEVEL 2', title: 'THE RIVER ROAD', img: 'ch-level02',
     lore: 'A year of the company’s wages, for one morning’s work.' },
-  level03: { kicker: 'LEVEL 3', title: 'THE FALLS',
+  level03: { kicker: 'LEVEL 3', title: 'THE FALLS', img: 'ch-level03',
     lore: 'Nobody looks twice at a guide on the paths at dawn.' },
-  epilogue: { kicker: 'EPILOGUE', title: 'THE STONE',
+  epilogue: { kicker: 'EPILOGUE', title: 'THE STONE', img: 'ch-epilogue',
     lore: 'Some things only belong in one place.' },
 };
+const IMG = (name) => `./assets/guide/${name}.jpg`;
 
 const CSS = THEME_CSS + `
-.ld { position:fixed; inset:0; z-index:10000; overflow:hidden; opacity:0; visibility:hidden;
-  background:radial-gradient(ellipse at 50% 42%, #14201c 0%, #070b0a 55%, #020303 100%);
+.ld { position:fixed; inset:0; z-index:10000; overflow:hidden; opacity:0; visibility:hidden; background:#040504;
   transition:opacity .35s ease, visibility 0s linear .35s; pointer-events:none; }
 .ld.show { opacity:1; visibility:visible; transition:opacity .35s ease; pointer-events:auto; }
-.ld-motes { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; opacity:.7; }
-.ld-in { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
-  font-family:${DIALOGUE_FONT}; color:#f2e8d5; text-align:center; padding:0 16px; }
-.ld-horn { width:min(420px, 80vw); height:min(240px, 46vw); }
-.ld-kicker { margin-top:6px; font-size:13px; letter-spacing:.5em; text-indent:.5em; color:var(--gold); }
-.ld-title { font-size:clamp(26px, 4.4vw, 46px); font-weight:600; letter-spacing:.28em; text-indent:.28em;
-  text-shadow:0 2px 0 rgba(0,0,0,.5), 0 0 28px rgba(255,176,58,.25); }
-.ld-lore { max-width:560px; margin-top:14px; font-size:19px; font-style:italic; color:#e8ddc8; opacity:.9;
-  text-shadow:0 2px 14px rgba(0,0,0,.95); }
-.ld-bar { width:min(320px, 64vw); height:2px; margin-top:26px; background:rgba(227,187,98,.2); overflow:hidden; }
-.ld-bar b { display:block; height:100%; width:0; background:linear-gradient(90deg, var(--gold-dim), var(--gold)); transition:width .2s; }
-.ld-pct { margin-top:8px; font:600 10px var(--sans); letter-spacing:.32em; color:var(--ink-dim); }
+.ld-pic { position:absolute; inset:-3%; background-size:cover; background-position:center; opacity:0; transition:opacity .8s ease; }
+.ld-pic.on { opacity:1; animation:ldKen 14s ease-out forwards; }
+.ld::after { content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(20deg, rgba(3,4,3,.95) 0%, rgba(3,4,3,.75) 30%, rgba(3,4,3,.15) 60%, rgba(3,4,3,.35) 100%),
+             radial-gradient(ellipse at 60% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.5) 100%); }
+.ld-motes { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; opacity:.6; z-index:1; }
+.ld-in { position:absolute; left:clamp(24px, 7vw, 110px); right:24px; bottom:clamp(40px, 12vh, 110px); z-index:2;
+  font-family:${DIALOGUE_FONT}; color:#f2e8d5; }
+.ld-kicker { font:700 12px var(--sans); letter-spacing:.5em; color:var(--gold); text-shadow:0 2px 8px #000; }
+.ld-title { margin-top:8px; font-size:clamp(32px, 5.4vw, 64px); font-weight:600; line-height:1; letter-spacing:.14em; color:transparent;
+  -webkit-background-clip:text; background-clip:text; background-image:linear-gradient(180deg, #fff6dc 0%, #e8c06a 55%, #a07430 100%);
+  filter:drop-shadow(0 3px 0 rgba(0,0,0,.65)) drop-shadow(0 0 26px rgba(227,187,98,.25)); }
+.ld-lore { max-width:560px; margin-top:14px; font-size:clamp(16px, 1.6vw, 20px); font-style:italic; color:#e8ddc8; text-shadow:0 2px 14px rgba(0,0,0,.95); }
+.ld-pct { margin-top:20px; font:600 10px var(--sans); letter-spacing:.34em; color:var(--ink-dim); }
+.ld-bar { position:absolute; left:0; right:0; bottom:0; height:3px; z-index:2; background:rgba(227,187,98,.14); }
+.ld-bar b { display:block; height:100%; width:0; background:linear-gradient(90deg, var(--gold-dim), var(--gold)); box-shadow:0 0 12px rgba(227,187,98,.7); transition:width .25s ease; }
+.ld.show .ld-in > * { animation:ldUp .7s ease both; }
+.ld.show .ld-title { animation-delay:.08s; } .ld.show .ld-lore { animation-delay:.18s; } .ld.show .ld-pct { animation-delay:.26s; }
+@keyframes ldKen { from { transform:scale(1.03); } to { transform:scale(1.12) translate(-1%, -1%); } }
+@keyframes ldUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { .ld * { animation:none !important; } }
 `;
 
 export class LoadingScreen {
@@ -62,77 +70,28 @@ export class LoadingScreen {
     this.el = document.createElement('div');
     this.el.className = 'ld fh'; // .fh: the theme's colour variables
     this.el.innerHTML = `
+      <div class="ld-pic"></div>
       <canvas class="ld-motes"></canvas>
       <div class="ld-in">
-        <canvas class="ld-horn"></canvas>
         <div class="ld-kicker"></div>
         <div class="ld-title"></div>
         <div class="ld-lore"></div>
-        <div class="ld-bar"><b></b></div>
         <div class="ld-pct">LOADING</div>
-      </div>`;
+      </div>
+      <div class="ld-bar"><b></b></div>`;
     document.body.appendChild(this.el);
     const q = (s) => this.el.querySelector(s);
+    this.pic = q('.ld-pic');
     this.kicker = q('.ld-kicker');
     this.title = q('.ld-title');
     this.lore = q('.ld-lore');
     this.bar = q('.ld-bar b');
     this.pct = q('.ld-pct');
     this.motes = new Fireflies(q('.ld-motes'), 50);
-    this._buildHorn(q('.ld-horn'));
     this.visible = false;
     this._p = 0;
-    this._frame = this._frame.bind(this);
-  }
-
-  /** The horn on its own little renderer: lit from the side and behind, turning slowly. */
-  _buildHorn(canvas) {
-    try {
-      this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    } catch {
-      this.renderer = null; // no second context to be had: the words and the bar still work
-      return;
-    }
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.05, 20);
-    this.camera.position.set(0, 0.1, 1.0);
-    this.camera.lookAt(0, 0.04, 0);
-    this.scene.add(new THREE.HemisphereLight(0xb8c4d0, 0x1a1410, 0.9));
-    const key = new THREE.DirectionalLight(0xffd8a8, 2.4);
-    key.position.set(-1.5, 1.2, 1.4);
-    const rim = new THREE.DirectionalLight(0x7fe9f0, 2.0);
-    rim.position.set(1.2, 0.6, -1.5);
-    this.scene.add(key, rim);
-    this.horn = makeHorn({ glow: 0.02 });
-    this.horn.userData.glow.scale.setScalar(0.5);
-    const pivot = new THREE.Group();
-    this.horn.position.set(-0.25, -0.02, 0); // turn it about its middle, not its base
-    pivot.add(this.horn);
-    this.pivot = pivot;
-    this.scene.add(pivot);
-    this._canvas = canvas;
-  }
-
-  _frame(now) {
-    if (!this.visible) return;
-    requestAnimationFrame(this._frame);
-    if (!this.renderer) return;
-    const c = this._canvas;
-    const w = c.clientWidth, h = c.clientHeight;
-    if (w && h && (c.width !== Math.round(w * this.renderer.getPixelRatio()))) {
-      this.renderer.setSize(w, h, false);
-      this.camera.aspect = w / h;
-      this.camera.updateProjectionMatrix();
-    }
-    const t = now / 1000;
-    this.pivot.rotation.set(0.25 + Math.sin(t * 0.7) * 0.08, t * 0.5, -0.1);
-    // its light wakes with the level
-    this.horn.userData.material.emissiveIntensity = 0.03 + this._p * 0.55;
-    this.horn.userData.glow.material.opacity = 0.15 + this._p * 0.6;
-    this.renderer.render(this.scene, this.camera);
+    // every chapter's picture in early, so none of them arrives after its loading screen
+    for (const c of Object.values(CHAPTERS)) if (c.img) new Image().src = IMG(c.img);
   }
 
   /** Cover the screen for `name` (a registered level). Chapters without an entry just say LOADING. */
@@ -141,16 +100,20 @@ export class LoadingScreen {
     this.kicker.textContent = c.kicker;
     this.title.textContent = c.title;
     this.lore.textContent = c.lore ? `“${c.lore}”` : '';
+    // its picture, its slow zoom started again
+    this.pic.classList.remove('on');
+    this.pic.style.backgroundImage = c.img ? `url('${IMG(c.img)}')` : 'none';
+    void this.pic.offsetWidth;
+    if (c.img) this.pic.classList.add('on');
     this.progress(0);
+    this.el.classList.remove('show');
+    void this.el.offsetWidth; // the words come up again for each chapter
     this.el.classList.add('show');
     this.motes.start();
-    if (!this.visible) {
-      this.visible = true;
-      requestAnimationFrame(this._frame);
-    }
+    this.visible = true;
   }
 
-  /** 0..1: the horn's light and the bar. */
+  /** 0..1: the line along the bottom. */
   progress(p) {
     this._p = Math.max(0, Math.min(1, p));
     this.bar.style.width = `${Math.round(this._p * 100)}%`;

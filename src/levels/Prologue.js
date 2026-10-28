@@ -2210,7 +2210,7 @@ export class Prologue extends Level {
     );
 
     // X skips the whole prologue. It sits top right, clear of the subtitles
-    // and of the H · CONTROLS pill in the bottom corner: a lit plaque with
+    // and of the ESC · PAUSE pill in the bottom corner: a lit plaque with
     // the key drawn as a key, glowing three times as the scene opens so it
     // is seen, and it can be clicked as well as pressed.
     const KEYCAP = 'display:inline-block;min-width:24px;padding:2px 7px;margin-right:10px;border:1px solid rgba(227,187,98,.85);' +
@@ -3155,7 +3155,7 @@ export class Prologue extends Level {
       this._refusedCard = showEndCard({
         kind: 'lose',
         title: 'THE HORN STAYS',
-        sub: 'Kai walked back down to the camp and left the horn on its stone. By morning the company had found someone else who would take it. By winter, the valley was cleared.',
+        sub: say('{name} walked back down to the camp and left the horn on its stone. By morning the company had found someone else who would take it. By winter, the valley was cleared.'),
         lines: [{ text: 'ANOTHER ENDING · TAKE THE HORN TO CHANGE IT' }],
         action: { label: 'TRY AGAIN', key: 'ENTER', onClick: () => this._backToStone() },
         extra: [{ label: 'MAIN MENU', onClick: () => this.game.setLevel('title') }],

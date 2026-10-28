@@ -8,7 +8,7 @@ import { Level03 } from "./levels/Level03.js";
 import { Epilogue } from "./levels/Epilogue.js";
 import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
-import { mountControlsOverlay, controlRows } from "./ui/ControlsOverlay.js";
+import { mountPauseHint, controlRows } from "./ui/ControlsOverlay.js";
 import { ControlsMenu } from "./ui/ControlsMenu.js";
 import { PauseMenu } from "./ui/PauseMenu.js";
 import { CHAPTERS } from "./ui/LoadingScreen.js";
@@ -84,8 +84,8 @@ game.registerLevel("epilogue", () => new Epilogue());
  */
 const loading = new LoadingScreen();
 
-// the "H · CONTROLS" pill — what every input does, per level, one press away
-const controlsOverlay = mountControlsOverlay(game);
+// ESC · PAUSE in the corner of every level (the pause menu lists the level's keys)
+const pauseHint = mountPauseHint(game);
 // CONTROLS, from the title menu (and H there): every chapter's controls, in a panel like CREDITS
 const controlsMenu = new ControlsMenu(game);
 // OPTIONS (volume, mouse, graphics, FPS), from the title menu and the pause menu
@@ -108,7 +108,7 @@ let titleScreen = null;
 let titleVisits = 0;
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
-  controlsOverlay.setLevel(name);
+  pauseHint.setLevel(name);
   loading.hide();
   if (titleScreen && name !== "title") {
     titleScreen.dispose();
@@ -127,6 +127,7 @@ game.onLevelChanged = (name) => {
       onMap: () => gameMap.open(),
       onPlaybook: () => playbook.open(),
       onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
+      onEnter: (instant) => game.level?.wake?.(instant), // the landing's key: the horn wakes, the camera pulls back to the menu
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
   }
@@ -142,6 +143,7 @@ const pauseMenu = new PauseMenu({
 });
 game.onPaused = (v, reason) => {
   console.log("[game]", v ? "paused" : "resumed", reason === "switch" ? "(level switch)" : "");
+  pauseHint.setPaused(v);
   const name = game.levelName;
   if (v && reason === "user" && name === "title") {
     game.setPaused(false, "switch"); // nothing to pause on the title screen: Esc is its "back"
@@ -156,9 +158,9 @@ game.onPaused = (v, reason) => {
 };
 game.onLevelLoading = ((show) => (name) => {
   pauseMenu.show(false);
+  pauseHint.loading();
   show(name);
 })(game.onLevelLoading);
-game.onControlsToggle = () => (game.levelName === "title" ? controlsMenu.toggle() : controlsOverlay.toggle());
 
 /** Start the story at `name`, preloading Level 1 behind the prologue. */
 async function begin(name) {

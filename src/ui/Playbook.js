@@ -51,7 +51,7 @@ const CHAPTERS = [
     keys: [['W A S D', 'move'], ['LMB / ENTER', 'attack'], ['K', 'kick'], ['RMB / B', 'block'], ['C', 'dodge'], ['TAB', 'lock on'], ['V', 'the horn: slow time'], ['N', 'map']],
   },
 ];
-const ANY_TIME = [['ESC', 'pause (and this playbook)'], ['H', 'the controls'], ['M', 'mute'], ['R', 'restart the level']];
+const ANY_TIME = [['ESC', 'pause: the keys, this playbook, options'], ['M', 'mute'], ['R', 'restart the level']];
 
 // where each thing is found, in that chapter's colour (several: the first)
 const WHERE_COLOR = { 'Level 1': '#9ed36a', 'Levels 1 and 3': '#9ed36a', 'Levels 1, 2, 3': '#f2934f', 'Level 3': '#f2934f', Anywhere: '#4fd6e0' };

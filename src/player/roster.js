@@ -30,7 +30,7 @@ export const PLAYERS = [
   { id: 'naledi', name: 'Naledi', rig: 'naledi-ch22', line: 'The fastest guide on the river paths.', pronouns: SHE },
   { id: 'bheki', name: 'Bheki', rig: 'bheki-ch10', line: 'Looks half dead. Runs like he isn’t.', pronouns: HE },
   // short, with a head that size: at 1.8 m it went through the roof of every car in Level 1's bay
-  { id: 'toko', name: 'Toko', rig: 'toko-ch19', line: 'Small, blue, and nobody’s idea of a hero.', pronouns: HE, height: 1.35 },
+  { id: 'knox', name: 'Knox', rig: 'toko-ch19', line: 'Small, blue, and nobody’s idea of a hero.', pronouns: HE, height: 1.35 },
 ];
 
 const KEY = 'blackout.player';

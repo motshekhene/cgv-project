@@ -41,7 +41,6 @@ export const DEFAULT_BINDINGS = {
   skipScene: ["x"], // jump a whole intro — only polled by scenes that have one
   decline: ["q"], // the "no" half of a two-way choice (prologue)
   mute: ["m"],
-  controls: ["h"], // the controls overlay — what everything else does
   changeCar: ["v"], // level 02: open the car picker
   drift: ["q"], // level 02: hold with a steer to throw the car sideways (Q still cycles paint in the picker)
   handbrake: [" "], // level 02: a hard stop that never goes into reverse

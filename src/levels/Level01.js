@@ -2735,7 +2735,7 @@ export class Level01 extends Level {
     Object.assign(actionControls.style, {
       position: "absolute",
       right: "27px",
-      bottom: "48px", // clear of the H · CONTROLS pill in the corner
+      bottom: "48px", // clear of the ESC · PAUSE pill in the corner
       width: "220px",
       display: "flex",
       justifyContent: "center",

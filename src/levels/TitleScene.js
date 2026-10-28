@@ -20,6 +20,9 @@ import { dotTexture } from '../intros/fx.js';
  * While the menu's PLAYER page is open, whoever is picked there stands at the
  * stone in their fighting stance, turned to the camera, and the drift holds
  * still until the page closes (showPlayer).
+ *
+ * wake() is the landing's key (ui/TitleScreen.js: the trailer fades away onto
+ * this): the horn flares and a ring of its light runs out across the glade.
  */
 const STONE_AT = new THREE.Vector3(0, 0, 0);
 const ORBIT_R = 6.2;
@@ -33,6 +36,13 @@ export class TitleScene extends Level {
     this._players = new Map(); // id -> the Fighter standing at the stone, once loaded
     this._loading = new Set();
     this._shown = null;
+    this._wakeT = null; // seconds since wake(), while the flare and the ring run
+  }
+
+  /** The landing's key: the horn flares and its ring of light runs out (nothing, `instant`: back from a level). */
+  wake(instant = false) {
+    if (instant || this._wakeT !== null) return;
+    this._wakeT = 0;
   }
 
   async init(scene, assets, input, state) {
@@ -130,6 +140,18 @@ export class TitleScene extends Level {
     this.hornLight.position.set(0, 1.15, 0);
     g.add(this.hornLight);
     this.root.add(g);
+    // the middle of the horn, where its ring of light starts
+    g.updateMatrixWorld(true);
+    this._hornAt = this.horn.localToWorld(new THREE.Vector3(0.17, 0.05, 0));
+    // the ring of its light that runs out across the glade when it wakes
+    this.ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.92, 1, 96),
+      new THREE.MeshBasicMaterial({ color: 0x8ff0f6, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }),
+    );
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.position.set(this._hornAt.x, 0.06, this._hornAt.z);
+    this.ring.visible = false;
+    this.root.add(this.ring);
 
     // the guardians either side behind it, and the old cairns
     this._put(this.kit.stag, -2.6, -2.4, 2.1, 0.7);
@@ -245,13 +267,25 @@ export class TitleScene extends Level {
     cam.position.set(Math.sin(a) * ORBIT_R, 1.55 + Math.sin(this.t * 0.2) * 0.12, Math.cos(a) * ORBIT_R);
     const side = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a)); // camera's right
     this._look.set(0, 1.05, 0).addScaledVector(side, -1.1);
+
+    // the horn, woken: a flare, and a ring of its light running out across the glade
+    let flare = 0;
+    if (this._wakeT !== null) {
+      this._wakeT += dt;
+      flare = Math.exp(-this._wakeT * 2.2);
+      const r = this._wakeT / 1.8;
+      this.ring.visible = r < 1;
+      this.ring.scale.setScalar(0.3 + r * 13);
+      this.ring.material.opacity = 0.9 * (1 - r) * (1 - r);
+      if (this._wakeT > 2.6) this._wakeT = null;
+    }
     cam.lookAt(this._look);
 
-    // the horn breathing, the motes drifting
+    // the horn breathing, the motes drifting; a flare when it wakes
     const breath = 0.5 + 0.5 * Math.sin(this.t * 1.3);
-    this.horn.userData.material.emissiveIntensity = 0.08 + 0.1 * breath;
-    this.horn.userData.glow.material.opacity = 0.25 + 0.2 * breath;
-    this.hornLight.intensity = 2.4 + 1.2 * breath;
+    this.horn.userData.material.emissiveIntensity = 0.08 + 0.1 * breath + 1.4 * flare;
+    this.horn.userData.glow.material.opacity = Math.min(1, 0.25 + 0.2 * breath + 0.7 * flare);
+    this.hornLight.intensity = 2.4 + 1.2 * breath + 16 * flare;
     const p = this.motes.geometry.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const s = this._seeds[i];

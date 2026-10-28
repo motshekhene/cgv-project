@@ -96,7 +96,7 @@ export class ControlsMenu {
         <div class="km-tabs">${CHAPTERS.map(([id, label]) => `<span class="km-tab" data-tab="${id}">${label}</span>`).join('')}</div>
         <div class="km-lead"></div>
         <div class="km-list"></div>
-        <div class="km-foot">In any level: <b>H</b> shows these in the corner · <b>ESC</b> pauses · the <b>PLAYBOOK</b> has the rules</div>
+        <div class="km-foot">In any level: <b>ESC</b> pauses (the pause menu lists that level’s keys) · the <b>PLAYBOOK</b> has the rules</div>
         <div class="km-back">BACK</div>
         <div class="km-hint">← → CHAPTER · ESC BACK</div>
       </div>`;
@@ -152,7 +152,7 @@ export class ControlsMenu {
     else if (k >= '1' && k <= String(ids.length)) this.show(ids[+k - 1]);
     else if (k === 'arrowdown' || k === 's') this.list.scrollBy({ top: 60, behavior: 'smooth' });
     else if (k === 'arrowup' || k === 'w') this.list.scrollBy({ top: -60, behavior: 'smooth' });
-    else if (['escape', 'backspace', 'enter', 'h'].includes(k)) this.close();
+    else if (['escape', 'backspace', 'enter'].includes(k)) this.close();
     e.preventDefault();
     e.stopImmediatePropagation();
   }

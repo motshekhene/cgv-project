@@ -7,7 +7,7 @@ import { CREDIT_SECTIONS, LICENCES, TEAM, CAST, CAST_CREDIT, SCORE } from './cre
  * CreditsMenu — CREDITS on the main menu, in four tabs, one on screen at a
  * time so none of it is a long scroll away (the lists are ui/credits.js):
  *
- *   THE TEAM            the five developers, each on a medallion of their initials
+ *   THE TEAM            the six developers, each on a card with a medallion of their initials
  *   THE CAST            who's in the story, each in the colour of their lines
  *   THE MUSIC           the score written for the game, one piece per chapter
  *   ASSETS AND TOOLS    everything the team did not make, as a film's end
