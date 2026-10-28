@@ -1,99 +1,167 @@
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT, ensureDialogueFont } from './dialogue.js';
 import { CHAPTERS } from './LoadingScreen.js';
-import { GAME_TITLE, GAME_SUBTITLE, TAGLINE } from './brand.js';
+import { GAME_TITLE, TAGLINE } from './brand.js';
+import { TEAM } from './credits.js';
 import { settings, onSettings } from '../core/settings.js';
+import { CURRENCY, balance, owns } from '../core/wallet.js';
+import { CARS } from '../levels/level2/carSelect.js';
+import { CARDS, foundCount, todaysCard } from '../cards/cards.js';
 
 /**
- * TitleScreen — the words and the menu over the title level (levels/
- * TitleScene.js: the glade at dawn, the horn on its stone, the camera
- * drifting round it). The left of the screen darkens for the text; the
- * scene keeps the right.
+ * TitleScreen — over the title level (levels/TitleScene.js: the glade at
+ * dawn, the horn on its stone, the camera drifting round it), in two parts:
  *
- * "PRESS ANY KEY" first: that press is also the gesture browsers want before
- * they will play sound, so the theme comes up with the menu. Then:
+ *   THE LANDING   first thing on opening the game: a cinematic page in the
+ *                 middle of the screen, bars top and bottom: the horn's emblem
+ *                 glowing in a turning ring of light, the title letter by
+ *                 letter, the tagline, PRESS ANY KEY, and who made it. That
+ *                 press is also the gesture browsers want before they will
+ *                 play sound, so the theme comes up with the menu.
+ *   THE MENU      the title small at the top left, the menu under it with a
+ *                 line about whichever item is picked, and in the corner where
+ *                 you stand: Forest Lights to spend, cars, spirit cards, and
+ *                 whether today's card is still out there.
  *
  *   NEW GAME   the prologue, from the fire
  *   CHAPTERS   jump to any part of the story
- *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
- *   CONTROLS   the same H panel every level has
- *   CREDITS    every asset the team didn't make, with links (ui/CreditsMenu.js)
- *   SPIRIT CARDS  the card album, and how rare today's hidden card is (ui/CardAlbum.js)
  *   PLAYBOOK   the rules, what everything does, and the places, with pictures (ui/Playbook.js)
+ *   SPIRIT CARDS  the card album (ui/CardAlbum.js)
  *   MAP        every landmark in the valley and the three levels (ui/GameMap.js)
+ *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
+ *   CONTROLS   every chapter's controls (ui/ControlsMenu.js)
+ *   CREDITS    the team, the cast, the music, and every asset with links (ui/CreditsMenu.js)
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
- * main.js passes onStart(levelName), onOptions, onControls and onCredits.
+ * main.js passes onStart(levelName) and the panels' openers. Back from a
+ * level (skipPress) it opens straight on the menu.
  */
 
 const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
 
 const MENU = [
-  { id: 'new', label: 'NEW GAME' },
-  { id: 'chapters', label: 'CHAPTERS' },
-  { id: 'playbook', label: 'PLAYBOOK' },
-  { id: 'cards', label: 'SPIRIT CARDS' },
-  { id: 'map', label: 'MAP' },
-  { id: 'options', label: 'OPTIONS' },
-  { id: 'controls', label: 'CONTROLS' },
-  { id: 'credits', label: 'CREDITS' },
+  { id: 'new', label: 'NEW GAME', about: 'Begin at the fire, with Baba Zwane.' },
+  { id: 'chapters', label: 'CHAPTERS', about: 'Go straight to any part of the story.' },
+  { id: 'playbook', label: 'PLAYBOOK', about: 'How to play, what everything does, and every place.' },
+  { id: 'cards', label: 'SPIRIT CARDS', about: 'Your album. One card hides somewhere in the game each day.' },
+  { id: 'map', label: 'MAP', about: 'The valley and all three levels, every place named.' },
+  { id: 'options', label: 'OPTIONS', about: 'Volume, mouse and graphics.' },
+  { id: 'controls', label: 'CONTROLS', about: 'Every chapter’s keys.' },
+  { id: 'credits', label: 'CREDITS', about: 'The team, the cast, the music, and everyone else.' },
 ];
 const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
 const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
 const themeVolume = () => THEME_LEVEL * settings.music * settings.master;
 
+// the horn, as on its stone: a curl on a 260 x 200 grid (Level01's coin emblem shape)
+const HORN_PATH = 'M38 168 C30 104 76 42 146 40 C196 39 226 72 224 112 C223 138 204 154 186 150 C204 138 206 112 192 94 C174 72 142 66 114 78 C84 92 70 124 76 168 Z';
+
 const CSS = THEME_CSS + `
 .ts { position:fixed; inset:0; z-index:9500; overflow:hidden; user-select:none; font-family:${DIALOGUE_FONT}; color:#f2e8d5;
   transition:opacity .9s ease; }
 .ts.out { opacity:0; pointer-events:none; }
-.ts::before { content:''; position:absolute; inset:0; pointer-events:none;
-  background:linear-gradient(90deg, rgba(4,6,4,.9) 0%, rgba(4,6,4,.72) 28%, rgba(4,6,4,.18) 55%, rgba(4,6,4,0) 70%),
-             radial-gradient(ellipse at 70% 55%, rgba(0,0,0,0) 40%, rgba(2,4,3,.55) 100%); }
-.ts-in { position:absolute; left:clamp(28px, 7vw, 120px); top:0; bottom:0; width:min(820px, 88vw);
-  display:flex; flex-direction:column; justify-content:center; }
-.ts-kicker { font-size:13px; letter-spacing:.5em; color:var(--gold); opacity:0; animation:tsUp .9s ease .3s forwards; }
-.ts-title { margin:10px 0 0; font-weight:600; line-height:.95; letter-spacing:.06em; white-space:nowrap; padding-right:.1em;
-  font-size:clamp(38px, 6.2vw, 92px); color:transparent; -webkit-background-clip:text; background-clip:text;
+
+/* ---- the landing: everything in the middle, bars top and bottom ---- */
+.ts-land { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+  background:radial-gradient(ellipse at 50% 46%, rgba(4,6,4,.25) 0%, rgba(4,6,4,.62) 55%, rgba(2,3,2,.92) 100%);
+  transition:opacity .8s ease, transform 1s cubic-bezier(.5,0,.2,1), filter .8s ease; }
+.ts-land::before, .ts-land::after { content:''; position:absolute; left:0; right:0; height:9vh; background:#000; transition:transform .9s cubic-bezier(.6,0,.2,1); }
+.ts-land::before { top:0; } .ts-land::after { bottom:0; }
+.ts.menu .ts-land { opacity:0; transform:scale(1.08); filter:blur(6px); pointer-events:none; }
+.ts.menu .ts-land::before { transform:translateY(-100%); } .ts.menu .ts-land::after { transform:translateY(100%); }
+.ts-emblem { position:relative; width:clamp(110px, 16vh, 168px); aspect-ratio:1; margin-bottom:10px; opacity:0; animation:tsUp 1.2s ease .2s forwards; }
+.ts-emblem svg { position:absolute; inset:16%; width:68%; height:68%; overflow:visible; filter:drop-shadow(0 0 10px #4fd6e0) drop-shadow(0 0 26px rgba(79,214,224,.55));
+  animation:tsBreath 3.2s ease-in-out infinite; }
+.ts-emblem::before { content:''; position:absolute; inset:0; border-radius:50%; padding:2px;
+  background:conic-gradient(from 0deg, rgba(79,214,224,.9), transparent 22%, rgba(227,187,98,.85) 50%, transparent 72%, rgba(79,214,224,.9));
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude;
+  animation:tsSpin 9s linear infinite; }
+.ts-emblem::after { content:''; position:absolute; inset:-30%; border-radius:50%; background:radial-gradient(circle, rgba(79,214,224,.22), transparent 62%);
+  animation:tsBreath 3.2s ease-in-out infinite; }
+.ts-kicker { font-size:13px; letter-spacing:.5em; text-indent:.5em; color:var(--gold); opacity:0; animation:tsUp .9s ease .5s forwards; }
+.ts-big { margin:10px 0 0; font-weight:600; line-height:1; letter-spacing:.08em; white-space:nowrap; font-size:clamp(40px, 8vw, 120px);
+  filter:drop-shadow(0 4px 0 rgba(0,0,0,.65)) drop-shadow(0 0 34px rgba(227,187,98,.32)); }
+.ts-big span { display:inline-block; opacity:0; color:transparent; -webkit-background-clip:text; background-clip:text;
   background-image:linear-gradient(180deg, #fff6dc 0%, #e8c06a 52%, #8a6226 100%);
-  filter:drop-shadow(0 3px 0 rgba(0,0,0,.65)) drop-shadow(0 0 30px rgba(227,187,98,.28));
-  opacity:0; animation:tsTitle 1.8s cubic-bezier(.2,.7,.2,1) .5s forwards; }
-.ts-sub { margin-top:6px; font-size:clamp(14px, 1.5vw, 18px); letter-spacing:.48em; color:var(--gold); opacity:0; animation:tsUp .9s ease 1s forwards; }
-.ts-rule { width:min(300px, 60vw); height:1px; margin:20px 0 14px; border:0;
-  background:linear-gradient(90deg, var(--gold), transparent); transform:scaleX(0); transform-origin:left;
-  animation:tsLine 1.2s ease 1.2s forwards; }
-.ts-tag { max-width:440px; font-size:clamp(16px, 1.6vw, 20px); font-style:italic; line-height:1.45; color:#e8ddc8;
-  text-shadow:0 2px 14px rgba(0,0,0,.95); opacity:0; animation:tsUp .9s ease 1.6s forwards; }
-.ts-press { margin-top:48px; font-size:14px; letter-spacing:.42em; color:#cfd6c4;
-  opacity:0; animation:tsUp .8s ease 2.2s forwards, tsPulse 2.2s ease-in-out 3s infinite; }
-.ts.menu .ts-press { display:none; }
-.ts-menu { display:none; margin-top:40px; flex-direction:column; align-items:flex-start; gap:4px; }
-.ts.menu .ts-menu { display:flex; }
-.ts-btn { position:relative; padding:8px 0 8px 30px; cursor:pointer; font:600 19px ${DIALOGUE_FONT}; letter-spacing:.28em;
-  color:rgba(242,232,213,.62); text-shadow:0 2px 10px rgba(0,0,0,.9); opacity:0; animation:tsUp .5s ease forwards; animation-delay:var(--d);
-  transition:color .15s, letter-spacing .25s, transform .2s; }
+  animation:tsLetter .9s cubic-bezier(.2,.8,.2,1) forwards; animation-delay:calc(.8s + var(--i) * .07s); }
+.ts-land .ts-rule { width:min(360px, 60vw); height:1px; margin:18px auto 14px; border:0; background:linear-gradient(90deg, transparent, var(--gold), transparent);
+  transform:scaleX(0); animation:tsLine 1.2s ease 1.8s forwards; }
+.ts-land .ts-tag { max-width:560px; text-wrap:balance; font-size:clamp(16px, 1.7vw, 21px); font-style:italic; line-height:1.45; color:#e8ddc8;
+  text-shadow:0 2px 14px rgba(0,0,0,.95); opacity:0; animation:tsUp .9s ease 2.1s forwards; }
+.ts-press { display:flex; align-items:center; gap:16px; margin-top:42px; font:600 14px var(--sans); letter-spacing:.42em; text-indent:.42em; color:#e8f6f0;
+  opacity:0; animation:tsUp .8s ease 2.6s forwards; }
+.ts-press b { font-weight:600; animation:tsPulse 2.2s ease-in-out 3.4s infinite; }
+.ts-press i { width:8px; height:8px; background:#4fd6e0; transform:rotate(45deg); box-shadow:0 0 10px #4fd6e0; animation:tsPulse 2.2s ease-in-out 3.4s infinite; }
+.ts-team { position:absolute; left:0; right:0; bottom:calc(9vh + 16px); font:600 10px var(--sans); letter-spacing:.32em; color:rgba(227,187,98,.75);
+  opacity:0; animation:tsUp .9s ease 3s forwards; }
+.ts-team b { display:block; margin-top:6px; font:500 13px ${DIALOGUE_FONT}; font-style:italic; letter-spacing:.12em; color:#e8ddc8; }
+
+/* ---- the menu: the left of the screen darkens for it; the scene keeps the right ---- */
+.ts-page { position:absolute; inset:0; opacity:0; pointer-events:none; transition:opacity .8s ease .35s; }
+.ts.menu .ts-page { opacity:1; pointer-events:auto; }
+.ts-page::before { content:''; position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(90deg, rgba(4,6,4,.92) 0%, rgba(4,6,4,.74) 28%, rgba(4,6,4,.2) 55%, rgba(4,6,4,0) 70%),
+             radial-gradient(ellipse at 70% 55%, rgba(0,0,0,0) 40%, rgba(2,4,3,.55) 100%); }
+.ts-in { position:absolute; left:clamp(28px, 7vw, 120px); top:0; bottom:0; width:min(620px, 88vw); display:flex; flex-direction:column; justify-content:center; }
+.ts-mark { display:flex; align-items:center; gap:14px; }
+.ts-mark svg { width:46px; height:36px; filter:drop-shadow(0 0 8px #4fd6e0); }
+.ts-title { margin:0; font-weight:600; line-height:.95; letter-spacing:.06em; white-space:nowrap; font-size:clamp(30px, 4.2vw, 62px); color:transparent;
+  -webkit-background-clip:text; background-clip:text; background-image:linear-gradient(180deg, #fff6dc 0%, #e8c06a 52%, #8a6226 100%);
+  filter:drop-shadow(0 3px 0 rgba(0,0,0,.65)) drop-shadow(0 0 26px rgba(227,187,98,.26)); }
+.ts-page .ts-rule { width:min(300px, 60vw); height:1px; margin:16px 0 12px; border:0; background:linear-gradient(90deg, var(--gold), transparent); }
+.ts-menu { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.ts-btn { position:relative; padding:7px 0 7px 30px; cursor:pointer; font:600 19px ${DIALOGUE_FONT}; letter-spacing:.28em;
+  color:rgba(242,232,213,.6); text-shadow:0 2px 10px rgba(0,0,0,.9); opacity:0; transition:color .15s, letter-spacing .25s, transform .2s; }
+.ts.menu .ts-btn { animation:tsUp .5s ease forwards; animation-delay:calc(.5s + var(--d)); }
 .ts-btn::before { content:''; position:absolute; left:4px; top:50%; width:9px; height:9px; margin-top:-5px; background:var(--gold);
   transform:rotate(45deg) scale(0); transition:transform .18s; box-shadow:0 0 10px rgba(227,187,98,.8); }
+.ts-btn::after { content:''; position:absolute; left:30px; right:-40px; bottom:2px; height:1px; background:linear-gradient(90deg, rgba(227,187,98,.6), transparent);
+  transform:scaleX(0); transform-origin:left; transition:transform .25s ease; }
 .ts-btn.on { color:#fff4d8; letter-spacing:.34em; transform:translateX(4px); }
 .ts-btn.on::before { transform:rotate(45deg) scale(1); }
+.ts-btn.on::after { transform:scaleX(1); }
 .ts-btn small { display:block; margin-top:2px; font:500 14px ${DIALOGUE_FONT}; font-style:italic; letter-spacing:.04em; color:var(--ink-dim); }
+.ts-about { min-height:22px; margin:14px 0 0 30px; font-size:16px; font-style:italic; color:#e8ddc8; text-shadow:0 2px 10px rgba(0,0,0,.9); transition:opacity .2s; }
+/* where you stand, in the corner: what you've got to spend, cars, cards, today's card */
+.ts-status { position:absolute; right:clamp(18px, 3vw, 40px); bottom:54px; width:250px; padding:14px 16px 12px; border-radius:8px;
+  background:linear-gradient(160deg, rgba(30,34,22,.82), rgba(10,12,8,.88)); border:1px solid rgba(227,187,98,.32);
+  box-shadow:0 12px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05); backdrop-filter:blur(4px); }
+.ts-status h4 { margin:0 0 10px; font:700 10px var(--sans); letter-spacing:.32em; color:var(--gold); }
+.ts-stat { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid rgba(239,228,200,.08);
+  font:700 10px var(--sans); letter-spacing:.2em; color:var(--ink-dim); }
+.ts-stat b { font:600 18px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#fff4d8; }
+.ts-stat b small { font:500 12px ${DIALOGUE_FONT}; color:var(--ink-dim); margin-left:2px; }
+.ts-stat.lights b { color:#e8fdff; text-shadow:0 0 10px rgba(79,214,224,.7); }
+.ts-stat.lights span::before { content:''; display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; background:#8ff0f6; box-shadow:0 0 8px #4fd6e0; vertical-align:0; }
+.ts-stat em { font:italic 13px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#bcd96a; text-transform:none; }
 .ts-foot { position:absolute; left:clamp(28px, 7vw, 120px); bottom:22px; font:600 10px var(--sans); letter-spacing:.3em; color:rgba(184,170,138,.65); }
+
 /* nine items: on a laptop-height screen everything closes up so the last one clears the foot */
 @media (max-height:860px) {
   .ts-in { padding-bottom:30px; }
-  .ts-title { font-size:clamp(36px, 5.4vw, 78px); }
-  .ts-rule { margin:14px 0 10px; }
-  .ts-menu { margin-top:20px; gap:0; }
+  .ts-page .ts-rule { margin:12px 0 8px; }
   .ts-btn { padding:5px 0 5px 30px; font-size:17px; }
+  .ts-about { margin-top:8px; }
+  .ts-press { margin-top:30px; }
 }
 @media (max-height:640px) {
-  .ts-kicker, .ts-tag { display:none; }
+  .ts-land .ts-tag, .ts-team, .ts-about { display:none; }
   .ts-btn { padding:3px 0 3px 28px; font-size:15px; }
+  .ts-status { display:none; }
 }
-@keyframes tsTitle { from { opacity:0; transform:translateY(14px); filter:blur(10px); } to { opacity:1; transform:none; } }
+@media (max-width:900px) { .ts-status { display:none; } }
+@media (prefers-reduced-motion: reduce) { .ts * , .ts *::before, .ts *::after { animation-duration:.01s !important; animation-iteration-count:1 !important; } }
+@keyframes tsLetter { from { opacity:0; transform:translateY(-.3em) scale(1.25); filter:blur(8px); } to { opacity:1; transform:none; filter:blur(0); } }
 @keyframes tsLine { to { transform:scaleX(1); } }
 @keyframes tsUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
 @keyframes tsPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+@keyframes tsSpin { to { transform:rotate(360deg); } }
+@keyframes tsBreath { 50% { transform:scale(1.06); filter:drop-shadow(0 0 14px #8ff0f6) drop-shadow(0 0 34px rgba(79,214,224,.7)); } }
 `;
+
+const hornSvg = (id) => `<svg viewBox="0 0 260 200" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#e8fdff"/><stop offset=".45" stop-color="#8ff0f6"/><stop offset="1" stop-color="#2fa8b4"/></linearGradient></defs>
+  <path d="${HORN_PATH}" fill="url(#${id})"/></svg>`;
 
 export class TitleScreen {
   constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, onPlaybook, skipPress = false }) {
@@ -116,22 +184,33 @@ export class TitleScreen {
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
 
+    const letters = [...GAME_TITLE].map((ch, i) => `<span style="--i:${i}">${ch === ' ' ? '&nbsp;' : ch}</span>`).join('');
     this.el = document.createElement('div');
     this.el.className = 'ts fh';
     this.el.innerHTML = `
-      <div class="ts-in">
+      <div class="ts-land">
+        <div class="ts-emblem">${hornSvg('tsHornA')}</div>
         <div class="ts-kicker">A FOREST · A HORN · A DEBT</div>
-        <h1 class="ts-title">${GAME_TITLE}</h1>
-        ${GAME_SUBTITLE ? `<div class="ts-sub">${GAME_SUBTITLE}</div>` : ''}
+        <h1 class="ts-big">${letters}</h1>
         <hr class="ts-rule">
         <div class="ts-tag">${TAGLINE}</div>
-        <div class="ts-press">PRESS ANY KEY</div>
-        <div class="ts-menu"></div>
+        <div class="ts-press"><i></i><b>PRESS ANY KEY</b><i></i></div>
+        <div class="ts-team">A GAME BY<b>${TEAM.map((n) => n.split(' ')[0]).join(' · ')}</b></div>
       </div>
-      <div class="ts-foot">↑ ↓ CHOOSE · ENTER SELECT · H CONTROLS</div>`;
+      <div class="ts-page">
+        <div class="ts-in">
+          <div class="ts-mark">${hornSvg('tsHornB')}<h1 class="ts-title">${GAME_TITLE}</h1></div>
+          <hr class="ts-rule">
+          <div class="ts-menu"></div>
+          <div class="ts-about"></div>
+        </div>
+        <div class="ts-status"></div>
+        <div class="ts-foot">↑ ↓ CHOOSE · ENTER SELECT · H CONTROLS</div>
+      </div>`;
     document.body.appendChild(this.el);
 
     this.menuEl = this.el.querySelector('.ts-menu');
+    this.aboutEl = this.el.querySelector('.ts-about');
     this.inMenu = false;
     this.items = [];
     this.sel = 0;
@@ -154,7 +233,7 @@ export class TitleScreen {
 
   _onKey(e) {
     const k = e.key.toLowerCase();
-    if (k === 'h') return; // the controls panel is Game's, on every screen
+    if (k === 'h') return; // CONTROLS opens on H (main.js), on every screen
     if (!this.inMenu) {
       if (['shift', 'control', 'alt', 'meta'].includes(k)) return;
       e.preventDefault();
@@ -175,7 +254,24 @@ export class TitleScreen {
     this.inMenu = true;
     this.el.classList.add('menu');
     this._startMusic();
+    this._showStatus();
     this._showMain();
+  }
+
+  /** Where you stand: Forest Lights to spend, cars, spirit cards, and today's card. */
+  _showStatus() {
+    const cars = CARS.filter((c) => owns(c.id)).length;
+    let today = '';
+    try {
+      today = todaysCard().taken ? 'found today ✓' : 'out there somewhere…';
+    } catch {
+      today = '';
+    }
+    this.el.querySelector('.ts-status').innerHTML = `<h4>YOUR JOURNEY</h4>
+      <div class="ts-stat lights"><span>${CURRENCY}</span><b>${balance()}</b></div>
+      <div class="ts-stat"><span>CARS</span><b>${cars}<small>/ ${CARS.length}</small></b></div>
+      <div class="ts-stat"><span>SPIRIT CARDS</span><b>${foundCount()}<small>/ ${CARDS.length}</small></b></div>
+      ${today ? `<div class="ts-stat"><span>TODAY’S CARD</span><em>${today}</em></div>` : ''}`;
   }
 
   _showMain() {
@@ -189,7 +285,7 @@ export class TitleScreen {
       id: 'chapter', name, label: CHAPTERS[name].title,
       sub: CHAPTERS[name].kicker.charAt(0) + CHAPTERS[name].kicker.slice(1).toLowerCase(),
     }));
-    list.push({ id: 'back', label: 'BACK' });
+    list.push({ id: 'back', label: 'BACK', about: 'Back to the menu.' });
     this._build(list);
   }
 
@@ -199,7 +295,7 @@ export class TitleScreen {
     items.forEach((it, i) => {
       const b = document.createElement('div');
       b.className = 'ts-btn';
-      b.style.setProperty('--d', `${(i * 0.07).toFixed(2)}s`);
+      b.style.setProperty('--d', `${(i * 0.06).toFixed(2)}s`);
       b.innerHTML = it.sub ? `${it.label}<small>${it.sub}</small>` : it.label;
       b.addEventListener('pointerenter', () => this._select(i));
       b.addEventListener('click', (e) => {
@@ -216,6 +312,7 @@ export class TitleScreen {
     const n = this.items.length;
     this.sel = (i + n) % n;
     this.items.forEach((it, j) => it.el.classList.toggle('on', j === this.sel));
+    this.aboutEl.textContent = this.items[this.sel].about || '';
   }
 
   _activate(it) {
