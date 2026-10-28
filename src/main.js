@@ -9,6 +9,7 @@ import { Epilogue } from "./levels/Epilogue.js";
 import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
 import { mountControlsOverlay, controlRows } from "./ui/ControlsOverlay.js";
+import { ControlsMenu } from "./ui/ControlsMenu.js";
 import { PauseMenu } from "./ui/PauseMenu.js";
 import { CHAPTERS } from "./ui/LoadingScreen.js";
 import { ensureDialogueFont } from "./ui/dialogue.js";
@@ -85,6 +86,8 @@ const loading = new LoadingScreen();
 
 // the "H · CONTROLS" pill — what every input does, per level, one press away
 const controlsOverlay = mountControlsOverlay(game);
+// CONTROLS, from the title menu (and H there): every chapter's controls, in a panel like CREDITS
+const controlsMenu = new ControlsMenu(game);
 // OPTIONS (volume, mouse, graphics, FPS), from the title menu and the pause menu
 const options = new OptionsMenu();
 // CREDITS, from the title menu: every asset the team didn't make, with links
@@ -118,7 +121,7 @@ game.onLevelChanged = (name) => {
         begin(next);
       },
       onOptions: () => options.open(),
-      onControls: () => controlsOverlay.show(),
+      onControls: () => controlsMenu.open(),
       onCredits: () => credits.open(),
       onCards: () => cardAlbum.open(),
       onMap: () => gameMap.open(),
@@ -154,7 +157,7 @@ game.onLevelLoading = ((show) => (name) => {
   pauseMenu.show(false);
   show(name);
 })(game.onLevelLoading);
-game.onControlsToggle = () => controlsOverlay.toggle();
+game.onControlsToggle = () => (game.levelName === "title" ? controlsMenu.toggle() : controlsOverlay.toggle());
 
 /** Start the story at `name`, preloading Level 1 behind the prologue. */
 async function begin(name) {

@@ -27,8 +27,9 @@ import { CREDIT_SECTIONS, LICENCES, TEAM, CAST, CAST_CREDIT, SCORE } from './cre
  */
 const host = (url) => url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 const initials = (name) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-// a colour per developer card, from the spirit cards' types (cards/cards.js TYPES)
-const TEAM_COLOURS = ['#4fd6e0', '#ff8a3a', '#6fbf4a', '#d89cf0', '#4fb4e0', '#f2e27a'];
+// a colour per developer card, six that can't be mistaken for each other:
+// cyan, orange, green, violet, crimson, gold
+const TEAM_COLOURS = ['#4fd6e0', '#ff8a3a', '#6fbf4a', '#c48cff', '#ff5f7a', '#f2d45c'];
 const STILL = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const CSS = THEME_CSS + `
@@ -210,7 +211,7 @@ export class CreditsMenu {
 
     const TABS = [
       ['team', 'THE TEAM', `<div class="cm-lead">Six of us, one forest.</div><div class="cm-team">${team}</div>
-        <div class="cm-end">THE FOREST REMEMBERS<small>Every name here carried a piece of the horn.</small></div>`],
+        <div class="cm-end">THE FOREST REMEMBERS</div>`],
       ['cast', 'THE CAST', `<div class="cm-lead">Who you’ll meet between the fire and the falls.</div><div class="cm-cast">${cast}</div>
         <div class="cm-note">${CAST_CREDIT.title}: ${CAST_CREDIT.by}, ${link(castLic.url, '', castLic.name.toLowerCase())}.</div>`],
       ['music', 'THE MUSIC', `<div class="cm-lead">Written for this game and synthesised in code, every note of it. The tune from the fire runs through all four.</div>${score}`],

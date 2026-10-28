@@ -316,20 +316,21 @@ export function dressAsHandler(fighter) {
     return mesh;
   };
 
-  /** A tube from one bone to another, in metres, riding the first. */
-  const segment = (fromName, toName, r0, r1, mat, { squash = 1, open = false, from0 = 0, around = Math.PI * 2, sides = 14 } = {}) => {
+  /** A tube from one bone to another, in metres, riding the first; `below` m more past the first bone's end. */
+  const segment = (fromName, toName, r0, r1, mat, { squash = 1, open = false, sides = 14, below = 0 } = {}) => {
     const from = b(fromName), to = b(toName);
     if (!from || !to) return null;
     const s = scaleOf(from);
     const end = from.worldToLocal(to.getWorldPosition(new THREE.Vector3()));
-    const len = end.length();
+    const base = below / s;
+    const len = end.length() + base;
     if (len < 1e-4) return null;
-    const geo = new THREE.CylinderGeometry(r1 / s, r0 / s, len, sides, 1, open, from0, around);
-    geo.translate(0, len / 2, 0);
+    const geo = new THREE.CylinderGeometry(r1 / s, r0 / s, len, sides, 1, open);
+    geo.translate(0, len / 2 - base, 0);
     const m = new THREE.Mesh(geo, mat);
     m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().normalize());
     m.scale.set(1, 1, squash);
-    m.userData.tube = { r0, r1, len, s }; // for wrap(): pieces that sit on it
+    m.userData.tube = { r0, r1, len, s, base }; // for wrap(): pieces that sit on it
     return add(from, m);
   };
 
@@ -339,11 +340,11 @@ export function dressAsHandler(fighter) {
    * proud of it so it sits on top. Tape, a hem, a pocket, a printed patch.
    */
   const wrap = (tube, f0, f1, a0, da, mat, proud = 0.005) => {
-    const { r0, r1, len, s } = tube.userData.tube;
+    const { r0, r1, len, s, base } = tube.userData.tube;
     const r = (f) => (r0 + (r1 - r0) * f + proud) / s;
     const sides = Math.max(2, Math.ceil((da / (Math.PI * 2)) * 44));
     const geo = new THREE.CylinderGeometry(r(f1), r(f0), (f1 - f0) * len, sides, 1, true, a0, da);
-    geo.translate(0, ((f0 + f1) / 2) * len, 0);
+    geo.translate(0, ((f0 + f1) / 2) * len - base, 0);
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = true;
     tube.add(m);
@@ -353,21 +354,23 @@ export function dressAsHandler(fighter) {
   // the coat body: hips to the base of the neck, wider than he is
   segment('Hips', 'Spine2', 0.19, 0.2, canvas, { squash: 0.78 });
   segment('Spine2', 'Neck', 0.205, 0.15, canvas, { squash: 0.8 });
-  // the hi-vis vest over the coat, cut like a real one: open down the front
-  // over the coat, two bands of reflective tape round the waist, two straps of
-  // it up the front and two up the back (the H every site vest has), a darker
-  // hem, a pocket on each hip, and SECURITY on a reflective patch across the
-  // shoulders, curved to his back like everything else on it
+  // the hi-vis vest over the coat, cut like a real one: from the belt to the
+  // collar, zipped up the front, two bands of reflective tape round the waist,
+  // two straps of it up the front and two up the back (the H every site vest
+  // has), a darker hem, a pocket on each hip, and SECURITY on a reflective
+  // patch across the shoulders, curved to his back like everything on it
   {
-    const OPEN = 0.3; // half the gap down his front, radians
-    const v = segment('Spine', 'Neck', 0.215, 0.178, vest, { squash: 0.82, open: true, from0: OPEN, around: Math.PI * 2 - OPEN * 2, sides: 40 });
+    const ALL = Math.PI * 2;
+    const v = segment('Spine', 'Neck', 0.226, 0.2, vest, { squash: 0.82, open: true, sides: 40, below: 0.05 });
     if (v) {
       const TAPE = 0.17; // a strap's width, radians round him
-      wrap(v, 0, 0.05, OPEN, Math.PI * 2 - OPEN * 2, binding, 0.003); // the hem
-      for (const [f0, f1] of [[0.2, 0.27], [0.36, 0.43]]) wrap(v, f0, f1, OPEN, Math.PI * 2 - OPEN * 2, stripe, 0.006);
-      for (const a of [OPEN + 0.02, Math.PI * 2 - OPEN - 0.02 - TAPE]) wrap(v, 0.05, 1, a, TAPE, stripe, 0.0075); // up the front
+      const zip = new THREE.MeshStandardMaterial({ color: 0x2a2c2e, roughness: 0.5, metalness: 0.6 });
+      wrap(v, 0, 0.05, 0, ALL, binding, 0.003); // the hem
+      for (const [f0, f1] of [[0.24, 0.3], [0.38, 0.44]]) wrap(v, f0, f1, 0, ALL, stripe, 0.006); // round the waist
+      for (const a of [0.15, ALL - 0.15 - TAPE]) wrap(v, 0.05, 1, a, TAPE, stripe, 0.0075); // up the front, either side of the zip
       for (const a of [Math.PI - 0.66 - TAPE / 2, Math.PI + 0.66 - TAPE / 2]) wrap(v, 0.05, 1, a, TAPE, stripe, 0.0075); // up the back
-      for (const a of [0.62, Math.PI * 2 - 0.62 - 0.36]) wrap(v, 0.07, 0.18, a, 0.36, binding, 0.008); // the pockets
+      wrap(v, 0.02, 0.98, -0.022, 0.044, zip, 0.0085); // the zip, up the middle of his front
+      for (const a of [0.52, ALL - 0.52 - 0.38]) wrap(v, 0.07, 0.2, a, 0.38, binding, 0.008); // the pockets
       // SECURITY: printed on a reflective patch, high across the back between the straps
       const c = document.createElement('canvas');
       c.width = 384; c.height = 112;
@@ -445,9 +448,10 @@ export function dressAsHandler(fighter) {
     brim.position.y = 0.075 / s;
     brim.castShadow = true;
     helmet.add(brim);
-    // and its brow: the crown over the face opening, down to the top of the mask
+    // and its brow: the crown over the face opening, down to the brim, so the
+    // hat is a solid dome from the front too and the mask shows only below it
     const brow = new THREE.Mesh(
-      new THREE.SphereGeometry(R / s, 16, 6, Math.PI / 2 - 0.33 * Math.PI, 0.66 * Math.PI, 0, 0.3 * Math.PI),
+      new THREE.SphereGeometry(R / s, 18, 8, Math.PI / 2 - 0.33 * Math.PI, 0.66 * Math.PI, 0, 0.42 * Math.PI),
       plate,
     );
     brow.material = hat;

@@ -27,6 +27,7 @@
  * (`keys: 'MOUSE'`) for things that are not bindings, like mouse-look.
  */
 
+// (on the main menu CONTROLS is a panel of its own, ui/ControlsMenu.js: this pill and panel are for the levels)
 const ACCENT = '#9ed36a';   // the jungle accent
 const DIM = '#8f9bb0';
 const PANEL_BG = 'rgba(8,11,17,.94)';
@@ -81,7 +82,7 @@ const LEVEL_CONTROLS = {
       { label: 'WALK', keys: 'W A S D' },
       { label: 'MAP (BIGGER \u00b7 SMALLER)', keys: 'N' },
       { label: 'USE \u00b7 CONFIRM', action: 'interact' },
-      { label: 'REFUSE', action: 'decline' },
+      { label: 'LEAVE THE HORN', action: 'decline' },
       { label: 'SKIP THE INTRO', action: 'skipScene' },
     ],
   },
@@ -246,6 +247,9 @@ export function mountControlsOverlay(game) {
     /** Called on level change — the panel re-renders next time it opens. */
     setLevel(name) {
       state.levelName = name;
+      // the main menu has CONTROLS (ui/ControlsMenu.js) instead: no pill, no corner panel there
+      root.style.display = name === 'title' ? 'none' : '';
+      if (name === 'title') hide();
       place();
       if (state.visible) render();
     },
