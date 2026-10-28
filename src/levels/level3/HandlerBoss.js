@@ -299,8 +299,14 @@ export function dressAsHandler(fighter) {
   const canvas = new THREE.MeshStandardMaterial({ color: 0x3b4230, roughness: 0.88, metalness: 0.02, side: THREE.DoubleSide });
   const plate = new THREE.MeshStandardMaterial({ color: 0x3a3e43, roughness: 0.38, metalness: 0.75 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 0.6, metalness: 0.2 });
-  const vest = new THREE.MeshStandardMaterial({ color: 0xff6a10, emissive: 0xff5a00, emissiveIntensity: 0.18, roughness: 0.7, side: THREE.DoubleSide });
-  const stripe = new THREE.MeshStandardMaterial({ color: 0xd8dde0, emissive: 0xeef4f6, emissiveIntensity: 0.55, roughness: 0.25, metalness: 0.6 });
+  // fluorescent mesh fabric: a soft sheen across it, and a little light of its own (it glows in the bloom)
+  const vest = new THREE.MeshPhysicalMaterial({
+    color: 0xff6614, emissive: 0xff4a00, emissiveIntensity: 0.17, roughness: 0.8,
+    sheen: 0.6, sheenRoughness: 0.55, sheenColor: new THREE.Color(0xffb27a), side: THREE.DoubleSide,
+  });
+  const binding = new THREE.MeshStandardMaterial({ color: 0xc24a0c, roughness: 0.85, side: THREE.DoubleSide }); // the hem and the pockets
+  // retroreflective tape: pale silver that catches every light and flares a little
+  const stripe = new THREE.MeshStandardMaterial({ color: 0xc8cfd3, emissive: 0xe4ecf0, emissiveIntensity: 0.42, roughness: 0.32, metalness: 0.5, side: THREE.DoubleSide });
   const hat = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: 0.42, metalness: 0.05 });
   const pieces = [];
   const add = (bone, mesh) => {
@@ -311,58 +317,77 @@ export function dressAsHandler(fighter) {
   };
 
   /** A tube from one bone to another, in metres, riding the first. */
-  const segment = (fromName, toName, r0, r1, mat, { squash = 1, open = false } = {}) => {
+  const segment = (fromName, toName, r0, r1, mat, { squash = 1, open = false, from0 = 0, around = Math.PI * 2, sides = 14 } = {}) => {
     const from = b(fromName), to = b(toName);
     if (!from || !to) return null;
     const s = scaleOf(from);
     const end = from.worldToLocal(to.getWorldPosition(new THREE.Vector3()));
     const len = end.length();
     if (len < 1e-4) return null;
-    const geo = new THREE.CylinderGeometry(r1 / s, r0 / s, len, 14, 1, open);
+    const geo = new THREE.CylinderGeometry(r1 / s, r0 / s, len, sides, 1, open, from0, around);
     geo.translate(0, len / 2, 0);
     const m = new THREE.Mesh(geo, mat);
     m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().normalize());
     m.scale.set(1, 1, squash);
+    m.userData.tube = { r0, r1, len, s }; // for wrap(): pieces that sit on it
     return add(from, m);
+  };
+
+  /**
+   * A piece wrapped round a tube from segment(): the slice of it between
+   * f0..f1 of its length and a0..a0+da round it (0 is his front, +Z), a hair
+   * proud of it so it sits on top. Tape, a hem, a pocket, a printed patch.
+   */
+  const wrap = (tube, f0, f1, a0, da, mat, proud = 0.005) => {
+    const { r0, r1, len, s } = tube.userData.tube;
+    const r = (f) => (r0 + (r1 - r0) * f + proud) / s;
+    const sides = Math.max(2, Math.ceil((da / (Math.PI * 2)) * 44));
+    const geo = new THREE.CylinderGeometry(r(f1), r(f0), (f1 - f0) * len, sides, 1, true, a0, da);
+    geo.translate(0, ((f0 + f1) / 2) * len, 0);
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    tube.add(m);
+    return m;
   };
 
   // the coat body: hips to the base of the neck, wider than he is
   segment('Hips', 'Spine2', 0.19, 0.2, canvas, { squash: 0.78 });
   segment('Spine2', 'Neck', 0.205, 0.15, canvas, { squash: 0.8 });
-  // the hi-vis vest over the coat, its two reflective bands, and SECURITY on the back
+  // the hi-vis vest over the coat, cut like a real one: open down the front
+  // over the coat, two bands of reflective tape round the waist, two straps of
+  // it up the front and two up the back (the H every site vest has), a darker
+  // hem, a pocket on each hip, and SECURITY on a reflective patch across the
+  // shoulders, curved to his back like everything else on it
   {
-    segment('Spine', 'Neck', 0.215, 0.175, vest, { squash: 0.82, open: true });
-    for (const [bone, r] of [['Spine1', 0.218], ['Spine2', 0.214]]) {
-      const bb = b(bone) || b('Spine2');
-      const s = scaleOf(bb);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(r / s, 0.016 / s, 6, 32), stripe);
-      band.rotation.x = Math.PI / 2;
-      band.scale.set(1, 0.84, 1.6);
-      add(bb, band);
-    }
-    const back = b('Spine2');
-    if (back) {
-      const s = scaleOf(back);
+    const OPEN = 0.3; // half the gap down his front, radians
+    const v = segment('Spine', 'Neck', 0.215, 0.178, vest, { squash: 0.82, open: true, from0: OPEN, around: Math.PI * 2 - OPEN * 2, sides: 40 });
+    if (v) {
+      const TAPE = 0.17; // a strap's width, radians round him
+      wrap(v, 0, 0.05, OPEN, Math.PI * 2 - OPEN * 2, binding, 0.003); // the hem
+      for (const [f0, f1] of [[0.2, 0.27], [0.36, 0.43]]) wrap(v, f0, f1, OPEN, Math.PI * 2 - OPEN * 2, stripe, 0.006);
+      for (const a of [OPEN + 0.02, Math.PI * 2 - OPEN - 0.02 - TAPE]) wrap(v, 0.05, 1, a, TAPE, stripe, 0.0075); // up the front
+      for (const a of [Math.PI - 0.66 - TAPE / 2, Math.PI + 0.66 - TAPE / 2]) wrap(v, 0.05, 1, a, TAPE, stripe, 0.0075); // up the back
+      for (const a of [0.62, Math.PI * 2 - 0.62 - 0.36]) wrap(v, 0.07, 0.18, a, 0.36, binding, 0.008); // the pockets
+      // SECURITY: printed on a reflective patch, high across the back between the straps
       const c = document.createElement('canvas');
-      c.width = 256; c.height = 64;
+      c.width = 384; c.height = 112;
       const g = c.getContext('2d');
-      g.font = 'bold 44px Arial, sans-serif';
+      g.fillStyle = '#e3e8ea';
+      g.fillRect(0, 0, c.width, c.height);
+      g.strokeStyle = '#9aa3a8'; // the patch's stitched edge
+      g.lineWidth = 4;
+      g.setLineDash([10, 7]);
+      g.strokeRect(8, 8, c.width - 16, c.height - 16);
+      g.font = 'bold 66px Arial, Helvetica, sans-serif';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillStyle = '#e9ecee'; // a reflective patch, the word printed on it
-      g.fillRect(0, 0, 256, 64);
-      g.fillStyle = '#111';
-      g.fillText('SECURITY', 128, 34);
+      g.fillStyle = '#121416';
+      g.fillText('SECURITY', c.width / 2, c.height / 2 + 4, c.width - 36);
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
-      const word = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.3 / s, 0.075 / s),
-        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 }),
-      );
-      word.position.set(0, 0.075 / s, -0.215 / s); // high on his back (-Z), above the bands, just proud of the vest
-      word.rotation.x = -0.12; // following the slope of his shoulders
-      word.rotation.y = Math.PI;
-      add(back, word);
+      tex.anisotropy = 4;
+      const patch = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.4, metalness: 0.2, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.22 });
+      wrap(v, 0.6, 0.82, Math.PI - 0.47, 0.94, patch, 0.009);
     }
   }
   // the skirt: an open cone off the hips down past the knees, split at the front so he can run in it

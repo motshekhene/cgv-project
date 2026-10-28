@@ -56,7 +56,7 @@ const CSS = THEME_CSS + `
   visibility:hidden; opacity:0; pointer-events:none; transition:opacity .2s ease, visibility 0s linear .2s; }
 .gm.show { visibility:visible; opacity:1; pointer-events:auto; transition:opacity .2s ease; }
 .gm::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(10,12,8,.72), rgba(4,5,3,.96)); backdrop-filter:blur(3px); }
-.gm-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; width:min(980px, 96vw); max-height:calc(100vh - 24px); overflow-y:auto; overflow-x:hidden; padding:16px 20px 12px; text-align:center; }
+.gm-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; box-sizing:border-box; width:min(980px, 96vw); max-height:calc(100vh - 96px); overflow-y:auto; overflow-x:hidden; padding:16px 20px 12px; text-align:center; }
 .gm h2 { margin:0; font-family:${DIALOGUE_FONT}; font-weight:600; font-size:clamp(24px, 3.6vw, 36px); letter-spacing:.32em; text-indent:.32em; color:var(--gold); text-shadow:0 2px 0 #000; }
 .gm-riddle { margin:6px auto 10px; max-width:760px; font:italic 16px ${DIALOGUE_FONT}; color:var(--ink); }
 .gm-riddle b { font:700 11px var(--sans); letter-spacing:.24em; color:#ffd36a; font-style:normal; margin-right:6px; }

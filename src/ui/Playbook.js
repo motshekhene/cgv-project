@@ -77,7 +77,7 @@ const CSS = THEME_CSS + `
   visibility:hidden; opacity:0; pointer-events:none; transition:opacity .2s ease, visibility 0s linear .2s; }
 .pb.show { visibility:visible; opacity:1; pointer-events:auto; transition:opacity .2s ease; }
 .pb::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(10,12,8,.75), rgba(4,5,3,.96)); backdrop-filter:blur(3px); }
-.pb-in { position:relative; width:min(1000px, 96vw); height:min(760px, calc(100vh - 24px)); display:flex; flex-direction:column; padding:16px 22px 12px;
+.pb-in { position:relative; box-sizing:border-box; width:min(1000px, 96vw); height:min(760px, calc(100vh - 96px)); display:flex; flex-direction:column; padding:16px 22px 12px;
   background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; }
 .pb h2 { margin:0; text-align:center; font-family:${DIALOGUE_FONT}; font-weight:600; font-size:clamp(24px, 3.4vw, 34px); letter-spacing:.32em; text-indent:.32em; color:var(--gold); }
 .pb-tabs { display:flex; gap:8px; justify-content:center; margin:10px 0 12px; flex-wrap:wrap; }

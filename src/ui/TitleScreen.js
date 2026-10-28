@@ -77,6 +77,18 @@ const CSS = THEME_CSS + `
 .ts-btn.on::before { transform:rotate(45deg) scale(1); }
 .ts-btn small { display:block; margin-top:2px; font:500 14px ${DIALOGUE_FONT}; font-style:italic; letter-spacing:.04em; color:var(--ink-dim); }
 .ts-foot { position:absolute; left:clamp(28px, 7vw, 120px); bottom:22px; font:600 10px var(--sans); letter-spacing:.3em; color:rgba(184,170,138,.65); }
+/* nine items: on a laptop-height screen everything closes up so the last one clears the foot */
+@media (max-height:860px) {
+  .ts-in { padding-bottom:30px; }
+  .ts-title { font-size:clamp(36px, 5.4vw, 78px); }
+  .ts-rule { margin:14px 0 10px; }
+  .ts-menu { margin-top:20px; gap:0; }
+  .ts-btn { padding:5px 0 5px 30px; font-size:17px; }
+}
+@media (max-height:640px) {
+  .ts-kicker, .ts-tag { display:none; }
+  .ts-btn { padding:3px 0 3px 28px; font-size:15px; }
+}
 @keyframes tsTitle { from { opacity:0; transform:translateY(14px); filter:blur(10px); } to { opacity:1; transform:none; } }
 @keyframes tsLine { to { transform:scaleX(1); } }
 @keyframes tsUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }

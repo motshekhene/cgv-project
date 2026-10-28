@@ -3076,7 +3076,9 @@ export class Prologue extends Level {
    * pace, out past the west tree line and on into the forest, round any trunk
    * in his way, his lamp thinning as he goes. Nothing stops him or snaps him
    * out of the scene: he is only taken away once he is well off and out of
-   * the camera's view (or lost in the dark at the valley's edge).
+   * the camera's view, or the moment a trunk passes between him and the
+   * camera (he walks behind a tree and doesn't come out), or at the valley's
+   * far edge, long lost in the dark.
    */
   _tickZwaneLeaving(dt) {
     const g = this._zwaneGoing;
@@ -3100,11 +3102,24 @@ export class Prologue extends Level {
     const cam = this.game.camera;
     _frustum.setFromProjectionMatrix(_viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     _zSphere.center.set(z.x, 1, z.z);
-    if (!_frustum.intersectsSphere(_zSphere) || far > 42 || z.x < VALLEY.x0 + 3) {
+    if (!_frustum.intersectsSphere(_zSphere) || (far > 20 && this._trunkBetween(cam.position, z)) || z.x < VALLEY.x0 + 3) {
       g.gone = true;
       this.zwane.visible = false;
       this.zwaneLampLight.intensity = 0;
     }
+  }
+
+  /** Does a tree trunk (or a landmark as big) stand between `from` and `to`, seen from above? */
+  _trunkBetween(from, to) {
+    const dx = to.x - from.x, dz = to.z - from.z;
+    const len2 = dx * dx + dz * dz || 1;
+    for (const t of this.trees) {
+      if (t.r < 0.45) continue; // stones and posts are too low to hide a man
+      const k = ((t.x - from.x) * dx + (t.z - from.z) * dz) / len2;
+      if (k < 0.05 || k > 0.85) continue; // nearer the camera than him, so it looks wider than he is
+      if (Math.hypot(from.x + dx * k - t.x, from.z + dz * k - t.z) < t.r * 0.7) return true;
+    }
+    return false;
   }
 
   /** A line on the walk — dropped if he has already reached the stone. */

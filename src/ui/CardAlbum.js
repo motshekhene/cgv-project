@@ -20,7 +20,7 @@ const CSS = THEME_CSS + `
   visibility:hidden; opacity:0; pointer-events:none; transition:opacity .2s ease, visibility 0s linear .2s; }
 .ca.show { visibility:visible; opacity:1; pointer-events:auto; transition:opacity .2s ease; }
 .ca::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at center, rgba(10,12,8,.72), rgba(4,5,3,.96)); backdrop-filter:blur(3px); }
-.ca-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; width:min(900px, 95vw); max-height:calc(100vh - 30px); display:flex; flex-direction:column; padding:18px 22px 14px; text-align:center; }
+.ca-in { background:linear-gradient(180deg, rgba(30,34,22,.97), rgba(12,14,9,.97)); border:1px solid rgba(227,187,98,.4); border-radius:6px; position:relative; box-sizing:border-box; width:min(900px, 95vw); max-height:calc(100vh - 96px); display:flex; flex-direction:column; padding:18px 22px 14px; text-align:center; }
 .ca h2 { margin:0; font-family:${DIALOGUE_FONT}; font-weight:600; font-size:clamp(24px, 3.6vw, 36px); letter-spacing:.32em; text-indent:.32em; color:var(--gold); text-shadow:0 2px 0 #000, 0 0 18px rgba(227,187,98,.35); }
 .ca-count { font:italic 15px ${DIALOGUE_FONT}; color:var(--ink-dim); margin:4px 0 10px; }
 .ca-daily { display:flex; gap:14px; align-items:center; text-align:left; margin:0 auto 12px; padding:10px 14px; max-width:720px; border:1px solid rgba(255,211,106,.45); border-radius:4px; background:rgba(60,45,10,.35); }
