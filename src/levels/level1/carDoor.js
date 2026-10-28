@@ -34,8 +34,35 @@ const OPEN_UP = THREE.MathUtils.degToRad(72);
 
 // how he sits (fit)
 const SIT_ON = 0.09; // his hips above the cushion he's sitting on
+const SEAT_GIVE = 0.04; // a modelled seat's top is its highest point (the bolsters): on it, not in it
 const HEADROOM = 0.05; // between the top of his head and the roof
 const CHIN = 0.3; // the top of his head down to just below his chin
+
+/**
+ * A ray against the car seeing both sides of every surface: the models are
+ * one-sided, and their floors face down and out (the underside), so a ray
+ * coming down from inside the cabin passes straight through them. Their
+ * materials go back as they were before anything is drawn.
+ */
+function castBoth(ray, objects) {
+  const swapped = [];
+  for (const o of objects) {
+    o.traverse((m) => {
+      if (!m.isMesh) return;
+      for (const mat of [].concat(m.material)) {
+        if (mat.side !== THREE.DoubleSide) {
+          swapped.push([mat, mat.side]);
+          mat.side = THREE.DoubleSide;
+        }
+      }
+    });
+  }
+  try {
+    return ray.intersectObjects(objects, true);
+  } finally {
+    for (const [mat, side] of swapped) mat.side = side;
+  }
+}
 
 /** A copy of a material for this car alone, keeping the paint shader (paint.js makePaintable) hooked up. */
 function ownMaterial(m) {
@@ -217,16 +244,27 @@ export class CarDoor {
    * go down with him. Kept as `this.seat`. It casts rays at the car, so do it
    * once, ahead of time.
    */
-  fit(hips, head) {
+  fit(hips, head, hipsAt = null) {
     const cushion = this.seatLocal();
-    const [y0] = this.spec.y;
-    const lowest = y0 - hips; // his hips no lower than the sill
-    const roof = this.roofOver(cushion.x + head.x, cushion.z + head.z, lowest + head.y - CHIN);
-    const feet = Math.max(lowest, Math.min(cushion.y + SIT_ON - hips, roof - HEADROOM - head.y));
+    const [y0, y1] = this.spec.y;
+    const inside = (y0 + y1) / 2; // halfway up the door: in the cabin, under its roof
+    // what's under his hips (`hipsAt`, from his feet, sat), from inside the cabin: a model with a
+    // cabin of its own, its seat; a shell, its floor (or nothing, hollow). On the seat, never in
+    // it; never under the floor
+    const under = this.floorUnder(cushion.x + (hipsAt?.x ?? 0), cushion.z + (hipsAt?.z ?? 0), inside, false);
+    const seated = this.spec.interior && under !== null;
+    this.floorY = seated ? null : under; // a shell's floor, for his feet (Level01 _finaleIK); a modelled cabin's is its own
+    if (this.spec.seat?.y === undefined && under !== null) cushion.y = seated ? under + SEAT_GIVE : Math.max(cushion.y, under + 0.06);
+    // a roof too low to sit up under: lower, as far as the seat, the floor, or (hollow) his hips
+    // at the sill go; whatever's left is his leaning back into the seat (Level01 _carIK)
+    const lowest = under === null ? y0 - SIT_ON : seated ? under + SEAT_GIVE : under + 0.06;
+    const roof = this.roofOver(cushion.x + head.x, cushion.z + head.z, inside);
+    cushion.y = Math.max(Math.min(lowest, cushion.y), Math.min(cushion.y, roof - HEADROOM - head.y + hips - SIT_ON));
+    const feet = cushion.y + SIT_ON - hips;
     this.seat = new THREE.Vector3(cushion.x, feet, cushion.z);
 
-    const drop = cushion.y - (feet + hips - SIT_ON); // the cushion's top, down to under him
-    if (this._seatParts && drop > 0.001) {
+    const drop = this.seatLocal().y - (feet + hips - SIT_ON); // the stand-in cushion's top, to under him
+    if (this._seatParts && Math.abs(drop) > 0.001) {
       for (const p of this._seatParts) p.position.y -= drop;
       // the cabin's floor goes down under the cushion, or it would hide it
       const shell = this._shell;
@@ -259,6 +297,38 @@ export class CarDoor {
       this._holeWorld[i].copy(this._holeLocal[i]).applyMatrix4(body);
       this._keepWorld[i].copy(this._keepLocal[i]).applyMatrix4(door);
     }
+  }
+
+  /**
+   * Where the car's side really is at (y, z), in its own frame: its x, cast
+   * in from outside at the body as it stands (bounds.min.x is the widest
+   * point of the whole car, a wheel arch or a mirror, and bodies curve in
+   * above the sills). min.x if nothing's there.
+   */
+  sideAt(y, z) {
+    const ray = new THREE.Raycaster();
+    this.holder.updateWorldMatrix(true, true);
+    const from = this.holder.localToWorld(new THREE.Vector3(this.hinge.position.x - 1, y, z));
+    const dir = new THREE.Vector3(1, 0, 0).transformDirection(this.holder.matrixWorld);
+    ray.set(from, dir);
+    const hit = ray.intersectObject(this.model, true)[0];
+    return hit ? this.holder.worldToLocal(hit.point).x : this.hinge.position.x;
+  }
+
+  /**
+   * The floor under (x, z) in the car's frame: the highest surface there below
+   * `below` (the model's own floor, or the stand-in cabin's), or null where
+   * there's none (a shell with no floor). For his feet, sat in the car.
+   */
+  floorUnder(x, z, below, cabin = true) {
+    const ray = new THREE.Raycaster();
+    this.holder.updateWorldMatrix(true, true);
+    const from = this.holder.localToWorld(new THREE.Vector3(x, below, z));
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(this.holder.matrixWorld);
+    ray.set(from, down);
+    const hits = castBoth(ray, [this.model, ...(cabin && this.cabin ? [this._shell] : [])]);
+    const hit = hits.find((h) => this.holder.worldToLocal(h.point.clone()).y < below - 0.02);
+    return hit ? this.holder.worldToLocal(hit.point).y : null;
   }
 
   /** Where the rear edge of the door is, at handle height, in world space (for his hand). */

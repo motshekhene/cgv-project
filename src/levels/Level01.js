@@ -14,6 +14,7 @@ import { CARS, HANDLER_MODEL, loadSavedCar, loadSavedPaint } from "./level2/carS
 import { attachModel } from "./level2/attachModel.js";
 import { CarLights } from "./level2/carLights.js";
 import { CarDoor } from "./level1/carDoor.js";
+import { BodyIK } from "./level3/BodyIK.js";
 import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
@@ -3528,7 +3529,7 @@ export class Level01 extends Level {
     const door = this._bayDoor;
     if (!door || door.seat || !this.kai) return;
     const sit = this._sitting();
-    door.fit(sit.hips, sit.head);
+    door.fit(sit.hips, sit.head, sit.hipsAt);
   }
 
   /** How Kai sits: his hips' height and the top of his head, seated, from his feet. */
@@ -3893,7 +3894,7 @@ export class Level01 extends Level {
     const carDoor = def ? this._bayDoor || new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
     this._bayDoor = null;
     const sit = this._sitting();
-    if (carDoor && !carDoor.seat) carDoor.fit(sit.hips, sit.head); // not fitted ahead of time (_fitBaySeat)
+    if (carDoor && !carDoor.seat) carDoor.fit(sit.hips, sit.head, sit.hipsAt); // not fitted ahead of time (_fitBaySeat)
     if (carDoor?.cabin) carDoor.cabin.visible = true;
     const [z0, z1] = carDoor ? carDoor.spec.z : [midZ - 0.2, midZ + 0.9];
     // in the car's frame: where he stands to open it (just behind its rear
@@ -3908,7 +3909,9 @@ export class Level01 extends Level {
         ? carDoor.seat.clone()
         : new THREE.Vector3(min.x * 0.35, Math.min(0.45 + 0.09 - sit.hips, max.y - 0.06 - sit.head.y), midZ + 0.35),
     };
-    local.entry = new THREE.Vector3(min.x - 0.02, 0, local.seat.z);
+    // where he stands to sit: his back to the gap, his heels clear of the sill (not in it)
+    const sillX = carDoor ? carDoor.sideAt(carDoor.spec.y[0] - 0.05, local.seat.z) : min.x;
+    local.entry = new THREE.Vector3(Math.min(min.x - 0.02, sillX - 0.24), 0, local.seat.z);
     const door = vehicle.localToWorld(local.stand.clone());
     const centre = vehicle.localToWorld(new THREE.Vector3(0, 0, midZ));
     const start = new THREE.Vector3(x, 0, this.z);
@@ -3939,6 +3942,7 @@ export class Level01 extends Level {
       bangs: 0,
       stride: 0,
     };
+    this._finaleIK(this._finale, carDoor, sit, sillX);
     // Kai's own rig is posed by hand from here; undo any slide/jump lean
     this.airborne = false;
     this.sliding = false;
@@ -3964,6 +3968,198 @@ export class Level01 extends Level {
       if (!b) continue;
       kai._stash(b); // undone before the next frame's clip, like the prologue's reach
       b.quaternion.multiply(this._bendQ.setFromAxisAngle(this._bendX, a / 3));
+    }
+  }
+
+  /**
+   * Getting in without going through the car, worked out once at the door
+   * (every car, and every player, is shaped differently, so it all comes off
+   * the car, with rays, and off him): his wrist's place at the handle, a
+   * hand's length off the door's skin; how far he bends for it; his feet's
+   * places outside while he sits and over the sill; the floor along in front
+   * of the seat, for his feet sat; the roof over and behind the seat, for how
+   * far he leans back under it; where the wheel is. _carIK lays it all over
+   * the clips.
+   */
+  _finaleIK(F, D, sit, sillX) {
+    F.ik = this.kai && D ? BodyIK.for(this.kai) : null;
+    if (!F.ik) return;
+    const ik = F.ik;
+    const s = THREE.MathUtils.clamp(sit.head.y / SIT_HEAD, 0.6, 1.3); // his size, against Kai's
+    const [y0, y1] = D.spec.y;
+    const [z0] = D.spec.z;
+    const seat = D.seat; // his feet's place, sat (CarDoor.fit)
+    const hipsY = seat.y + sit.hips;
+    F.ikSize = s;
+    F.openTop = y1;
+    F.sideX = sillX;
+    F.seatY = seat.y;
+    // a leg's length, hip to ankle, off his own bones
+    const leg = ik.legs[1];
+    const [a, b, c] = [leg.up, leg.lo, leg.end].map((x) => x.getWorldPosition(new THREE.Vector3()));
+    F.legLen = a.distanceTo(b) + b.distanceTo(c);
+    // the handle: in the door's own frame, so it goes with it as it opens
+    const hy = y0 + (y1 - y0) * 0.62, hz = z0 + 0.12;
+    F.handle = new THREE.Vector3(D.sideAt(hy, hz) - 0.16 * s, hy, hz);
+    // over for it only if it's low: a handle at his chest, or above it, he just reaches up to
+    F.reachBend = THREE.MathUtils.clamp((1.3 * s - hy) / 0.35, 0, 1);
+    // his ankles: outside on the ground while he sits, then over the sill
+    F.ankle = 0.11 * s;
+    F.feetX = [seat.x + 0.11 * s, seat.x - 0.11 * s];
+    F.feetOut = F.feetX.map((x) => new THREE.Vector3(F.sideX - 0.5 * s, F.ankle, seat.z + (x - seat.x)));
+    F.feetOver = F.feetX.map((x) => new THREE.Vector3(F.sideX + 0.06, y0 + F.ankle + 0.1, seat.z + 0.25 * s + (x - seat.x)));
+    // the floor down each foot's line in front of the seat (the model's own, or the stand-in
+    // cabin's; null where there's none), and the roof down the seat's middle, over and behind it
+    // (cast from his hips' height, so a footwell that climbs at the front is seen)
+    F.floorZ0 = seat.z - 0.6;
+    F.floor = F.feetX.map((x) => Array.from({ length: 20 }, (_, i) => D.floorUnder(x, F.floorZ0 + i * 0.1, hipsY)));
+    F.floorBase = D.floorY ?? null; // the floor found under the seat: where a foot's line has none
+    F.modelCabin = !!D.spec.interior;
+    // ...and where the footwell ends: the first place ahead of his hips that the floor climbs (the
+    // front of the footwell, or the bulkhead), so his toes stop short of it
+    const hipsZ = seat.z + (sit.hipsAt?.z ?? 0);
+    F.toesMax = F.floor.map((line) => {
+      const at = (z) => line[THREE.MathUtils.clamp(Math.round((z - F.floorZ0) / 0.1), 0, line.length - 1)];
+      const base = at(hipsZ + 0.25) ?? seat.y;
+      for (let z = hipsZ + 0.35; z < F.floorZ0 + line.length * 0.1; z += 0.1) {
+        const y = at(z);
+        if (y !== null && y > base + 0.12) return z - 0.1 - 0.15 * s;
+      }
+      return Infinity;
+    });
+    F.roofZ0 = seat.z - 1.0;
+    F.roof = Array.from({ length: 17 }, (_, i) => D.roofOver(seat.x, F.roofZ0 + i * 0.1, hipsY));
+    // the wheel: the stand-in cabin's own, or in front of where his hips go
+    const wheel = D._seatParts?.[2];
+    F.wheel = wheel ? wheel.position.clone() : null;
+    F.feetSat = [new THREE.Vector3(), new THREE.Vector3()];
+    F.duck = 0;
+    F.ikT = new THREE.Vector3();
+    F.ikP = new THREE.Vector3();
+    F.ikH = new THREE.Vector3();
+    F.ikV = new THREE.Vector3();
+    F.ikL = new THREE.Vector3();
+    F.ikF = new THREE.Vector3();
+    F.toCar = new THREE.Matrix4();
+  }
+
+  /** The roof over the seat's line at z, in the car's frame: the lowest of the samples round z (Infinity: open sky). */
+  _finaleRoof(F, z) {
+    const i = Math.round((z - F.roofZ0) / 0.1);
+    let y = Infinity;
+    for (let k = i - 1; k <= i + 1; k++) if (k >= 0 && k < F.roof.length) y = Math.min(y, F.roof[k]);
+    return y;
+  }
+
+  /** The floor under foot `n` at z, in the car's frame: where the clip puts his feet if there's none there, or it's lower. */
+  _finaleFloor(F, n, z) {
+    const i = THREE.MathUtils.clamp(Math.round((z - F.floorZ0) / 0.1), 0, F.floor[n].length - 1);
+    const y = F.floor[n][i] ?? F.floorBase;
+    return y === null ? F.seatY : Math.max(F.seatY, y);
+  }
+
+  /**
+   * The getting-in, laid over the clips each frame (after _bendKai): his right
+   * hand to the handle and with the door for the first of its swing, his left
+   * down at his side; from sitting, his head kept under the top of the opening
+   * and then the roof, leaning back into the seat as far as that takes (the
+   * way anyone gets into a low car); his feet planted outside while he sits,
+   * lifted over the sill as he swings round, and out along the floor in front
+   * of him; his hands on the wheel.
+   */
+  _carIK(F, f, dt) {
+    const ik = F.ik;
+    if (!ik) return;
+    const kai = this.kai;
+    const D = F.carDoor;
+    const vehicle = this.serviceVehicle;
+    const smooth = (a, b, v) => THREE.MathUtils.smoothstep(v, a, b);
+    const up = this._ikUp || (this._ikUp = new THREE.Vector3(0, 1, 0));
+    vehicle.updateWorldMatrix(true, false);
+    kai.root.updateMatrixWorld(true);
+    const h = kai.root.rotation.y;
+    const left = F.ikV.set(Math.cos(h), 0, -Math.sin(h)); // his left, facing (sin h, cos h)
+    const out = this._ikOut || (this._ikOut = new THREE.Vector3());
+    out.set(-1, 0, 0).transformDirection(vehicle.matrixWorld); // away from the car's door side
+    const fwd = this._ikFwd || (this._ikFwd = new THREE.Vector3());
+    fwd.set(0, 0, 1).transformDirection(vehicle.matrixWorld); // the car's forward
+
+    // the handle: on it, and with the door for the first of its swing; then his hand back down to his
+    // side, out of the way of the door still coming round (not back out straight where it's going)
+    const wArms = smooth(FINALE_REACH - 0.3, FINALE_REACH, f) * (1 - smooth(FINALE_STEP, FINALE_STEP + 0.25, f));
+    const onHandle = 1 - smooth(FINALE_OPEN + 0.25, FINALE_OPEN + 0.45, f);
+    if (wArms > 0.002 && D) {
+      const H = ik.hips.getWorldPosition(F.ikH);
+      const side = (s) => F.ikT.copy(H).addScaledVector(left, s * 0.22 * F.ikSize).addScaledVector(up, -0.3 * F.ikSize);
+      const T = side(-1);
+      if (onHandle > 0.002) T.lerp(D.piece.localToWorld(F.ikL.copy(F.handle)), onHandle);
+      ik.reach(ik.arms[1], T, F.ikP.copy(up).multiplyScalar(-0.7).addScaledVector(out, 0.6), wArms);
+      // his other hand down by his left thigh, out of the car's way
+      ik.reach(ik.arms[0], side(1).addScaledVector(out, 0.06), F.ikP.copy(up).multiplyScalar(-0.3).addScaledVector(out, 0.5).addScaledVector(left, 0.4), wArms);
+    }
+    if (!F.sits || f < FINALE_SIT) return;
+
+    // ---- his head, first (his hands then go to the wheel from where his shoulders end up):
+    // past the car's side, the top of it under what's over it there, leaning back till it is
+    const hipsW = ik.hips.getWorldPosition(F.ikH);
+    const headW = (kai.bone("HeadTop_End") || ik.head).getWorldPosition(F.ikT);
+    const facing = F.ikF.set(Math.sin(h), 0, Math.cos(h));
+    const dF = F.ikP.copy(headW).sub(hipsW).dot(facing), dY = headW.y - hipsW.y;
+    const r = Math.hypot(dF, dY), lean = Math.atan2(dF, dY); // forward of upright, +
+    const hipsL = vehicle.worldToLocal(F.ikL.copy(hipsW));
+    const headL = vehicle.worldToLocal(F.ikP.copy(headW));
+    const fl = F.ikT.copy(facing).transformDirection(F.toCar.copy(vehicle.matrixWorld).invert()); // his facing, in the car's frame
+    let want = 0;
+    if (headL.x > F.sideX - 0.12) {
+      const fits = (t) => {
+        const z = hipsL.z + fl.z * r * Math.sin(t), x = hipsL.x + fl.x * r * Math.sin(t), y = hipsL.y + r * Math.cos(t);
+        const over = Math.min(this._finaleRoof(F, z), f < FINALE_SWING && x < F.sideX + 0.3 ? F.openTop : Infinity);
+        return y <= over - 0.06;
+      };
+      // (only what the seat couldn't do: CarDoor.fit has already sat him as low as the car lets him)
+      let t = lean;
+      while (t > lean - 0.75 && !fits(t)) t -= 0.03;
+      want = lean - t;
+    }
+    // straight down to what's needed, back up only slowly
+    F.duck = want > F.duck ? want : F.duck + (want - F.duck) * (1 - Math.exp(-4 * dt));
+    if (F.duck > 0.002) this._bendKai(kai, -F.duck);
+    left.set(Math.cos(h), 0, -Math.sin(h));
+
+    // ---- his feet: planted outside while he sits, then up over the sill as he swings round, and
+    // out along the floor in front of him, his knees a little bent (straighter, the lower he sits)
+    const wFeet = smooth(FINALE_SIT, FINALE_SIT + 0.2, f);
+    const u = smooth(FINALE_SWING - 0.2, FINALE_SHUT + 0.05, f);
+    for (let n = 0; n < 2; n++) {
+      const sat = F.feetSat[n];
+      let z = hipsL.z + 0.5 * F.ikSize;
+      for (let k = 0; k < 2; k++) {
+        const ankle = this._finaleFloor(F, n, z) + F.ankle;
+        const dy = Math.max(0, hipsL.y - ankle);
+        const bent = 0.93 - 0.15 * THREE.MathUtils.clamp(dy / 0.35, 0, 1);
+        z = Math.min(F.toesMax[n], hipsL.z + Math.sqrt(Math.max(0.04, (bent * F.legLen) ** 2 - dy * dy)));
+        sat.set(F.feetX[n], ankle, z);
+      }
+    }
+    const knees = F.ikP.copy(up).addScaledVector(fwd, 0.7 * smooth(FINALE_SWING - 0.2, FINALE_SHUT, f)).addScaledVector(out, 0.5 * (1 - u));
+    for (let n = 0; n < 2; n++) {
+      const p = F.ikT;
+      if (u < 0.5) p.lerpVectors(F.feetOut[n], F.feetOver[n], smooth(0, 0.5, u));
+      else p.lerpVectors(F.feetOver[n], F.feetSat[n], smooth(0.5, 1, u));
+      ik.reach(ik.legs[n], vehicle.localToWorld(p), knees, wFeet);
+    }
+
+    // ---- his hands to the wheel, once he's round
+    const wWheel = smooth(FINALE_SWING, FINALE_SHUT + 0.15, f);
+    if (wWheel > 0.002) {
+      const s = F.ikSize;
+      for (let n = 0; n < 2; n++) {
+        // (a modelled cabin's own wheel is closer in and lower than a stand-in's: under its dash, not in it)
+        const T = F.wheel
+          ? F.ikT.set(F.wheel.x + (n ? -0.15 : 0.15), F.wheel.y, F.wheel.z)
+          : F.ikT.set(hipsL.x + (n ? -0.17 : 0.17) * s, hipsL.y + (F.modelCabin ? 0.24 : 0.32) * s, hipsL.z + (F.modelCabin ? 0.36 : 0.5) * s);
+        ik.reach(ik.arms[n], vehicle.localToWorld(T), F.ikP.copy(up).multiplyScalar(-0.8).addScaledVector(left, n ? -0.6 : 0.6), wWheel);
+      }
     }
   }
 
@@ -4055,7 +4251,7 @@ export class Level01 extends Level {
       pos.set(door.x, groundY(door.z), door.z);
       if (f > FINALE_REACH - 0.25) {
         anim = "reach";
-        bend = 0.24 * smooth(FINALE_REACH - 0.25, FINALE_REACH, f);
+        bend = 0.24 * (F.reachBend ?? 1) * smooth(FINALE_REACH - 0.25, FINALE_REACH, f);
       }
     } else if (f < FINALE_STEP) {
       // the latch goes and he pulls: the door swings out past him as he steps back from it
@@ -4064,7 +4260,7 @@ export class Level01 extends Level {
       heading = F.faceHandle;
       if (f < FINALE_OPEN + 0.2) {
         anim = "reach";
-        bend = 0.24;
+        bend = 0.24 * (F.reachBend ?? 1);
       } else if (k < 0.97) {
         anim = "walkback";
         speed = 0.7;
@@ -4081,8 +4277,11 @@ export class Level01 extends Level {
       }
     } else if (F.sits) {
       // backside first onto the seat, his head ducked under the roof line, then
-      // round on it to face the wheel with his legs swung in after him
-      at(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SWING, f));
+      // round on it to face the wheel with his legs swung in after him. Up (or
+      // down) to the seat's height ahead of across to it, so his hips clear the sill
+      this._finaleV.lerpVectors(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SWING, f));
+      this._finaleV.y = THREE.MathUtils.lerp(L.entry.y, L.seat.y, smooth(FINALE_SIT, FINALE_SIT + 0.6 * (FINALE_SWING - FINALE_SIT), f));
+      F.toWorld(this._finaleV, pos);
       pos.y += vehicle.position.y; // the car ticking over, him in it
       heading = turn(F.faceOut, F.faceWheel, smooth(FINALE_SWING - 0.15, FINALE_SHUT + 0.1, f));
       anim = "sitting";
@@ -4100,6 +4299,7 @@ export class Level01 extends Level {
       kai.play(anim, { fade, speed });
       kai.update(dt);
       if (bend > 0.001) this._bendKai(kai, bend);
+      this._carIK(F, f, dt);
     } else {
       this.body.visible = f < FINALE_SIT;
     }
@@ -4886,7 +5086,7 @@ export class Level01 extends Level {
     // how he sits, off his own 'sitting' clip at its tallest, for his seat in the bay car (_fitBaySeat)
     const head = this.kai.highest("sitting", "HeadTop_End");
     const hips = this.kai.highest("sitting", "Hips");
-    if (head && hips) this._kaiSit = { hips: hips.y, head };
+    if (head && hips) this._kaiSit = { hips: hips.y, hipsAt: hips, head };
     this._fitBaySeat();
     if (this._jetpackFx) this._buildKaiJetpack(); // otherwise _buildJetpackFx() calls it once the stand-in exists
   }
