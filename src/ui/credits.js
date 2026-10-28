@@ -17,8 +17,8 @@ export const TEAM = [
   'Maredi Mahlatse',
   'Mbatha Nontokozo',
   'Monaiwa Realeboha',
-  'Keamogetswe Modiakgotle',
-  'Kgothatso Nkadimeng',
+  'Modiakgotla Keamogetswe',
+  'Nkadimeng Kgothatso',
 ]
 
 /**
