@@ -176,6 +176,7 @@ const CSS = THEME_CSS + `
 .cm-list.rolling { overflow:hidden; -webkit-mask-image:linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%);
   mask-image:linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%); }
 .cm-roll { text-align:center; padding:0 12px; will-change:transform; }
+.cm-r-lead { margin:0; font:italic 16px ${DIALOGUE_FONT}; color:var(--ink-dim); }
 .cm-r-end small { display:block; font:700 10px var(--sans); letter-spacing:.44em; color:var(--gold-dim); }
 .cm-r-end h3 { margin:10px 0 8px; font:600 clamp(24px, 3.4vw, 34px) ${DIALOGUE_FONT}; letter-spacing:.28em; color:var(--gold);
   text-shadow:0 2px 0 #000, 0 0 20px rgba(227,187,98,.35); }
@@ -234,6 +235,7 @@ export class CreditsMenu {
         <div class="cm-r-links">${link(it.url, 'cm-url', host(it.url) + ' ↗')}${link(lic.url ?? it.url, 'cm-lic', lic.name)}</div></div>`;
     }).join('') + (sec.note ? `<div class="cm-r-note">${sec.note}</div>` : '')).join('');
     const assets = `<div class="cm-roll">
+        <p class="cm-r-lead">Every model, sound, font and tool in this game that we didn’t make ourselves.</p>
         ${roll}
         <div class="cm-r-end">
           <svg viewBox="0 0 260 200" aria-hidden="true"><path d="${HORN_PATH}" fill="#8ff0f6"/></svg>
