@@ -8,6 +8,8 @@ import { PostFX } from "./PostFX.js";
 import { windTime } from "../shaders/wind.js";
 import { displayUniforms, isDisplayReferred, patchDisplayReferred } from "../shaders/display.js";
 
+const NO_CUT = []; // no clipping planes: precompile's state for everything not cut
+
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
  *
@@ -383,16 +385,63 @@ export class Game {
         }
       });
     }
+    // three's compile() builds every shader for whatever clipping planes were drawn last, not
+    // the material's own (the bay car's cut-out door has five), so the first real draw of one
+    // rebuilt it on the spot: Level 1 froze for seconds as the car came into view. The clipped
+    // ones are taken out of the main pass and done in groups of a kind, each after a tiny draw
+    // that leaves the renderer set for that kind of cut
+    const clipped = new Map();
+    object.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = [].concat(o.material).find((x) => x?.clippingPlanes?.length);
+      if (!m) return;
+      const kind = `${m.clippingPlanes.length}|${!!m.clipIntersection}`;
+      if (!clipped.has(kind)) clipped.set(kind, { planes: m.clippingPlanes, intersect: !!m.clipIntersection, meshes: [] });
+      clipped.get(kind).meshes.push(o);
+    });
+    const lifted = [];
+    for (const { meshes } of clipped.values()) {
+      for (const o of meshes) {
+        const at = o.parent?.children.indexOf(o) ?? -1;
+        if (at >= 0) { o.parent.children.splice(at, 1); lifted.push([o, at]); }
+      }
+    }
     let ready = Promise.resolve();
     const target = r.getRenderTarget();
     try {
+      // and the renderer keeps the cut of whatever it drew last, Level 1's bay car's door
+      // included, across levels too: so first, no cut, for everything that has none
+      this._setClipState(NO_CUT, false);
       r.setRenderTarget(this.postfx.enabled ? this.postfx.sceneRT : null);
-      ready = r.compileAsync(object, this.camera, this.scene);
+      const waits = [r.compileAsync(object, this.camera, this.scene)];
+      // a level's mirror and map (secondary cameras) and its overlays (the rain) draw straight to
+      // the screen, not through PostFX: those are shaders of their own (tone-mapped, sRGB), built
+      // the first time each thing turned up in the mirror or on the map
+      if (this.postfx.enabled && object === this.scene && (this.secondaryCameras.size || this.overlays.size)) {
+        r.setRenderTarget(null);
+        if (this.secondaryCameras.size) waits.push(r.compileAsync(object, this.camera, this.scene));
+        for (const { scene: s, camera: cam } of this.overlays.values()) waits.push(r.compileAsync(s, cam));
+      }
+      for (let i = lifted.length - 1; i >= 0; i--) lifted[i][0].parent.children.splice(lifted[i][1], 0, lifted[i][0]);
+      lifted.length = 0;
+      for (const kind of clipped.values()) {
+        this._setClipState(kind.planes, kind.intersect);
+        r.setRenderTarget(this.postfx.enabled ? this.postfx.sceneRT : null);
+        const group = new THREE.Group();
+        group.children = kind.meshes; // not their parent: just what compile() walks
+        waits.push(r.compileAsync(group, this.camera, this.scene));
+      }
+      ready = Promise.all(waits);
+      if (clipped.size) this._setClipState(NO_CUT, false); // left as it was found: no cut
       r.setRenderTarget(target);
-      if (object === this.scene) this.renderScene(this.scene, this.camera);
+      if (object === this.scene) {
+        this.postfx.warm();
+        this.renderScene(this.scene, this.camera);
+      }
     } catch (err) {
       console.warn("[game] shader precompile failed", err);
     } finally {
+      for (let i = lifted.length - 1; i >= 0; i--) lifted[i][0].parent.children.splice(lifted[i][1], 0, lifted[i][0]);
       r.setRenderTarget(target);
       for (const o of shown) o.visible = false;
       for (const o of keptDark) o.visible = true;
@@ -408,6 +457,36 @@ export class Game {
     });
     for (const t of textures) r.initTexture(t);
     await Promise.race([ready.catch(() => {}), new Promise((done) => setTimeout(done, 10000))]);
+    // each shader's first use (the driver's link checked, its uniforms looked up) done now too,
+    // not the first time each thing is drawn: up to a fifth of a second apiece, mid-level
+    for (const p of r.info.programs || []) p.getUniforms?.();
+  }
+
+  /**
+   * Leaves the renderer's clipping state as drawing a material with `planes`
+   * (and `intersect`) does, for precompile: one tiny draw, of a single plane
+   * cut that way, into a 1x1 target nobody sees.
+   */
+  _setClipState(planes, intersect) {
+    const d = this._clipProbe || (this._clipProbe = (() => {
+      const scene = new THREE.Scene();
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.01, 0.01), new THREE.MeshBasicMaterial());
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      return { scene, mesh, rt: new THREE.WebGLRenderTarget(1, 1) };
+    })());
+    const m = d.mesh.material;
+    if (m.clippingPlanes !== planes || m.clipIntersection !== intersect) {
+      m.clippingPlanes = planes;
+      m.clipIntersection = intersect;
+      m.needsUpdate = true;
+    }
+    const r = this.renderer;
+    const was = r.localClippingEnabled;
+    r.localClippingEnabled = true;
+    r.setRenderTarget(d.rt);
+    r.render(d.scene, this.camera);
+    r.localClippingEnabled = was; // the state the draw left behind stays, for compile()
   }
 
   /**

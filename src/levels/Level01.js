@@ -2559,7 +2559,7 @@ export class Level01 extends Level {
       p.group.visible = false;
       this._health = Math.min(MAX_HEALTH, this._health + p.healAmount);
       this._showTransientBanner(`+${p.healAmount} HP RESTORED`, 1.2);
-      if (this._audio) this._audio.playOneShot("rewardChime", { volume: 0.42 });
+      if (this._audio) this._audio.playOneShot("pickupHeart", { volume: 0.42 }); // the heart Level 2's health pickup plays
     }
   }
 

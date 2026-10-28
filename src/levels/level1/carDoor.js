@@ -133,7 +133,9 @@ export class CarDoor {
         const c = ownMaterial(m);
         c.clippingPlanes = this._holeWorld;
         c.clipIntersection = true;
-        c.clipShadows = true;
+        // its shadow is the whole car's, door and all: a cut one needs shadow shaders of its own,
+        // built the first time the car came near the sun's shadow (a freeze, mid-run)
+        c.clipShadows = false;
         return c;
       });
       o.material = Array.isArray(was) ? body : body[0];
@@ -145,12 +147,11 @@ export class CarDoor {
       const door = list.map((m) => {
         const c = ownMaterial(m);
         c.clippingPlanes = this._keepWorld;
-        c.clipShadows = true;
         return c;
       });
       const copy = new THREE.Mesh(o.geometry, Array.isArray(was) ? door : door[0]);
       rel.decompose(copy.position, copy.quaternion, copy.scale);
-      copy.castShadow = true;
+      copy.castShadow = false; // uncut in the shadow pass it'd cast a whole car's (the body's has the door)
       copy.receiveShadow = true;
       // most models' doors are the outer skin alone: open, you'd see straight
       // through it from behind. Its back is drawn as the door's inside, in trim
@@ -161,6 +162,18 @@ export class CarDoor {
       inside.receiveShadow = true;
       this.piece.add(copy, inside);
     });
+
+    // the car's own materials come back when the door's shut for good (dispose), and were built the
+    // moment it slammed (a hitch, on screen): a hidden stand-in of each, so Game.precompile builds
+    // their shaders along with the cut ones
+    this._originals = new THREE.Group();
+    this._originals.visible = false;
+    for (const s of this._swapped) {
+      const m = new THREE.Mesh(s.mesh.geometry, s.material);
+      m.receiveShadow = s.mesh.receiveShadow; // part of the shader
+      this._originals.add(m);
+    }
+    holder.add(this._originals);
 
     if (!this.spec.interior) this._buildCabin(min, max, xIn);
     this.set(0);
@@ -351,6 +364,7 @@ export class CarDoor {
       if (o.isMesh) for (const m of [].concat(o.material)) m.dispose();
     });
     this._trim.dispose();
+    this.holder.remove(this._originals);
     this.holder.remove(this.hinge);
     if (this.cabin) {
       this.cabin.traverse((o) => {

@@ -10,6 +10,7 @@ import { ShadowStag } from './level3/ShadowStag.js';
 import { BodyIK, HIP_UP } from './level3/BodyIK.js';
 import { lookScale } from '../core/settings.js';
 import { LetterDrops } from './level3/Letters.js';
+import { createTornPage } from '../fx/tornPage.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
 import { Wreck } from './level3/Wreck.js';
@@ -441,6 +442,17 @@ export class Level03 extends Level {
       this.sound?.play('shrinePulse', { volume: 0.7 });
       this.story.showLetter(`TORN PAGE  \u00b7  ${found} / ${TOTAL_PAGES} FOUND`, text);
     });
+    // A torn page drops mid-fight, and the storm's lightning strikes: until then nothing draws
+    // with their materials, so their shaders were built the first time each was seen (a hitch,
+    // mid-fight). A hidden stand-in of each, for Game.precompile to build them with the level
+    const standIns = new THREE.Group();
+    standIns.name = 'precompile-stand-ins';
+    standIns.visible = false;
+    // (positions only, like a bolt's ribbon: normals or uvs would make it a different shader)
+    const speck = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0], 3));
+    standIns.add(createTornPage(3), new THREE.Mesh(this.letters.beamGeo, this.letters.beamMat),
+      new THREE.Mesh(speck, this.storm.boltMat), new THREE.Mesh(speck, this.storm.glowMat));
+    this.root.add(standIns);
 
     this.hud = new FightHUD();
     // the map of the falls, in the corner like the prologue's (N: bigger)

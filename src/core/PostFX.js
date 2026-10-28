@@ -352,6 +352,18 @@ export class PostFX {
     this.renderer.render(this.quadScene, this.quadCamera);
   }
 
+  /**
+   * The god rays are only drawn while the sun is ahead of the camera, so their
+   * shader was built the first time it came into view (a hitch, mid-level):
+   * drawn once here, behind the loading screen (Game.precompile).
+   */
+  warm() {
+    if (this._warmed) return;
+    this._warmed = true;
+    this.rays.uniforms.tSrc.value = this.sceneRT.texture;
+    this._draw(this.rays, this.raysRT);
+  }
+
   /** Draw the scene through the whole chain onto the screen. */
   render(scene, camera) {
     const r = this.renderer;
