@@ -248,7 +248,10 @@ export class TitleScreen {
     window.removeEventListener('keydown', this._onKey);
     this._offSettings();
     clearInterval(this._fadeTimer);
-    if (this.music && !this._leaving) this.music.pause();
+    // always stopped here: leaving, the fade-out (0.9 s) is cut short by this
+    // (0.65 s), and its own pause at the end never ran, so the theme used to
+    // carry on, quietly, under the prologue
+    if (this.music) this.music.pause();
     this.el.remove();
     this.style.remove();
   }

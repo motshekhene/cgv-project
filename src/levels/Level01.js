@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Particles } from "../fx/Particles.js";
+import { renderChaseScore } from "../audio/chaseScore.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -13,7 +14,6 @@ import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
   loadAudioFileBuffer,
-  loadJungleTheme,
   JungleBed,
 } from "../audio/jungleAudio.js";
 import { showEndCard, showLoseCard } from "../ui/EndCard.js";
@@ -4121,9 +4121,10 @@ export class Level01 extends Level {
     this._musicTrack.setVolume(0.3);
     this._musicTrack.play();
 
-    // The recorded theme, on every level of the game. If it fails to load
-    // the pursuit loop simply keeps playing.
-    loadJungleTheme(this._audio.listener.context).then((buf) => {
+    // Level 1's own chase score (audio/chaseScore.js): hand drums and the
+    // prologue's mbira, rendered once and swapped in for the pursuit loop
+    // when it's ready. (The menu's stock track used to play here.)
+    renderChaseScore(this._audio.listener.context.sampleRate).then((buf) => {
       if (!buf || !this._musicTrack) return;
       this._musicTrack.stop();
       this._musicTrack.setBuffer(buf);
