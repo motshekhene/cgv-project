@@ -42,6 +42,7 @@ export const DEFAULT_BINDINGS = {
   decline: ["q"], // the "no" half of a two-way choice (prologue)
   mute: ["m"],
   changeCar: ["v"], // level 02: open the car picker
+  horn: ["f"], // level 02: blow the horn out of the window: the forest's animals cross behind you
   drift: ["q"], // level 02: hold with a steer to throw the car sideways (Q still cycles paint in the picker)
   handbrake: [" "], // level 02: a hard stop that never goes into reverse
 };

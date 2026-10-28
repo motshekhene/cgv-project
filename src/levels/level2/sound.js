@@ -79,6 +79,28 @@ export class Level2Sound {
     window.addEventListener('keydown', this._onKey);
   }
 
+  /** Kai blows the horn: a deep call that swells and falls away, with an echo off the gorge. */
+  hornCall() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const [delay, amp] of [[0, 0.32], [0.42, 0.12]]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(98, t + delay);
+      o.frequency.linearRampToValueAtTime(131, t + delay + 0.35);
+      o.frequency.setValueAtTime(131, t + delay + 1.2);
+      o.frequency.linearRampToValueAtTime(110, t + delay + 1.8);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 2;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + delay);
+      g.gain.exponentialRampToValueAtTime(amp, t + delay + 0.25);
+      g.gain.setValueAtTime(amp, t + delay + 1.3);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 1.9);
+      o.connect(lp).connect(g).connect(this.master);
+      o.start(t + delay); o.stop(t + delay + 2);
+    }
+  }
+
   /* ======================== setup ======================== */
 
   _start() {

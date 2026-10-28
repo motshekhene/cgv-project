@@ -571,6 +571,27 @@ export class Obstacles {
     return this._animal(real || makeKudu(), slot, { speed: 9, damage: 12, slow: 0.55, halfW: 1.05, halfL: 0.45, trigger: 85, scale: real ? 1 : 1.15 });
   }
 
+  /**
+   * The horn's answer in Level 2: a herd of kudu and warthog breaks out of
+   * the trees and crosses the road at `z`, from both sides at once. Solid
+   * like any animal on the road, so whoever is behind them has to stop.
+   */
+  herd(z, count = 5) {
+    for (let i = 0; i < count; i++) {
+      const slot = { z: z + (i - count / 2) * 1.8, side: i % 2 ? 1 : -1 };
+      const it = i % 2 ? this._makeBoar(slot) : this._makeKudu(slot);
+      it.kind = i % 2 ? 'BOAR' : 'KUDU';
+      it.label = OBSTACLE_LABELS[it.kind];
+      it.trigger = Infinity; // already running
+      it.state = 'cross';
+      it.x = it.holder.position.x = slot.side * (RAIL + 1 + Math.random() * 2);
+      it.walk *= 1.25;
+      this.group.add(it.holder);
+      this.items.push(it);
+      this.pool.push(it);
+    }
+  }
+
   /* ---------------- debris ---------------- */
 
   _makeDebris(n) {
