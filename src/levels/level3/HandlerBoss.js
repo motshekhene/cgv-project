@@ -292,10 +292,16 @@ export function dressAsHandler(fighter) {
   const tmp = new THREE.Vector3();
   const scaleOf = (bone) => bone.getWorldScale(tmp).x || 1;
 
-  const canvas = new THREE.MeshStandardMaterial({ color: 0x23251f, roughness: 0.85, metalness: 0.05, side: THREE.DoubleSide });
+  // the logging company's field kit: a long olive work coat, a high-visibility
+  // vest over it with reflective bands and SECURITY across the back, and a
+  // yellow hard hat closed round the mask. Plainly a company man from any
+  // distance, and still Baba Zwane underneath it (the mask comes off in Level 3)
+  const canvas = new THREE.MeshStandardMaterial({ color: 0x3b4230, roughness: 0.88, metalness: 0.02, side: THREE.DoubleSide });
   const plate = new THREE.MeshStandardMaterial({ color: 0x3a3e43, roughness: 0.38, metalness: 0.75 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x8a6a2e, roughness: 0.45, metalness: 0.6 });
-  const stripe = new THREE.MeshStandardMaterial({ color: 0x2a1a08, emissive: 0xffb03a, emissiveIntensity: 0.55, roughness: 0.6 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x5a4a30, roughness: 0.6, metalness: 0.2 });
+  const vest = new THREE.MeshStandardMaterial({ color: 0xff6a10, emissive: 0xff5a00, emissiveIntensity: 0.18, roughness: 0.7, side: THREE.DoubleSide });
+  const stripe = new THREE.MeshStandardMaterial({ color: 0xd8dde0, emissive: 0xeef4f6, emissiveIntensity: 0.55, roughness: 0.25, metalness: 0.6 });
+  const hat = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: 0.42, metalness: 0.05 });
   const pieces = [];
   const add = (bone, mesh) => {
     mesh.castShadow = true;
@@ -323,21 +329,41 @@ export function dressAsHandler(fighter) {
   // the coat body: hips to the base of the neck, wider than he is
   segment('Hips', 'Spine2', 0.19, 0.2, canvas, { squash: 0.78 });
   segment('Spine2', 'Neck', 0.205, 0.15, canvas, { squash: 0.8 });
-  // the chest plate, and the amber company stripe under it
+  // the hi-vis vest over the coat, its two reflective bands, and SECURITY on the back
   {
-    const s = scaleOf(b('Spine2'));
-    const chest = new THREE.Mesh(
-      // a curved slice centred on +Z, his front
-      new THREE.SphereGeometry(0.2 / s, 18, 10, Math.PI / 2 - 0.6, 1.2, 0.3 * Math.PI, 0.42 * Math.PI),
-      plate,
-    );
-    chest.scale.set(1.05, 1.05, 0.9);
-    chest.position.y = 0.04 / s;
-    add(b('Spine2'), chest);
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.188 / s, 0.012 / s, 6, 28), stripe);
-    band.rotation.x = Math.PI / 2;
-    band.scale.set(1, 0.8, 1);
-    add(b('Spine1') || b('Spine2'), band);
+    segment('Spine', 'Neck', 0.215, 0.175, vest, { squash: 0.82, open: true });
+    for (const [bone, r] of [['Spine1', 0.218], ['Spine2', 0.214]]) {
+      const bb = b(bone) || b('Spine2');
+      const s = scaleOf(bb);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(r / s, 0.016 / s, 6, 32), stripe);
+      band.rotation.x = Math.PI / 2;
+      band.scale.set(1, 0.84, 1.6);
+      add(bb, band);
+    }
+    const back = b('Spine2');
+    if (back) {
+      const s = scaleOf(back);
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 64;
+      const g = c.getContext('2d');
+      g.font = 'bold 44px Arial, sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillStyle = '#e9ecee'; // a reflective patch, the word printed on it
+      g.fillRect(0, 0, 256, 64);
+      g.fillStyle = '#111';
+      g.fillText('SECURITY', 128, 34);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const word = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.3 / s, 0.075 / s),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 }),
+      );
+      word.position.set(0, 0.075 / s, -0.215 / s); // high on his back (-Z), above the bands, just proud of the vest
+      word.rotation.x = -0.12; // following the slope of his shoulders
+      word.rotation.y = Math.PI;
+      add(back, word);
+    }
   }
   // the skirt: an open cone off the hips down past the knees, split at the front so he can run in it
   {
@@ -362,7 +388,7 @@ export function dressAsHandler(fighter) {
     if (arm) {
       const s = scaleOf(arm);
       // round, so it reads the same whichever way the arm bone's axes point
-      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.1 / s, 14, 10), plate);
+      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.1 / s, 14, 10), canvas);
       pad.scale.set(1.05, 0.8, 1.05);
       pad.position.y = 0.03 / s;
       add(arm, pad);
@@ -387,12 +413,19 @@ export function dressAsHandler(fighter) {
     shell.scale.set(1.12, 1.18, 1.12);
     shell.position.y = 0.025 / s;
     shell.castShadow = true;
+    shell.material = hat;
     helmet.add(shell);
+    // the hard hat's brim, all the way round above the mask
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry((R * 1.42) / s, (R * 1.42) / s, 0.012 / s, 32), hat);
+    brim.position.y = 0.075 / s;
+    brim.castShadow = true;
+    helmet.add(brim);
     // and its brow: the crown over the face opening, down to the top of the mask
     const brow = new THREE.Mesh(
       new THREE.SphereGeometry(R / s, 16, 6, Math.PI / 2 - 0.33 * Math.PI, 0.66 * Math.PI, 0, 0.3 * Math.PI),
       plate,
     );
+    brow.material = hat;
     brow.scale.copy(shell.scale);
     brow.position.copy(shell.position);
     brow.castShadow = true;
@@ -415,8 +448,8 @@ export function dressAsHandler(fighter) {
       lip.scale.set(1.05, 1.12, 1);
       helmet.add(lip);
     }
-    // a brass ridge from brow to nape, hugging the shell
-    const crest = new THREE.Mesh(new THREE.TorusGeometry((R * 1.15) / s, 0.012 / s, 6, 24, Math.PI), trim);
+    // the hard hat's ridge from brow to nape
+    const crest = new THREE.Mesh(new THREE.TorusGeometry((R * 1.15) / s, 0.014 / s, 6, 24, Math.PI), hat);
     crest.rotation.y = Math.PI / 2;
     crest.scale.set(1, 1.03, 0.98);
     crest.position.y = 0.025 / s;
