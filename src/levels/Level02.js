@@ -1228,7 +1228,12 @@ export class Level02 extends Level {
       kind: 'win',
       title: 'SURVIVED',
       sub: 'You went over the falls. He stopped at the edge.',
-      lines: [{ text: `${Math.round(this.state.distance)} M  ·  INTEGRITY ${integrity}%  ·  RAMS TAKEN ${this._rams || 0}  ·  TAKEDOWNS ${this._takedowns || 0}` }],
+      lines: [{ stats: [
+        { label: 'DISTANCE', value: Math.round(this.state.distance), unit: 'M' },
+        { label: 'INTEGRITY', value: integrity, unit: '%' },
+        { label: 'RAMS TAKEN', value: this._rams || 0 },
+        { label: 'TAKEDOWNS', value: this._takedowns || 0 },
+      ] }],
       action: { label: 'CONTINUE', key: 'SPACE', onClick: () => this._handOff() },
     });
   }

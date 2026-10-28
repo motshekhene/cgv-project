@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
 import { CardPickups } from "../cards/CardPickups.js";
+import { createTornPage } from "../fx/tornPage.js";
 import { CURRENCY, balance as lightsToSpend, earn as earnLights } from "../core/wallet.js";
 import { clueFor } from "../cards/cards.js";
 import { createClueBoard } from "../cards/clueSign.js";
@@ -588,6 +589,20 @@ const LEVEL1_HUD_CSS = `
   .l1h-handler { grid-column:2; margin-right:0; }
 }
 @keyframes l1hLow { 50% { filter:brightness(1.6); } }
+/* this run's Forest Lights: a glowing count under Kai's plaque that pops with every catch (from 0 every run) */
+.l1h-lights { position:absolute; left:0; top:calc(100% + 8px); display:flex; align-items:center; gap:9px; padding:5px 14px 5px 7px; border-radius:999px;
+  background:linear-gradient(90deg, rgba(10,34,38,.88), rgba(8,16,14,.78)); border:1px solid rgba(79,214,224,.5);
+  box-shadow:0 0 16px rgba(79,214,224,.22), 0 4px 12px rgba(0,0,0,.45); }
+.l1h-lights i { width:16px; height:16px; border-radius:50%; background:radial-gradient(circle, #fff 0 18%, #8ff0f6 40%, rgba(79,214,224,0) 72%);
+  box-shadow:0 0 12px #4fd6e0; animation:l1hOrb 2.2s ease-in-out infinite; }
+.l1h-lights b { font:700 20px/1 var(--serif); color:#e8fdff; text-shadow:0 0 10px rgba(79,214,224,.8); min-width:2ch; }
+.l1h-lights small { font:700 9px var(--sans); letter-spacing:.24em; color:#8ff0f6; }
+.l1h-lights.pop b { animation:l1hPop .35s cubic-bezier(.3,1.6,.5,1); }
+.l1h-lights.pop { animation:l1hGlow .5s ease-out; }
+@keyframes l1hOrb { 50% { transform:scale(.8); filter:brightness(1.4); } }
+@keyframes l1hPop { from { transform:scale(1.45); } to { transform:none; } }
+@keyframes l1hGlow { from { box-shadow:0 0 30px rgba(143,240,246,.75), 0 4px 12px rgba(0,0,0,.45); } }
+@media (max-width: 760px) { .l1h-lights { position:static; margin-top:6px; width:max-content; } }
 `;
 
 const _flyQ = new THREE.Quaternion();
@@ -848,12 +863,12 @@ export class Level01 extends Level {
     this._animalModels = await loadAnimalModels(assets).catch(() => ({})); // the trail's animals (TRAIL_LIFE)
     this._buildAdventureHazards(mats);
     this._buildGuardianTeases();
-    this._buildStoryLetters();
     this._buildCards();
     this._buildHandlerPressureProps();
     this._trainEvents = [];
     this._trainActive = false;
     this._buildObstacles(mats);
+    this._buildStoryLetters(); // after the obstacles: the pages keep clear of them
     this._buildTempleRewards();
     this._buildJetpackPickups();
     this._buildHealthPacks();
@@ -1992,43 +2007,67 @@ export class Level01 extends Level {
     this._clueThought = clueFor("think:level01"); // or Kai remembers it, a while into the run
   }
 
+  /**
+   * The three torn pages on the trail, somewhere new every run: one in each
+   * third of the way down, in a random lane, never inside a set piece (the
+   * fork, the bridge's gaps, the guardian, the trail's life, the boulder and
+   * the high ruins' traps) and never within a few metres of an obstacle or a
+   * booster in its lane, so one can always be run through. They come in
+   * story order down the trail; one already found this session isn't put
+   * out again. Each is a page of the company's papers (fx/tornPage.js).
+   */
   _buildStoryLetters() {
-    const branchLetterOffset = this._routeOffsetMagnitude(-780);
-    const defs = [
-      // Same dead drop on BOTH fork routes: equal difficulty and equal reward.
-      { id: "level01-1", lane: 1, x: -branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
-      { id: "level01-1", lane: 1, x: branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
-      { id: "level01-2", lane: 0, z: -1115, text: "Company memo: The men will not cross the ridge while the horn sits on that stone. Find someone the forest trusts." },
-      { id: "level01-3", lane: 2, z: -1260, text: "Company memo: Our man at the fire has agreed. His fee is paid when the horn is in our hands \u2014 not before." },
+    const pages = [
+      ["level01-1", "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since."],
+      ["level01-2", "Company memo: The men will not cross the ridge while the horn sits on that stone. Find someone the forest trusts."],
+      ["level01-3", "Company memo: Our man at the fire has agreed. His fee is paid when the horn is in our hands — not before."],
     ];
+    const near = (z, at, m) => Math.abs(z - at) < m;
+    const hazards = [BOULDER_Z, SWING_LOG_Z, FALLING_BLOCK_Z, CLOSING_DOOR_Z, ROTATING_BEAM_Z, ...HIGH_RUINS_HAZARDS.map((h) => h.z)];
+    const clear = (z, lane) =>
+      !(z <= ROUTE_SPLIT_START_Z + 25 && z >= ROUTE_SPLIT_END_Z - 25) && // the fork: two routes
+      !(z <= BRIDGE_START_Z + 30 && z >= BRIDGE_END_Z - 15) && // the falling bridge's gaps
+      !(z <= GUARDIAN_CLEAR_NEAR_Z && z >= GUARDIAN_CLEAR_FAR_Z) &&
+      !TRAIL_LIFE.some((t) => near(z, t.z, 36)) &&
+      !hazards.some((h) => near(z, h, 26)) &&
+      !FALLING_TREE_EVENTS.some((e) => near(z, e.z, 16)) &&
+      !JETPACK_PICKUPS.some((j) => j.lane === lane && near(z, j.z, 14)) &&
+      !this.obstacles.some((o) => near(z, o.z, 10) && (o.lane === lane || o.kind === "duct"));
+    // thirds of the run, nearest first
+    const thirds = [[-220, -1300], [-1300, -2900], [-2900, OBSTACLE_LAST_Z + 40]];
+    const defs = thirds.map(([from, to], i) => {
+      for (let tries = 0; tries < 400; tries++) {
+        const z = from + (to - from) * Math.random();
+        const lane = Math.floor(Math.random() * 3);
+        if (clear(z, lane)) return { id: pages[i][0], text: pages[i][1], lane, z };
+      }
+      return { id: pages[i][0], text: pages[i][1], lane: 1, z: (from + to) / 2 }; // never needed in practice
+    });
 
-    for (const def of defs) {
+    defs.forEach((def, i) => {
       const group = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xd6fff2,
-        emissive: new THREE.Color(0x4fffd0),
-        emissiveIntensity: 2.8,
-        roughness: 0.3,
-        metalness: 0.15,
-      });
-      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), mat);
-      shard.rotation.z = Math.PI * 0.25;
-      group.add(shard);
-      const halo = new THREE.PointLight(0x53ffd2, 2.2, 9, 2);
-      group.add(halo);
-      group.position.set(def.x ?? LANE_X[def.lane], jungleCourseHeight(def.z) + 1.2, def.z);
+      const page = createTornPage(i);
+      page.scale.setScalar(1.35); // big enough to read as a page at a run
+      group.add(page);
+      const glow = new THREE.PointLight(0xffd9a0, 1.8, 8, 2); // warm, like lamplight on paper
+      glow.position.y = 0.2;
+      group.add(glow);
+      def.x = LANE_X[def.lane] + this._routeOffsetAt(def.z, 0);
+      group.position.set(def.x, jungleCourseHeight(def.z) + 1.25, def.z);
       group.visible = !this.state?.letters?.includes(def.id);
       this.root.add(group);
-      this._storyLetters.push({ ...def, group, collected: !group.visible, spin: Math.random() * Math.PI * 2 });
-    }
+      this._storyLetters.push({ ...def, group, page, collected: !group.visible, spin: Math.random() * Math.PI * 2 });
+    });
   }
 
   _updateStoryLetters(dt, state, x, prevZ) {
     for (const letter of this._storyLetters) {
       if (letter.collected) continue;
-      letter.spin += dt * 2.4;
-      letter.group.rotation.y = letter.spin;
-      letter.group.position.y = jungleCourseHeight(letter.z) + 1.2 + Math.sin(letter.spin * 1.7) * 0.12;
+      // turning slowly, so it shows both sides, and fluttering like paper in moving air
+      letter.spin += dt * 1.1;
+      letter.group.rotation.y = Math.sin(letter.spin) * 0.9;
+      letter.group.position.y = jungleCourseHeight(letter.z) + 1.25 + Math.sin(letter.spin * 2.6) * 0.1;
+      letter.page?.userData.flutter(letter.spin * 2.2);
 
       const crossed = prevZ >= letter.z - 0.7 && this.z <= letter.z + 0.7;
       const targetX = letter.x ?? LANE_X[letter.lane];
@@ -2638,10 +2677,11 @@ export class Level01 extends Level {
     const stat = document.createElement("div");
     stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div class="l1h-name">KAI <em><span data-reward-count>0</span> ${CURRENCY}</em></div>
+      <div class="l1h-name">KAI</div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
+      <div class="l1h-lights"><i></i><b data-reward-count>0</b><small>${CURRENCY}</small></div>
     `;
 
     const handlerPanel = document.createElement("div");
@@ -2761,6 +2801,7 @@ export class Level01 extends Level {
 
     this._templeHud = root;
     this._hudRewardCount = stat.querySelector("[data-reward-count]");
+    this._hudLights = stat.querySelector(".l1h-lights");
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
     this._hudHornLabel = stat.querySelector("[data-horn-label]");
     this._hudHornFill = stat.querySelector("[data-horn-fill]");
@@ -2944,7 +2985,17 @@ export class Level01 extends Level {
     const progress = THREE.MathUtils.clamp((-this.z) / FINISH_DISTANCE, 0, 1);
     const left = Math.max(0, FINISH_DISTANCE + this.z);
 
-    if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
+    if (this._hudRewardCount && this._hudShownLights !== this.rewardCount) {
+      // a catch: the count pops (restart the animation by taking the class off and back on)
+      const caught = this._hudShownLights !== undefined && this.rewardCount > this._hudShownLights;
+      this._hudShownLights = this.rewardCount;
+      this._hudRewardCount.textContent = String(this.rewardCount);
+      if (caught && this._hudLights) {
+        this._hudLights.classList.remove("pop");
+        void this._hudLights.offsetWidth;
+        this._hudLights.classList.add("pop");
+      }
+    }
     if (this._hudHornFill) {
       const full = this._hornCharge >= 1;
       this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
@@ -3112,7 +3163,11 @@ export class Level01 extends Level {
       title: "CAUGHT",
       sub: title,
       // what he caught is his whatever happens: it's still there to spend on a car
-      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }, { text: `${this.rewardCount} ${CURRENCY} KEPT  ·  ${lightsToSpend()} TO SPEND ON CARS` }],
+      lines: [{ stats: [
+        { label: "DISTANCE RUN", value: Math.round(this.state?.distance ?? 0), unit: "M" },
+        { label: CURRENCY, value: this.rewardCount, note: `kept · ${lightsToSpend()} to spend on cars`, kind: "lights" },
+        { label: "HORN CALLS", value: this._hornCalls },
+      ] }],
     });
   }
 
@@ -3130,7 +3185,12 @@ export class Level01 extends Level {
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
-      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  HORN CALLS ${this._hornCalls}` }, { text: `${this.rewardCount} ${CURRENCY} CAUGHT  ·  ${lightsToSpend()} TO SPEND ON CARS` }],
+      lines: [{ stats: [
+        { label: "DISTANCE", value: distance, unit: "M" },
+        { label: "CLOSEST CALL", value: Number(closest).toFixed(1), unit: "M" },
+        { label: CURRENCY, value: this.rewardCount, note: `${lightsToSpend()} to spend on cars`, kind: "lights" },
+        { label: "HORN CALLS", value: this._hornCalls },
+      ] }],
       action: {
         label: "CONTINUE",
         key: "SPACE",

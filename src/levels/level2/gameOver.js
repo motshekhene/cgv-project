@@ -17,7 +17,11 @@ export function createGameOverScreen(game, { topSpeedKmh, distance, time, onRetr
     title: 'WRECKED',
     sub: 'The Marshal ran you off the River Road.',
     lines: [
-      { text: `${Math.round(distance)} M DRIVEN  ·  TOP SPEED ${Math.round(topSpeedKmh)} KM/H  ·  ${fmtTime(time)}` },
+      { stats: [
+        { label: 'DRIVEN', value: Math.round(distance), unit: 'M' },
+        { label: 'TOP SPEED', value: Math.round(topSpeedKmh), unit: 'KM/H' },
+        { label: 'TIME', value: fmtTime(time) },
+      ] },
     ],
     onRetry,
     onMenu,

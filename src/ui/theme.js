@@ -56,6 +56,28 @@ export const END_CSS = `
 .end.show h1 span { animation:endLetter .75s cubic-bezier(.2,.8,.2,1) forwards; animation-delay:calc(.35s + var(--i) * .065s); }
 .end-sub { margin:16px 0 0; font-family:var(--serif); font-style:italic; font-size:clamp(14px, 1.9vw, 20px); letter-spacing:.04em; color:var(--ink); }
 .end-meta { margin:20px 0 0; font-size:12px; letter-spacing:.3em; color:var(--key); }
+.end-stats { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; margin:24px auto 0; max-width:820px; }
+.end-stat { position:relative; min-width:128px; padding:12px 18px 11px; text-align:center; opacity:0; border-radius:4px;
+  border:1px solid rgba(227,187,98,.4); background:linear-gradient(180deg, rgba(48,44,26,.82), rgba(14,14,9,.9));
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 10px 24px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); }
+.end-stat::before, .end-stat::after { content:''; position:absolute; top:50%; width:6px; height:6px; margin-top:-3px; background:var(--gold); transform:rotate(45deg); }
+.end-stat::before { left:-4px; } .end-stat::after { right:-4px; }
+.end-stat span { display:block; font:700 9.5px var(--sans); letter-spacing:.28em; color:var(--gold); }
+.end-stat b { display:block; margin-top:5px; font:700 clamp(24px, 3vw, 32px)/1 var(--serif); color:#fff4d8; text-shadow:0 2px 0 rgba(0,0,0,.6), 0 0 16px rgba(227,187,98,.35); }
+.end-stat b small { margin-left:4px; font:700 11px var(--sans); letter-spacing:.14em; color:var(--ink-dim); text-shadow:none; }
+.end-stat em { display:block; margin-top:5px; font:italic 13px var(--serif); color:var(--ink-dim); }
+.end-stat.lights { border-color:rgba(79,214,224,.55); box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 18px rgba(79,214,224,.2), inset 0 1px 0 rgba(255,255,255,.06); }
+.end-stat.lights span, .end-stat.lights em { color:#8ff0f6; }
+.end-stat.lights b { color:#e8fdff; text-shadow:0 2px 0 rgba(0,0,0,.6), 0 0 16px rgba(79,214,224,.6); }
+.end-stat.lights::before, .end-stat.lights::after { background:#4fd6e0; }
+.end.lose .end-stat { border-color:rgba(242,147,79,.4); background:linear-gradient(180deg, rgba(56,24,14,.82), rgba(16,8,6,.9)); }
+.end.lose .end-stat span { color:var(--ember-hi); }
+.end.lose .end-stat::before, .end.lose .end-stat::after { background:var(--ember-hi); }
+.end.lose .end-stat.lights { border-color:rgba(79,214,224,.55); background:linear-gradient(180deg, rgba(12,36,40,.85), rgba(8,14,14,.9)); }
+.end.lose .end-stat.lights span { color:#8ff0f6; }
+.end.lose .end-stat.lights::before, .end.lose .end-stat.lights::after { background:#4fd6e0; }
+.end.show .end-stat { animation:endStat .55s cubic-bezier(.3,1.4,.5,1) forwards; animation-delay:var(--d); }
+@keyframes endStat { from { opacity:0; transform:translateY(14px) scale(.9); } to { opacity:1; transform:none; } }
 .end-credits { margin:22px auto 0; max-width:600px; font-size:11px; letter-spacing:.1em; line-height:1.9; color:var(--ink-dim); }
 .end-sub, .end-meta, .end-credits, .end-btn { opacity:0; }
 .end.show .end-sub, .end.show .end-meta, .end.show .end-credits { animation:endUp .7s ease forwards; animation-delay:var(--d); }
@@ -75,7 +97,7 @@ export const END_CSS = `
 
 /**
  * Fill an `.end` element and play it in. kind = 'win' (gold) | 'lose' (ember).
- * lines = [{ text, cls: 'end-meta' | 'end-credits' }]; action = { label, key, onClick }.
+ * lines = [{ text, cls: 'end-meta' | 'end-credits' } | { stats: [{ label, value, unit, note, kind }] }]; action = { label, key, onClick }.
  */
 export function showEndScreen(el, { kind = 'win', title, sub = '', lines = [], action = null }) {
   el.className = `end ${kind}`;
@@ -106,7 +128,30 @@ export function showEndScreen(el, { kind = 'win', title, sub = '', lines = [], a
     return e;
   };
   if (sub) add('p', 'end-sub', sub);
-  for (const l of lines) add('p', l.cls || 'end-meta', l.text);
+  for (const l of lines) {
+    if (!l.stats) { add('p', l.cls || 'end-meta', l.text); continue; }
+    // a row of stat tiles: { label, value, unit?, note?, kind? ('lights': the Forest Lights' cyan) }
+    const row = document.createElement('div');
+    row.className = 'end-stats';
+    for (const st of l.stats) {
+      const t = document.createElement('div');
+      t.className = `end-stat${st.kind ? ' ' + st.kind : ''}`;
+      t.innerHTML = `<span></span><b></b>${st.note ? '<em></em>' : ''}`;
+      t.querySelector('span').textContent = st.label;
+      t.querySelector('b').textContent = String(st.value);
+      if (st.unit) {
+        const u = document.createElement('small');
+        u.textContent = st.unit;
+        t.querySelector('b').appendChild(u);
+      }
+      if (st.note) t.querySelector('em').textContent = st.note;
+      t.style.setProperty('--d', `${d.toFixed(2)}s`);
+      d += 0.12;
+      row.appendChild(t);
+    }
+    d += 0.2;
+    inner.appendChild(row);
+  }
   if (action) {
     const wrap = document.createElement('div');
     const btn = add('button', 'end-btn', action.label);
