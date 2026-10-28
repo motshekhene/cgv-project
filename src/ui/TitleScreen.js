@@ -31,7 +31,9 @@ import { LandingHorn } from './LandingHorn.js';
  *   THE MENU      the title small at the top left, the menu under it with a
  *                 line about whichever item is picked, and in the corner where
  *                 you stand: Forest Lights to spend, cars, spirit cards, and
- *                 whether today's card is still out there.
+ *                 whether today's card is still out there. That rises in a row
+ *                 at a time, and whatever has changed since it was last shown
+ *                 counts on from what it was, the difference beside it.
  *
  *   NEW GAME   the prologue, from the fire
  *   CHAPTERS   jump to any part of the story
@@ -66,6 +68,7 @@ const MENU = [
 const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
 const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
 const themeVolume = () => THEME_LEVEL * settings.music * settings.master;
+const SEEN_KEY = 'silent-horn.seen'; // what YOUR JOURNEY showed last time, so it can count on from there
 
 
 const CSS = THEME_CSS + `
@@ -134,18 +137,34 @@ const CSS = THEME_CSS + `
 .ts-btn.on::after { transform:scaleX(1); }
 .ts-btn small { display:block; margin-top:2px; font:500 14px ${DIALOGUE_FONT}; font-style:italic; letter-spacing:.04em; color:var(--ink-dim); }
 .ts-about { min-height:22px; margin:14px 0 0 30px; font-size:16px; font-style:italic; color:#e8ddc8; text-shadow:0 2px 10px rgba(0,0,0,.9); transition:opacity .2s; }
-/* where you stand, in the corner: what you've got to spend, cars, cards, today's card */
+/* where you stand, in the corner: what you've got to spend, cars, cards, today's card. It rises
+   in after the menu a row at a time; what has changed since it was last shown counts on (_count) */
 .ts-status { position:absolute; right:clamp(18px, 3vw, 40px); bottom:54px; width:250px; padding:14px 16px 12px; border-radius:8px;
   background:linear-gradient(160deg, rgba(30,34,22,.82), rgba(10,12,8,.88)); border:1px solid rgba(227,187,98,.32);
-  box-shadow:0 12px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05); backdrop-filter:blur(4px); }
+  box-shadow:0 12px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05); backdrop-filter:blur(4px); opacity:0; }
+.ts.menu .ts-status { animation:tsUp .6s ease .9s forwards; }
 .ts-status h4 { margin:0 0 10px; font:700 10px var(--sans); letter-spacing:.32em; color:var(--gold); }
 .ts-stat { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid rgba(239,228,200,.08);
-  font:700 10px var(--sans); letter-spacing:.2em; color:var(--ink-dim); }
-.ts-stat b { font:600 18px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#fff4d8; }
+  font:700 10px var(--sans); letter-spacing:.2em; color:var(--ink-dim); opacity:0; }
+.ts.menu .ts-stat { animation:tsUp .45s ease forwards; animation-delay:calc(1.1s + var(--r) * .12s); }
+.ts-stat b { display:inline-block; font:600 18px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#fff4d8; font-variant-numeric:tabular-nums; }
 .ts-stat b small { font:500 12px ${DIALOGUE_FONT}; color:var(--ink-dim); margin-left:2px; }
+.ts-stat .n { display:inline-block; text-align:right; } /* as wide as it ends up, so the chip by it doesn't shift as it counts */
+/* a number that's counting glows, and swells as it lands */
+.ts-stat.moved b { animation:tsBump 1.5s ease calc(1.3s + var(--r) * .12s); }
 .ts-stat.lights b { color:#e8fdff; text-shadow:0 0 10px rgba(79,214,224,.7); }
-.ts-stat.lights span::before { content:''; display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; background:#8ff0f6; box-shadow:0 0 8px #4fd6e0; vertical-align:0; }
-.ts-stat em { font:italic 13px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#bcd96a; text-transform:none; }
+.ts-stat.lights > span::before { content:''; display:inline-block; width:8px; height:8px; margin-right:7px; border-radius:50%; background:#8ff0f6; box-shadow:0 0 8px #4fd6e0; vertical-align:0;
+  animation:tsPulse 2.4s ease-in-out infinite; }
+.ts-stat em { display:inline-block; font:italic 13px ${DIALOGUE_FONT}; letter-spacing:.02em; color:#bcd96a; text-transform:none; }
+.ts-stat em.hunt { animation:tsHunt 3s ease-in-out 2s infinite; }
+.ts-stat em.stamp { animation:tsStamp .6s cubic-bezier(.2,1.6,.4,1) calc(1.4s + var(--r) * .12s) both; }
+.ts-stat em.hunt.stamp { animation:tsStamp .6s cubic-bezier(.2,1.6,.4,1) calc(1.4s + var(--r) * .12s) both, tsHunt 3s ease-in-out 2.6s infinite; }
+/* the difference since last time (+45, −60), by the number, rising away after a while */
+.ts-delta { margin-left:auto; padding:2px 7px; border-radius:10px; font:700 10px var(--sans); font-style:normal; letter-spacing:.08em; opacity:0;
+  color:#ffe6a8; background:rgba(227,187,98,.14); border:1px solid rgba(227,187,98,.4);
+  animation:tsDelta 5s ease calc(1.3s + var(--r) * .12s) forwards; }
+.ts-stat.lights .ts-delta.up { color:#c8fbff; background:rgba(79,214,224,.14); border-color:rgba(79,214,224,.5); }
+.ts-delta.down { color:#ffb08a; background:rgba(255,138,58,.12); border-color:rgba(255,138,58,.4); }
 .ts-foot { position:absolute; left:clamp(28px, 7vw, 120px); bottom:22px; font:600 10px var(--sans); letter-spacing:.3em; color:rgba(184,170,138,.65); }
 
 /* nine items: on a laptop-height screen everything closes up so the last one clears the foot */
@@ -169,6 +188,12 @@ const CSS = THEME_CSS + `
 @keyframes tsPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
 @keyframes tsShine { 0%, 62% { background-position:110% 0, 0 0; } 100% { background-position:-10% 0, 0 0; } }
 @keyframes tsFlash { 0% { opacity:0; } 8% { opacity:1; } 100% { opacity:0; } }
+@keyframes tsBump { 0%, 100% { transform:none; filter:none; } 20% { filter:brightness(1.3) drop-shadow(0 0 6px rgba(227,187,98,.6)); }
+  80% { transform:scale(1.15); filter:brightness(1.6) drop-shadow(0 0 9px rgba(227,187,98,.9)); } }
+@keyframes tsDelta { 0% { opacity:0; transform:translateY(8px) scale(.7); } 8% { opacity:1; transform:none; } 85% { opacity:1; transform:none; }
+  100% { opacity:0; transform:translateY(-10px); } }
+@keyframes tsStamp { from { opacity:0; transform:scale(1.7) rotate(-8deg); filter:blur(2px); } to { opacity:1; transform:none; filter:none; } }
+@keyframes tsHunt { 50% { opacity:.55; } }
 `;
 
 export class TitleScreen {
@@ -311,20 +336,75 @@ export class TitleScreen {
     this._showMain();
   }
 
-  /** Where you stand: Forest Lights to spend, cars, spirit cards, and today's card. */
+  /**
+   * Where you stand: Forest Lights to spend, cars, spirit cards, and today's card.
+   * Each number counts on from what it was the last time this was shown (from
+   * nothing, the very first time), with the difference by it: +45 lights caught,
+   * −60 spent on a car. Today's card is stamped in when it's news: found since,
+   * or a new day's card out there.
+   */
   _showStatus() {
-    const cars = CARS.filter((c) => owns(c.id)).length;
-    let today = '';
+    let today = null;
     try {
-      today = todaysCard().taken ? 'found today ✓' : 'out there somewhere…';
+      today = todaysCard();
     } catch {
-      today = '';
+      today = null;
     }
-    this.el.querySelector('.ts-status').innerHTML = `<h4>YOUR JOURNEY</h4>
-      <div class="ts-stat lights"><span>${CURRENCY}</span><b>${balance()}</b></div>
-      <div class="ts-stat"><span>CARS</span><b>${cars}<small>/ ${CARS.length}</small></b></div>
-      <div class="ts-stat"><span>SPIRIT CARDS</span><b>${foundCount()}<small>/ ${CARDS.length}</small></b></div>
-      ${today ? `<div class="ts-stat"><span>TODAY’S CARD</span><em>${today}</em></div>` : ''}`;
+    const now = {
+      lights: balance(),
+      cars: CARS.filter((c) => owns(c.id)).length,
+      cards: foundCount(),
+      day: today?.day ?? null,
+      taken: !!today?.taken,
+    };
+    let seen = null;
+    try {
+      seen = JSON.parse(localStorage.getItem(SEEN_KEY) || 'null');
+      localStorage.setItem(SEEN_KEY, JSON.stringify(now));
+    } catch {
+      // storage blocked: it counts up from nothing each time
+    }
+    const was = (k) => (Number.isFinite(seen?.[k]) ? seen[k] : 0);
+    const rows = [
+      { key: 'lights', label: CURRENCY, cls: 'lights' },
+      { key: 'cars', label: 'CARS', of: CARS.length },
+      { key: 'cards', label: 'SPIRIT CARDS', of: CARDS.length },
+    ];
+    let html = '<h4>YOUR JOURNEY</h4>';
+    rows.forEach((r, i) => {
+      const d = seen ? now[r.key] - was(r.key) : 0; // the first time, there's no difference to show
+      const chip = d ? `<i class="ts-delta ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : '−'}${Math.abs(d)}</i>` : '';
+      const moved = was(r.key) !== now[r.key] ? ' moved' : '';
+      html += `<div class="ts-stat ${r.cls || ''}${moved}" style="--r:${i}"><span>${r.label}</span>${chip}`
+        + `<b><span class="n" style="min-width:${String(Math.max(was(r.key), now[r.key])).length}ch">${was(r.key)}</span>${r.of ? `<small>/ ${r.of}</small>` : ''}</b></div>`;
+    });
+    if (today) {
+      const newDay = seen && seen.day !== now.day && !now.taken;
+      const justFound = now.taken && !(seen?.day === now.day && seen.taken);
+      const cls = now.taken ? (justFound ? 'stamp' : '') : `hunt${newDay ? ' stamp' : ''}`;
+      html += `<div class="ts-stat" style="--r:3"><span>TODAY’S CARD</span>`
+        + `<em class="${cls}">${now.taken ? 'found today ✓' : 'out there somewhere…'}</em></div>`;
+    }
+    const box = this.el.querySelector('.ts-status');
+    box.innerHTML = html;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const nums = box.querySelectorAll('.ts-stat .n');
+    rows.forEach((r, i) => {
+      if (still) nums[i].textContent = now[r.key];
+      else if (was(r.key) !== now[r.key]) this._count(nums[i], was(r.key), now[r.key], 1300 + i * 120); // with its row's chip (CSS)
+    });
+  }
+
+  /** Roll `el`'s number from a to b over a second and a bit, starting in `delay` ms. */
+  _count(el, a, b, delay) {
+    const t0 = performance.now() + delay;
+    const step = (t) => {
+      if (!this.el.isConnected) return;
+      const k = Math.min(1, Math.max(0, (t - t0) / 1200));
+      el.textContent = Math.round(a + (b - a) * (1 - (1 - k) ** 3));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   /** `from`: the page coming back from, so its item is the one selected. */
