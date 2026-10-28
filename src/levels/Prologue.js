@@ -11,7 +11,7 @@ import { createWaterMaterial } from '../shaders/water.js';
 import { BodyIK } from './level3/BodyIK.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
-import { say } from '../player/roster.js';
+import { say, currentPlayer, loadPlayer, PLAYERS } from '../player/roster.js';
 import { GAME_TITLE } from '../ui/brand.js';
 import { lookScale } from '../core/settings.js';
 import {
@@ -1000,11 +1000,13 @@ export class Prologue extends Level {
 
     this._ensureSerif();
     this._buildSky();
-    const [kit, cast, hut, truck] = await Promise.all([
+    const [kit, cast, hut, truck, kaiOwn] = await Promise.all([
       loadJungleKit(assets), loadCast(assets),
       // two landmarks are real models (credits.js): the hut, and the crew's pickup (Level 2's traffic pickup)
       assets.model('prologue/hut.glb').catch(() => null),
       assets.model('level2/traffic/pickup.glb').catch(() => null),
+      // Kai's own build, when someone else is playing: Baba Zwane borrows his moves (_buildFigures)
+      currentPlayer().id === 'kai' ? null : loadPlayer(assets, PLAYERS.find((p) => p.id === 'kai')).catch(() => null),
     ]);
     if (!this.scene) return; // torn down while loading
     this._hutModel = hut?.scene || null;
@@ -1019,7 +1021,7 @@ export class Prologue extends Level {
     this._buildJungle();
     this._buildMarkers();
     this._buildCreatures();
-    this._buildFigures(cast);
+    this._buildFigures(cast, kaiOwn);
     this._buildHud();
     // the conversation; on some days Baba Zwane adds the old saying, and with it today's clue
     this.script = [...SCRIPT];
@@ -2020,7 +2022,7 @@ export class Prologue extends Level {
    * player sees him. Each stands in an outer group that the scene moves and
    * turns with the same yaw convention as the camera (0 = facing -Z).
    */
-  _buildFigures(cast) {
+  _buildFigures(cast, kaiOwn = null) {
     // ---- Baba Zwane, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
     this.zwane = new THREE.Group();
@@ -2058,9 +2060,14 @@ export class Prologue extends Level {
     }
     kai.pose('reach', 'cross', 1.133); // his arm straight out at full stretch: the reach, with a bend at the waist
     // the monk build has only a fighter's guard for an idle — a man talking
-    // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk
-    this._lend(kai, ing, 'walk');
-    this._lend(kai, ing, 'idle', true);
+    // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk.
+    // Always Kai's, whoever is playing: the other players' bones sit
+    // differently at rest, and their rotations fold his legs up under him, so
+    // he hangs in the air. With someone else chosen, Kai is built off screen
+    // just to lend them.
+    const lender = kaiOwn ? makeKai(new THREE.Group(), kaiOwn) : kai;
+    this._lend(lender, ing, 'walk');
+    this._lend(lender, ing, 'idle', true);
     ing.play('idle', { fade: 0 });
 
     // He sits to the fire, and the log goes where he sits: measured off his
@@ -2111,7 +2118,7 @@ export class Prologue extends Level {
   }
 
   /**
-   * Baba Zwane borrows clips from Kai. Both are on the same Mixamo skeleton,
+   * Baba Zwane borrows clips from Kai (Kai's own build: see _buildFigures). Both are on the same Mixamo skeleton,
    * so he takes the rotations (not the hip travel — the two builds are not
    * the same size): the walk the monk build lacks, and with `replace` the
    * relaxed idle in place of his fighting guard.
