@@ -14,10 +14,14 @@ import { LandingHorn } from './LandingHorn.js';
  * TitleScreen — over the title level (levels/TitleScene.js: the glade at
  * dawn, the horn on its stone), in two parts:
  *
- *   THE LANDING   first thing on opening the game: the horn alone in the
- *                 dark (ui/LandingHorn.js), turning slowly, glowing, mist and
- *                 motes round it; the title fades in under it in gold with
- *                 light running across it, then PRESS ANY KEY. The press is
+ *   THE LANDING   first thing on opening the game, while the game is still
+ *                 loading (there is no loading screen before it): the horn
+ *                 alone in the dark (ui/LandingHorn.js), turning slowly,
+ *                 glowing, mist and motes round it; the title fades in under
+ *                 it in gold with light running across it, the tagline, and a
+ *                 thin gold line under the words filling as it loads
+ *                 (progress); when it has (ready), the line gives way to
+ *                 PRESS ANY KEY. The press is
  *                 the horn being blown: a deep call, the horn blazing, a
  *                 flash, and the dark fading away onto the glade
  *                 (TitleScene.wake: the horn flares there, a ring of its light
@@ -91,8 +95,16 @@ const CSS = THEME_CSS + `
   transform:scaleX(0); animation:tsLine 1.2s ease 2.4s forwards; }
 .ts-land .ts-tag { max-width:560px; text-wrap:balance; font-size:clamp(16px, 1.7vw, 21px); font-style:italic; line-height:1.45; color:#e8ddc8;
   text-shadow:0 2px 14px rgba(0,0,0,.95); opacity:0; animation:tsUp .9s ease 2.7s forwards; }
-.ts-press { display:flex; align-items:center; gap:16px; margin-top:34px; font:600 14px var(--sans); letter-spacing:.42em; text-indent:.42em; color:#e8f6f0;
-  text-shadow:0 0 14px rgba(79,214,224,.6); opacity:0; animation:tsUp .8s ease 3.2s forwards; }
+/* under the words: the gold line while it loads, then PRESS ANY KEY in its place */
+.ts-foot-land { position:relative; display:flex; justify-content:center; align-items:center; height:30px; margin-top:28px; width:100%; }
+.ts-load { position:absolute; left:50%; top:50%; width:min(300px, 56vw); height:2px; margin:-1px 0 0 calc(min(300px, 56vw) / -2);
+  background:rgba(227,187,98,.16); overflow:hidden; opacity:0; animation:tsUp .8s ease 2.4s forwards; transition:opacity .45s ease; }
+.ts-load b { display:block; height:100%; width:0; background:linear-gradient(90deg, rgba(227,187,98,.4), #e3bb62, #fff1c8);
+  box-shadow:0 0 12px rgba(227,187,98,.8); transition:width .3s ease; }
+.ts:not(.loading) .ts-load { opacity:0 !important; animation:none; }
+.ts.loading .ts-press { visibility:hidden; animation:none; }
+.ts-press { display:flex; align-items:center; gap:16px; font:600 14px var(--sans); letter-spacing:.42em; text-indent:.42em; color:#e8f6f0;
+  text-shadow:0 0 14px rgba(79,214,224,.6); opacity:0; animation:tsUp .8s ease .15s forwards; }
 .ts-press b { font-weight:600; animation:tsPulse 2.2s ease-in-out 4s infinite; }
 .ts-press i { width:8px; height:8px; background:#4fd6e0; transform:rotate(45deg); box-shadow:0 0 10px #4fd6e0; animation:tsPulse 2.2s ease-in-out 4s infinite; }
 
@@ -140,7 +152,7 @@ const CSS = THEME_CSS + `
   .ts-page .ts-rule { margin:12px 0 8px; }
   .ts-btn { padding:5px 0 5px 30px; font-size:17px; }
   .ts-about { margin-top:8px; }
-  .ts-press { margin-top:30px; }
+  .ts-foot-land { margin-top:20px; }
 }
 @media (max-height:640px) {
   .ts-land .ts-tag, .ts-about { display:none; }
@@ -158,7 +170,9 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, onPlaybook, onPlayer, onEnter, skipPress = false }) {
+  constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, onPlaybook, onPlayer, onEnter, skipPress = false, loading = false }) {
+    this.loading = loading; // the game still loading behind the landing: no key yet
+    this._born = performance.now();
     this.onPlayer = onPlayer;
     this.onEnter = onEnter;
     this.onCards = onCards;
@@ -182,14 +196,17 @@ export class TitleScreen {
 
     const letters = [...GAME_TITLE].map((ch, i) => `<span style="--i:${i}">${ch === ' ' ? '&nbsp;' : ch}</span>`).join('');
     this.el = document.createElement('div');
-    this.el.className = 'ts fh';
+    this.el.className = `ts fh${loading ? ' loading' : ''}`;
     this.el.innerHTML = `
       <div class="ts-land">
         <canvas class="ts-stage"></canvas>
         <h1 class="ts-big">${letters}</h1>
         <hr class="ts-rule">
         <div class="ts-tag">${TAGLINE}</div>
-        <div class="ts-press"><i></i><b>PRESS ANY KEY</b><i></i></div>
+        <div class="ts-foot-land">
+          <div class="ts-load"><b></b></div>
+          <div class="ts-press"><i></i><b>PRESS ANY KEY</b><i></i></div>
+        </div>
       </div>
       <div class="ts-flash"></div>
       <div class="ts-page">
@@ -229,7 +246,25 @@ export class TitleScreen {
 
   /* ---------------------------------------------------------------- input */
 
+  /** 0..1: how far the game has loaded, on the landing's gold line. */
+  progress(p) {
+    const bar = this.el.querySelector('.ts-load b');
+    if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`;
+  }
+
+  /** The game has loaded: the line fills, and PRESS ANY KEY comes up in its place. */
+  ready() {
+    this.progress(1);
+    // the line fills first; and never before the title has finished landing
+    const wait = Math.max(450, 3300 - (performance.now() - this._born));
+    setTimeout(() => {
+      this.loading = false;
+      this.el.classList.remove('loading');
+    }, wait);
+  }
+
   _onPress(e) {
+    if (this.loading) return; // not before it's ready
     if (!this.inMenu) {
       e.preventDefault();
       this._openMenu();
@@ -239,7 +274,7 @@ export class TitleScreen {
   _onKey(e) {
     const k = e.key.toLowerCase();
     if (!this.inMenu) {
-      if (['shift', 'control', 'alt', 'meta'].includes(k)) return;
+      if (this.loading || ['shift', 'control', 'alt', 'meta'].includes(k)) return;
       e.preventDefault();
       this._openMenu();
       return;

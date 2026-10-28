@@ -99,13 +99,26 @@ const cardAlbum = new CardAlbum({ onMap: () => gameMap.open() });
 const playbook = new Playbook({ onMap: () => gameMap.open() });
 mountFpsCounter();
 
-game.onLevelLoading = (name) => loading.show(name);
-game.onLoadProgress = (p) => {
-  if (game.loading) loading.progress(p);
-};
 // the title's words and menu, over the title level while it is up
 let titleScreen = null;
 let titleVisits = 0;
+// Opening the game there is no loading screen: the landing itself comes up at
+// once (the horn in the dark, the title), its gold line filling as the title
+// level loads behind it, and PRESS ANY KEY once it's ready. Every other load
+// (each chapter, and back to the menu) has the loading screen.
+game.onLevelLoading = (name) => {
+  if (name === "title" && titleVisits === 0) {
+    titleVisits++;
+    titleScreen = makeTitleScreen({ skipPress: false, loading: true });
+    return;
+  }
+  loading.show(name);
+};
+game.onLoadProgress = (p) => {
+  if (!game.loading) return;
+  if (titleScreen?.loading) titleScreen.progress(p);
+  else loading.progress(p);
+};
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
   pauseHint.setLevel(name);
@@ -114,24 +127,30 @@ game.onLevelChanged = (name) => {
     titleScreen.dispose();
     titleScreen = null;
   }
-  if (name === "title" && !titleScreen) {
-    titleScreen = new TitleScreen({
-      onStart: (next) => {
-        titleScreen = null;
-        begin(next);
-      },
-      onOptions: () => options.open(),
-      onControls: () => controlsMenu.open(),
-      onCredits: () => credits.open(),
-      onCards: () => cardAlbum.open(),
-      onMap: () => gameMap.open(),
-      onPlaybook: () => playbook.open(),
-      onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
-      onEnter: (instant) => game.level?.wake?.(instant), // the landing's key: the horn wakes, the camera pulls back to the menu
-      skipPress: titleVisits++ > 0, // back from a level: straight to the menu
-    });
+  if (name === "title") {
+    if (titleScreen?.loading) titleScreen.ready(); // the opening: now PRESS ANY KEY
+    else if (!titleScreen) titleScreen = makeTitleScreen({ skipPress: titleVisits++ > 0 }); // back from a level: straight to the menu
   }
 };
+
+function makeTitleScreen({ skipPress, loading: waiting = false }) {
+  return new TitleScreen({
+    onStart: (next) => {
+      titleScreen = null;
+      begin(next);
+    },
+    onOptions: () => options.open(),
+    onControls: () => controlsMenu.open(),
+    onCredits: () => credits.open(),
+    onCards: () => cardAlbum.open(),
+    onMap: () => gameMap.open(),
+    onPlaybook: () => playbook.open(),
+    onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
+    onEnter: (instant) => game.level?.wake?.(instant), // the landing's key: the horn wakes, the camera pulls back to the menu
+    skipPress,
+    loading: waiting,
+  });
+}
 // One pause menu for every level (Esc, or a level's own pause button): the
 // chapter, that level's controls, RESUME / RESTART / MAIN MENU
 const pauseMenu = new PauseMenu({
