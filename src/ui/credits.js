@@ -23,12 +23,12 @@ export const TEAM = [
 
 /**
  * The cast, each in the colour their lines are written in (ui/dialogue.js
- * SPEAKERS). The first is whoever is being played (PLAYER on the menu):
- * `player` entries go through say() (player/roster.js) as they're shown.
+ * SPEAKERS). Kai is the story's hero (`hero`): his card also names the others
+ * who can be played in his place (PLAYER on the menu, player/roster.js).
  */
 export const CAST = [
-  { name: '{NAME}', player: true, color: '#9ed36a', role: 'The {boy} who takes the horn',
-    line: 'Grew up on Baba Zwane’s stories by the fire. Tonight {he} walks up the old path to the stone.' },
+  { name: 'KAI', hero: true, color: '#9ed36a', role: 'The boy who takes the horn',
+    line: 'Grew up on Baba Zwane’s stories by the fire. Tonight he walks up the old path to the stone.' },
   { name: 'BABA ZWANE', color: '#ffb03a', role: 'The old guide at the fire',
     line: 'Knows every path in the valley, and every story ever told about the horn.' },
   { name: 'THE MARSHAL', color: '#f2934f', role: 'The logging company’s man',

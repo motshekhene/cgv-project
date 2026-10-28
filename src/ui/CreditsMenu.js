@@ -2,7 +2,7 @@ import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { GAME_TITLE } from './brand.js';
 import { CREDIT_SECTIONS, LICENCES, TEAM, CAST, CAST_CREDIT, SCORE } from './credits.js';
-import { PLAYERS, say } from '../player/roster.js';
+import { PLAYERS } from '../player/roster.js';
 
 /**
  * CreditsMenu — CREDITS on the main menu, in four tabs, one on screen at a
@@ -215,9 +215,11 @@ export class CreditsMenu {
       </div>`).join('');
 
     const castLic = LICENCES[CAST_CREDIT.licence];
-    // the player's card is filled in on every open (_castPlayer): the choice can change between visits
-    const cast = CAST.map((c, i) => `<div class="cm-role cm-deal"${c.player ? ' data-player' : ''} style="--c:${c.color};--i:${i}">
-        <b>${c.name}</b><em>${c.role}</em><p>${c.line}</p>
+    // the hero's card also names who else can be played (PLAYER on the menu)
+    const others = PLAYERS.filter((p) => p.id !== 'kai').map((p) => p.name);
+    const alsoPlay = ` You can also play as ${others.slice(0, -1).join(', ')} or ${others.at(-1)} (PLAYER, on the menu).`;
+    const cast = CAST.map((c, i) => `<div class="cm-role cm-deal" style="--c:${c.color};--i:${i}">
+        <b>${c.name}</b><em>${c.role}</em><p>${c.line}${c.hero ? alsoPlay : ''}</p>
       </div>`).join('');
 
     const score = SCORE.map((t, i) => `<div class="cm-track cm-deal" style="--c:${t.color};--i:${i}">
@@ -351,20 +353,8 @@ export class CreditsMenu {
 
   open() {
     if (document.pointerLockElement) document.exitPointerLock();
-    this._castPlayer();
     this.show('team');
     this.el.classList.add('show');
-  }
-
-  /** THE CAST's first card: whoever is being played, by name, and the others they could have been. */
-  _castPlayer() {
-    const c = CAST.find((x) => x.player);
-    const card = this.el.querySelector('.cm-role[data-player]');
-    if (!c || !card) return;
-    card.querySelector('b').textContent = say(c.name);
-    card.querySelector('em').textContent = say(c.role);
-    const others = PLAYERS.map((p) => p.name).filter((n) => n !== say('{name}'));
-    card.querySelector('p').textContent = `${say(c.line)} Or ${others.slice(0, -1).join(', ')} or ${others.at(-1)}: PLAYER, on the menu.`;
   }
 
   close() {
