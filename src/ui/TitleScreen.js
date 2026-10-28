@@ -19,9 +19,9 @@ import { LandingHorn } from './LandingHorn.js';
  *                 alone in the dark (ui/LandingHorn.js), turning slowly,
  *                 glowing, mist and motes round it; the title fades in under
  *                 it in gold with light running across it, the tagline, and a
- *                 thin gold line under the words filling as it loads
- *                 (progress); when it has (ready), the line gives way to
- *                 PRESS ANY KEY. The press is
+ *                 thin gold line under the words filling as it loads, with
+ *                 LOADING · 42% under it (progress); when it has (ready),
+ *                 they give way to PRESS ANY KEY. The press is
  *                 the horn being blown: a deep call, the horn blazing, a
  *                 flash, and the dark fading away onto the glade
  *                 (TitleScene.wake: the horn flares there, a ring of its light
@@ -101,7 +101,9 @@ const CSS = THEME_CSS + `
   background:rgba(227,187,98,.16); overflow:hidden; opacity:0; animation:tsUp .8s ease 2.4s forwards; transition:opacity .45s ease; }
 .ts-load b { display:block; height:100%; width:0; background:linear-gradient(90deg, rgba(227,187,98,.4), #e3bb62, #fff1c8);
   box-shadow:0 0 12px rgba(227,187,98,.8); transition:width .3s ease; }
-.ts:not(.loading) .ts-load { opacity:0 !important; animation:none; }
+.ts-pct { position:absolute; left:0; right:0; top:calc(50% + 12px); font:600 10px var(--sans); letter-spacing:.32em; text-indent:.32em;
+  color:rgba(232,221,200,.7); opacity:0; animation:tsUp .8s ease 2.4s forwards; transition:opacity .45s ease; }
+.ts:not(.loading) .ts-load, .ts:not(.loading) .ts-pct { opacity:0 !important; animation:none; }
 .ts.loading .ts-press { visibility:hidden; animation:none; }
 .ts-press { display:flex; align-items:center; gap:16px; font:600 14px var(--sans); letter-spacing:.42em; text-indent:.42em; color:#e8f6f0;
   text-shadow:0 0 14px rgba(79,214,224,.6); opacity:0; animation:tsUp .8s ease .15s forwards; }
@@ -205,6 +207,7 @@ export class TitleScreen {
         <div class="ts-tag">${TAGLINE}</div>
         <div class="ts-foot-land">
           <div class="ts-load"><b></b></div>
+          <div class="ts-pct">LOADING</div>
           <div class="ts-press"><i></i><b>PRESS ANY KEY</b><i></i></div>
         </div>
       </div>
@@ -248,8 +251,11 @@ export class TitleScreen {
 
   /** 0..1: how far the game has loaded, on the landing's gold line. */
   progress(p) {
+    const pct = Math.round(Math.max(0, Math.min(1, p)) * 100);
     const bar = this.el.querySelector('.ts-load b');
-    if (bar) bar.style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`;
+    if (bar) bar.style.width = `${pct}%`;
+    const text = this.el.querySelector('.ts-pct');
+    if (text) text.textContent = pct > 0 ? `LOADING · ${pct}%` : 'LOADING';
   }
 
   /** The game has loaded: the line fills, and PRESS ANY KEY comes up in its place. */
