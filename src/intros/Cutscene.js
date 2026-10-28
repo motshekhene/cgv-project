@@ -22,7 +22,7 @@ import { showEndScreen, hideEndScreen } from '../ui/theme.js';
  * and a skip is just a jump to the end.
  *
  * Endings, picked with `ending`:
- *   'handoff'  intros: letterbox down, a one-word popup (RUN / DRIVE), then onDone()
+ *   'handoff'  intros: a one-word popup (RUN / DRIVE), then onDone()
  *   'win'      win scenes: the gold end card from ui/theme.js with CONTINUE, then onContinue()
  */
 const CSS = `
@@ -150,7 +150,7 @@ export class Cutscene extends Level {
     document.head.appendChild(this._style);
     this.fadeEl = document.createElement('div');
     this.fadeEl.className = 'ic-fade';
-    this.story.el.prepend(this.fadeEl); // under the letterbox, the cards and the end card
+    this.story.el.prepend(this.fadeEl); // under the cards and the end card
     this.popEl = document.createElement('div');
     this.popEl.className = 'ic-pop';
     this.story.el.appendChild(this.popEl);

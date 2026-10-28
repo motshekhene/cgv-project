@@ -467,7 +467,7 @@ export class Level03 extends Level {
     });
     this._applyCamMode(true);
     ensureDialogueFont();
-    this.story = new StoryOverlay(undefined, { letterbox: false }); // full-frame cutscenes, no black bars
+    this.story = new StoryOverlay(); // full-frame cutscenes, no black bars
     this.story.onSkip = () => this._skip();
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
     this._applyGifts();

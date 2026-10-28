@@ -23,7 +23,7 @@ import { PAINTS, applyPaint, detectPaint } from '../../levels/level2/paint.js';
  *   C   5.6  across the River Road: the car bursts out of the treeline and swings onto the road
  *   C2  8.0  looking back down the track: the Handler's lights coming through the trees
  *                                                                                    card: HEADLIGHTS
- *   D   9.0  ease into Level 2's chase camera, letterbox down, "DRIVE" -> onDone()
+ *   D   9.0  ease into Level 2's chase camera, "DRIVE" -> onDone()
  *
  * The car is the one Level 2 will hand you (the last one you picked, in its
  * paint), the Handler's Range Rover is his Level 2 car, and the jungle, mud

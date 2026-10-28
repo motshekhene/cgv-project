@@ -62,8 +62,8 @@ const CSS = THEME_CSS + END_CSS + `
 `;
 
 export class StoryOverlay {
-  /** letterbox: false keeps cutscenes full-frame (no black bars top and bottom). */
-  constructor(host = document.getElementById('hud') || document.body, { letterbox = true } = {}) {
+  /** Cutscenes are full-frame: no black bars top and bottom (letterbox: true puts them back). */
+  constructor(host = document.getElementById('hud') || document.body, { letterbox = false } = {}) {
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);

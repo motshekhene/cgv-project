@@ -3958,7 +3958,6 @@ export class Level01 extends Level {
       this._templeHud.style.opacity = "0";
       this._templeHud.style.pointerEvents = "none";
     }
-    this._showLetterbox(true);
   }
 
   /** Bent forward at the waist by `a` radians, spread down his spine, on top of whatever clip is playing. */
@@ -4161,36 +4160,6 @@ export class Level01 extends Level {
         ik.reach(ik.arms[n], vehicle.localToWorld(T), F.ikP.copy(up).multiplyScalar(-0.8).addScaledVector(left, n ? -0.6 : 0.6), wWheel);
       }
     }
-  }
-
-  /** Cinema bars, so the scene reads as the game taking the camera. */
-  _showLetterbox(on) {
-    if (typeof document === "undefined") return;
-    if (!this._letterbox) {
-      if (!on) return;
-      this._letterbox = [0, 1].map((i) => {
-        const bar = document.createElement("div");
-        Object.assign(bar.style, {
-          position: "fixed", left: "0", right: "0", height: "11vh", background: "#000",
-          zIndex: "40", pointerEvents: "none", transition: "transform .7s cubic-bezier(.2,.7,.2,1)",
-          transform: `translateY(${i ? "100%" : "-100%"})`,
-          [i ? "bottom" : "top"]: "0",
-        });
-        document.body.append(bar);
-        return bar;
-      });
-      // let the closed position land before sliding in
-      requestAnimationFrame(() => requestAnimationFrame(() => this._showLetterbox(true)));
-      return;
-    }
-    this._letterbox.forEach((bar, i) => {
-      bar.style.transform = on ? "translateY(0)" : `translateY(${i ? "100%" : "-100%"})`;
-    });
-  }
-
-  _removeLetterbox() {
-    for (const bar of this._letterbox || []) bar.remove();
-    this._letterbox = null;
   }
 
   /**
@@ -4434,7 +4403,6 @@ export class Level01 extends Level {
 
     if (!this._handedOff && f >= FINALE_CARD) {
       this._handedOff = true;
-      this._showLetterbox(false);
       this._showEscapedCard();
     }
   }
@@ -5599,7 +5567,6 @@ export class Level01 extends Level {
     }
     this._removeCaughtOverlay();
     this._removeEscapedCard();
-    this._removeLetterbox();
     this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);
