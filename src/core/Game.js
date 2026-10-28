@@ -3,7 +3,10 @@ import { Input } from "./Input.js";
 import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
-import { settings, onSettings } from "./settings.js";
+import { settings, onSettings, qualityChosen } from "./settings.js";
+import { PostFX } from "./PostFX.js";
+import { windTime } from "../shaders/wind.js";
+import { displayUniforms, isDisplayReferred, patchDisplayReferred } from "../shaders/display.js";
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -52,6 +55,19 @@ export class Game {
     this.renderer.toneMappingExposure = 1.25; // overall brightness
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // lighting is computed in linear space, shown in sRGB
     this.parent.appendChild(this.renderer.domElement);
+    // until the player picks a GRAPHICS level, start from one that suits the GPU:
+    // integrated and software graphics (lab machines) start on MEDIUM
+    if (!qualityChosen) {
+      const gl = this.renderer.getContext();
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
+      if (/intel|uhd|iris|radeon\(tm\) graphics|vega|llvmpipe|swiftshader|mali|adreno|powervr/i.test(gpu)) settings.quality = "medium";
+    }
+    this._fpsWatch = { t: 0, frames: 0, slow: 0 };
+
+    // HDR bloom, colour grade, vignette, grain, the damage pulse (core/PostFX.js)
+    this.postfx = new PostFX(this.renderer);
+    this._lastHealth = null; // to see Kai get hurt, whichever level hurt him
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
@@ -152,6 +168,10 @@ export class Game {
     this.secondaryCameras.clear();
     this.overlays.clear();
     this.state.resetForLevel(name);
+    this.postfx.setProfile({}, name); // the level's look; init() can change it
+    this._lastHealth = null;
+    this._lastShake = null;
+    this._pfxScan = 0; // look for display-colour shaders on the first frame
 
     const level = factory();
     level.game = this;
@@ -220,16 +240,37 @@ export class Game {
       return;
     }
 
-    if (!this.paused && this.level) this.level.update(dt, this.state);
+    if (!this.paused && this.level) {
+      this.level.update(dt, this.state);
+      windTime.value += dt; // every swaying plant's clock (shaders/wind.js)
+    }
     this.input.endFrame();
+    this._watchFrameRate(now);
     if ((this._qualityT += raw) > 1) {
       this._qualityT = 0;
       this.applyQuality();
     }
 
-    // a level can take over drawing (e.g. a post-processing pass); most just let Game render
+    // any drop in health, from any level, pulses the screen red
+    const hp = this.state.health;
+    if (this._lastHealth !== null && hp < this._lastHealth - 0.25 && !this.paused) {
+      this.postfx.hit(Math.min(1, 0.35 + (this._lastHealth - hp) / 30));
+    }
+    this._lastHealth = hp;
+    // every level keeps a camera-shake amount (shake or _shake); a jump in it
+    // is an impact, so the lens kicks too: colour fringes, and a flash on the big ones
+    const shake = this.level ? (this.level.shake ?? this.level._shake ?? 0) : 0;
+    const jump = shake - (this._lastShake ?? shake);
+    if (jump > 0.12 && !this.paused) {
+      this.postfx.kick(Math.min(1, jump * 1.2));
+      if (jump > 0.6) this.postfx.flash(Math.min(0.35, (jump - 0.5) * 0.4), 0xfff1dc);
+    }
+    this._lastShake = shake;
+    this.postfx.update(raw);
+
+    // a level can take over drawing (e.g. its own post-processing pass); most just let Game render
     if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
-    else this.renderer.render(this.scene, this.camera);
+    else this.renderScene(this.scene, this.camera);
 
     // secondary cameras — rendered as small overlays on top of the main view
     if (this.secondaryCameras.size > 0) {
@@ -260,6 +301,59 @@ export class Game {
       }
       this.renderer.autoClear = true;
     }
+  }
+
+  /**
+   * Optimisation: if the player hasn't chosen a GRAPHICS level and the game
+   * runs under ~35 fps for four seconds in a row, step down one level (HIGH to
+   * MEDIUM to LOW) for this session. A choice in OPTIONS always wins.
+   */
+  _watchFrameRate(now) {
+    const w = this._fpsWatch;
+    if (qualityChosen || this.paused || document.hidden) {
+      w.t = 0;
+      return;
+    }
+    if (!w.t) {
+      w.t = now;
+      w.frames = 0;
+      return;
+    }
+    w.frames++;
+    if (now - w.t < 1000) return;
+    const fps = (w.frames * 1000) / (now - w.t);
+    w.t = now;
+    w.frames = 0;
+    w.slow = fps < 35 ? w.slow + 1 : 0;
+    if (w.slow >= 4 && settings.quality !== "low") {
+      settings.quality = settings.quality === "high" ? "medium" : "low"; // not saved: the next visit measures again
+      w.slow = 0;
+      this.applyQuality();
+      console.log("[game] running slowly, graphics stepped down to", settings.quality);
+    }
+  }
+
+  /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
+  renderScene(scene, camera) {
+    // shaders that write screen colours directly get the inverse of PostFX's
+    // tone curve (shaders/display.js); checked every so often for new ones
+    if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
+      this._pfxScan = 30;
+      let sun = null;
+      scene.traverse((o) => {
+        const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of ms) {
+          if (isDisplayReferred(m)) patchDisplayReferred(m);
+          // the level's sky knows where the sun is: PostFX's god rays aim at it
+          if (o.isMesh && m.side === THREE.BackSide && m.uniforms?.uSunDir) sun = m.uniforms.uSunDir.value;
+        }
+      });
+      this.postfx.sunDir = sun ? (this._sunDir || (this._sunDir = new THREE.Vector3())).copy(sun).normalize() : null;
+    }
+    displayUniforms.uDisplayExposure.value = this.renderer.toneMappingExposure;
+    displayUniforms.uViaPostFX.value = this.postfx.enabled ? 1 : 0;
+    if (this.postfx.enabled) this.postfx.render(scene, camera);
+    else this.renderer.render(scene, camera);
   }
 
   /**
@@ -307,6 +401,7 @@ export class Game {
     }
     window.removeEventListener("resize", this._onResize);
     this.input.detach();
+    this.postfx.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);

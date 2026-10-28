@@ -67,7 +67,7 @@ export class CreditsMenu {
             <div class="cm-use">${it.use}</div>
             ${link(it.url, 'cm-url', host(it.url) + ' ↗')}
           </div>
-          ${link(lic.url, 'cm-lic', lic.name)}
+          ${link(lic.url ?? it.url, 'cm-lic', lic.name)}
         </div>`;
       }).join('');
       return `<div class="cm-sec">${s.title}</div>${items}${s.note ? `<div class="cm-note">${s.note}</div>` : ''}`;

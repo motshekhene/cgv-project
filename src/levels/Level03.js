@@ -796,6 +796,7 @@ export class Level03 extends Level {
     this._updatePointer();
     this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
+    this.arena.updateReflections(this.game.renderer, dt);
     this.storm.update(dt, real, this.game.camera, this.combat.root.position);
     this.hud.lightning(this.arena.flash);
     if (this.sound) this.sound.update(dt);
@@ -2671,7 +2672,7 @@ export class Level03 extends Level {
   /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
   render(renderer, scene, camera) {
     if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);
-    else renderer.render(scene, camera);
+    else this.game.renderScene(scene, camera);
   }
 
   teardown() {

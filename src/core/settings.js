@@ -22,6 +22,9 @@ const DEFAULTS = { master: 1, music: 0.8, sensitivity: 1, invertY: false, qualit
 
 const clamp01 = (v, d) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : d);
 
+/** true once the player has picked a GRAPHICS level themselves (saved); until then Game picks one for the machine. */
+export let qualityChosen = false;
+
 function load() {
   let s = {};
   try {
@@ -29,6 +32,7 @@ function load() {
   } catch {
     s = {};
   }
+  qualityChosen = QUALITIES.includes(s.quality);
   // anything missing or out of range falls back to the default
   return {
     master: clamp01(s.master, DEFAULTS.master),
@@ -46,6 +50,7 @@ const listeners = new Set();
 export function setSetting(key, value) {
   if (settings[key] === value) return;
   settings[key] = value;
+  if (key === 'quality') qualityChosen = true;
   try {
     localStorage.setItem(KEY, JSON.stringify(settings));
   } catch {
