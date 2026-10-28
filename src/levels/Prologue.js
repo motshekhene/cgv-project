@@ -1418,8 +1418,11 @@ export class Prologue extends Level {
         const out = outside(clear, x, z);
         if (out < 1.5) continue;
         if (out > 9.5 && rnd() < 0.35) continue; // room to walk between them out in the forest
-        put(trees[n++ % trees.length], x, -0.05, z, 0.021 + rnd() * 0.014, rnd() * Math.PI * 2);
-        this._addTree(x, z, 0.55);
+        const proto = trees[n++ % trees.length], s = 0.021 + rnd() * 0.014;
+        put(proto, x, -0.05, z, s, rnd() * Math.PI * 2);
+        // as wide as this tree really is where Kai would meet it (its trunk,
+        // and any low limb), at this tree's size
+        this._addTree(x, z, Math.min(1.6, Math.max(0.45, this._reach(proto, s))));
       }
     }
 
@@ -1432,7 +1435,13 @@ export class Prologue extends Level {
         const out = outside(clear, x, z);
         if (out < 0.3 || out > 2.4 || rnd() < 0.3) continue;
         const set = b++ % 3 === 0 ? grasses : bushes;
-        put(set[b % set.length], x, 0, z, 0.01 + rnd() * 0.006, rnd() * Math.PI * 2);
+        const proto = set[b % set.length], s = 0.01 + rnd() * 0.006;
+        put(proto, x, 0, z, s, rnd() * Math.PI * 2);
+        // a bush is shoulder-high and thick: solid at its heart (he brushes its edge, not through it)
+        if (set === bushes) {
+          const r = this._reach(proto, s, 0.3, 1.5) * 0.65;
+          if (r > 0.2) this._addTree(x, z, r);
+        }
       }
     }
     for (let i = 0, tries = 0; i < 30 && tries < 500; tries++) {
@@ -1487,6 +1496,36 @@ export class Prologue extends Level {
     const x0 = b.min.x + shrink, x1 = b.max.x - shrink, z0 = b.min.z + shrink, z1 = b.max.z - shrink;
     if (x1 - x0 > 0.1 && z1 - z0 > 0.1) this.blockers.push({ x0, x1, z0, z1 });
     return obj;
+  }
+
+  /**
+   * How far a model reaches out from its middle between `from` and `to`
+   * metres off the ground when it stands at scale `s`: for a tree, its trunk
+   * and any limb low enough to walk into. Its points are read once per model.
+   */
+  _reach(proto, s, from = 0.15, to = 1.9) {
+    if (!proto) return 0;
+    let pts = proto.userData.reach;
+    if (!pts) {
+      pts = [];
+      proto.updateMatrixWorld(true);
+      const toProto = new THREE.Matrix4().copy(proto.matrixWorld).invert(); // as _scatter places it
+      const rel = new THREE.Matrix4(), v = new THREE.Vector3();
+      proto.traverse((o) => {
+        if (!o.isMesh) return;
+        rel.multiplyMatrices(toProto, o.matrixWorld);
+        const p = o.geometry.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(rel);
+          pts.push(v.y, Math.hypot(v.x, v.z));
+        }
+      });
+      proto.userData.reach = pts;
+    }
+    const lo = from / s, hi = to / s;
+    let r = 0;
+    for (let i = 0; i < pts.length; i += 2) if (pts[i] > lo && pts[i] < hi && pts[i + 1] > r) r = pts[i + 1];
+    return r * s;
   }
 
   /** Half a model's widest side on the ground, at scale 1 (measured once per model). */
@@ -2301,9 +2340,20 @@ export class Prologue extends Level {
    */
   _blocked(x, z, fromX, fromZ) {
     const r = 0.4;
-    // a trunk (or a landmark's rock): only blocks a step that goes further into it
-    const t = this._treeAt(x, z, r);
-    if (t && Math.hypot(x - t.x, z - t.z) < Math.hypot(fromX - t.x, fromZ - t.z)) return true;
+    // a trunk (or a rock, a bush, a landmark): only blocks a step that goes
+    // further into it. Every one in reach is asked, not just the first, or
+    // stepping away from one tree would let him walk into the next
+    if (this._treeGrid) {
+      const cx = Math.floor(x / 6), cz = Math.floor(z / 6);
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          for (const t of this._treeGrid.get(`${cx + i},${cz + j}`) || []) {
+            const d = Math.hypot(x - t.x, z - t.z);
+            if (d < t.r + r && d < Math.hypot(fromX - t.x, fromZ - t.z)) return true;
+          }
+        }
+      }
+    }
     const depth = (b, px, pz) => Math.min(px + r - b.x0, b.x1 - (px - r), pz + r - b.z0, b.z1 - (pz - r));
     for (const b of this.blockers) {
       const d = depth(b, x, z);
