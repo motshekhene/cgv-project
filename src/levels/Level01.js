@@ -23,6 +23,7 @@ import { showEndCard, showLoseCard } from "../ui/EndCard.js";
 import { THEME_CSS } from "../ui/theme.js";
 import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
+import { say } from "../player/roster.js";
 import { dotTexture } from "../intros/fx.js";
 import { PAINTS, applyPaint, detectPaint } from "./level2/paint.js";
 import {
@@ -70,6 +71,11 @@ import { isMuted, toggleMuted, onMuteChange, musicVolumeNode } from "../audio/ma
  * normal/roughness texture sets.
  */
 const LANE_X = [-2.4, 0, 2.4];
+
+// the sound button's icon, drawn rather than an emoji so it takes the button's colour
+const ICON_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="display:block;margin:auto" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>';
+const SOUND_ON_ICON = `${ICON_SVG}<path d="M16.5 9a4 4 0 0 1 0 6"/><path d="M19 6.5a7.5 7.5 0 0 1 0 11"/></svg>`;
+const SOUND_OFF_ICON = `${ICON_SVG}<path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`;
 
 /**
  * Tiny seeded PRNG (mulberry32). The obstacle layout is generated rather than
@@ -254,8 +260,9 @@ const FINALE_IN = 6.8; // ...and it slams: in the car, door shut
 const FINALE_LIGHTS = 7.1; // headlights on
 const FINALE_CARD = 7.9; // the ESCAPED card
 const FINALE_BANGS = [2.35, 3.05]; // the Marshal hitting the bars
-const SIT_HIPS = 0.534; // his hips above his feet in the 'sitting' clip (characters/kai-bryce.json)
-const SIT_HEAD = 1.34; // the top of his head, seated
+// how he sits, when his rig can't be measured (_buildKai measures his 'sitting' clip itself)
+const SIT_HIPS = 0.534; // his hips above his feet (characters/kai-bryce.json)
+const SIT_HEAD = 1.34; // the top of his head
 
 // --- boost / stamina tuning ---
 const BOOST_DRAIN = 28; // stamina per second while boosting
@@ -676,6 +683,7 @@ export class Level01 extends Level {
     this._escapeSpeed = 0; // the speed he arrived at the bay with, ramped to 0
     this._handedOff = false;
     this._finale = null; // the finish scene, once he reaches the bay
+    this._kaiSit = null; // how he sits, measured off his rig (_buildKai)
     this._bendQ = new THREE.Quaternion();
     this._bendX = new THREE.Vector3(1, 0, 0);
     this._handlerSealed = false;
@@ -2151,7 +2159,7 @@ export class Level01 extends Level {
         if (!overlapZ) continue;
         if (Math.abs(x - LANE_X[gap.lane]) <= 0.95) {
           this._bridgeGapHits.add(key);
-          this._instantLose(state, "bridge", "Kai fell through the collapsing shrine bridge. Restart the level to try again.");
+          this._instantLose(state, "bridge", say("{name} fell through the collapsing shrine bridge. Restart the level to try again."));
           return true;
         }
       }
@@ -2683,7 +2691,7 @@ export class Level01 extends Level {
     const stat = document.createElement("div");
     stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div class="l1h-name">KAI</div>
+      <div class="l1h-name">${say("{NAME}")}</div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
@@ -2798,7 +2806,7 @@ export class Level01 extends Level {
     });
     const iconStyle = "width:40px;height:40px;border-radius:50%;border:1px solid rgba(227,187,98,.45);background:rgba(13,17,11,.82);color:#efe4c8;font:900 17px system-ui;cursor:pointer;backdrop-filter:blur(6px);box-shadow:0 8px 22px rgba(0,0,0,.28);transition:transform .08s,background .08s,border-color .08s,opacity .12s";
     topActions.innerHTML = `
-      <button type="button" data-sound-toggle aria-label="toggle sound" title="Sound on/off" style="${iconStyle}">🔊</button>
+      <button type="button" data-sound-toggle aria-label="toggle sound" title="Sound on/off" style="${iconStyle}">${SOUND_ON_ICON}</button>
       <button type="button" data-pause-toggle aria-label="pause game" title="Pause" style="${iconStyle}">Ⅱ</button>
     `;
 
@@ -2928,7 +2936,7 @@ export class Level01 extends Level {
     this._soundEnabled = !!enabled;
     const on = this._soundEnabled && !isMuted();
     if (this._soundButton) {
-      this._soundButton.textContent = on ? "🔊" : "🔇";
+      this._soundButton.innerHTML = on ? SOUND_ON_ICON : SOUND_OFF_ICON;
       this._soundButton.title = on ? "Sound on — click to mute (M)" : "Sound off — click to unmute (M)";
       this._soundButton.setAttribute("aria-label", on ? "mute sound" : "unmute sound");
       this._soundButton.style.color = on ? "#f5ffe6" : "#879184";
@@ -3508,7 +3516,25 @@ export class Level01 extends Level {
       this._bayDoor = new CarDoor(renderer, vehicle, model, model.userData.bounds, def.door);
       if (this._bayDoor.cabin) this._bayDoor.cabin.visible = false;
     }
+    this._fitBaySeat();
     renderer?.compileAsync?.(vehicle, this.game.camera, this.scene).catch(() => {});
+  }
+
+  /**
+   * Fits Kai to the bay car's seat (CarDoor.fit) as soon as he and the car
+   * are both loaded, whichever comes second: it casts rays at the car, a
+   * hitch to keep out of the finale.
+   */
+  _fitBaySeat() {
+    const door = this._bayDoor;
+    if (!door || door.seat || !this.kai) return;
+    const sit = this._sitting();
+    door.fit(sit.hips, sit.head);
+  }
+
+  /** How Kai sits: his hips' height and the top of his head, seated, from his feet. */
+  _sitting() {
+    return this._kaiSit || { hips: SIT_HIPS, head: new THREE.Vector3(0, SIT_HEAD, 0) };
   }
 
   /** 0 = off, 1 = on: the headlamps' glow. */
@@ -3665,7 +3691,7 @@ export class Level01 extends Level {
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 1 });
       this._duckMusic(0.85);
-      this._showCaughtOverlay("The forest's guardian caught Kai. Restart the level to try again.");
+      this._showCaughtOverlay(say("The forest's guardian caught {name}. Restart the level to try again."));
       return true;
     }
 
@@ -3788,7 +3814,7 @@ export class Level01 extends Level {
         this._shake = 0.6;
         if (this._audio) this._audio.playOneShot("handlerCatch", { volume: 0.9 });
         this._duckMusic(0.85);
-        this._showCaughtOverlay("The Marshal caught Kai. The horn is the company's now.");
+        this._showCaughtOverlay(say("The Marshal caught {name}. The horn is the company's now."));
       } else {
         state.handlerState = this._handlerRageT > 0
           ? "TRIGGERED"
@@ -3867,19 +3893,23 @@ export class Level01 extends Level {
     const def = this._bayCar.model ? CARS[loadSavedCar()] || CARS[0] : null;
     const carDoor = def ? this._bayDoor || new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
     this._bayDoor = null;
+    const sit = this._sitting();
+    if (carDoor && !carDoor.seat) carDoor.fit(sit.hips, sit.head); // not fitted ahead of time (_fitBaySeat)
     if (carDoor?.cabin) carDoor.cabin.visible = true;
     const [z0, z1] = carDoor ? carDoor.spec.z : [midZ - 0.2, midZ + 0.9];
     // in the car's frame: where he stands to open it (just behind its rear
     // edge, which swings out past him), where he steps back to as it comes,
-    // where he stands in the gap, and the seat. Seated, his head stays under
-    // the roof (the convertible has none).
+    // where he stands in the gap, and where his feet go seated, his head
+    // under the roof (CarDoor.fit; the convertible has none). The blue
+    // stand-in van is a tall box: its floor will do.
     const local = {
       stand: new THREE.Vector3(min.x - 0.42, 0, z0 - 0.2),
       back: new THREE.Vector3(min.x - 0.7, 0, z0 - 0.3),
-      seat: carDoor ? carDoor.seatLocal() : new THREE.Vector3(min.x * 0.35, 0.45, midZ + 0.35),
+      seat: carDoor
+        ? carDoor.seat.clone()
+        : new THREE.Vector3(min.x * 0.35, Math.min(0.45 + 0.09 - sit.hips, max.y - 0.06 - sit.head.y), midZ + 0.35),
     };
     local.entry = new THREE.Vector3(min.x - 0.02, 0, local.seat.z);
-    local.seat.y = Math.min(local.seat.y + 0.09 - SIT_HIPS, max.y - 0.06 - SIT_HEAD);
     const door = vehicle.localToWorld(local.stand.clone());
     const centre = vehicle.localToWorld(new THREE.Vector3(0, 0, midZ));
     const start = new THREE.Vector3(x, 0, this.z);
@@ -4553,7 +4583,7 @@ export class Level01 extends Level {
 
       // Health depleted — game over
       if (this._health <= 0) {
-        this._instantLose(state, "health", "Kai collapsed from exhaustion. The jungle claimed him.");
+        this._instantLose(state, "health", say("{name} collapsed from exhaustion. The jungle claimed {him}."));
       }
 
       if (specialClip && this._specialImpactType) {
@@ -4613,7 +4643,7 @@ export class Level01 extends Level {
       this._shake = 1;
       if (this._audio) this._audio.playOneShot("impact", { volume: 1 });
       this._duckMusic(0.85);
-      this._showCaughtOverlay("Kai was hit by the oncoming hazard.");
+      this._showCaughtOverlay(say("{name} was hit by the oncoming hazard."));
     }
 
     // the run's clock, for the end cards: only while he is running for it
@@ -4854,6 +4884,11 @@ export class Level01 extends Level {
     this.kai.pose("fly", "idle", 0.4);
     // sliding: the same still frame, laid out in _slidePose()
     this.kai.pose("slide", "idle", 0.4);
+    // how he sits, off his own 'sitting' clip at its tallest, for his seat in the bay car (_fitBaySeat)
+    const head = this.kai.highest("sitting", "HeadTop_End");
+    const hips = this.kai.highest("sitting", "Hips");
+    if (head && hips) this._kaiSit = { hips: hips.y, head };
+    this._fitBaySeat();
     if (this._jetpackFx) this._buildKaiJetpack(); // otherwise _buildJetpackFx() calls it once the stand-in exists
   }
 

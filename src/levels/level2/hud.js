@@ -1,4 +1,5 @@
 import { THEME_CSS } from '../../ui/theme.js';
+import { say } from '../../player/roster.js';
 
 /**
  * Level 2 HUD — Member 2A
@@ -81,7 +82,7 @@ export function createLevel2Hud() {
   root.innerHTML = `
     <div class="l2h-top">
       <div class="l2h-player plaque">
-        <div class="l2h-name">KAI <em data-k="car"></em></div>
+        <div class="l2h-name">${say('{NAME}')} <em data-k="car"></em></div>
         <div class="l2h-bar"><div class="l2h-lag" data-k="lag"></div><div class="l2h-hp" data-k="hp"></div></div>
         <div class="l2h-bar thin"><div class="l2h-heat" data-k="heat"></div></div>
         <div class="l2h-row"><span class="l2h-speed"><span data-k="speed">0</span><small>KM/H</small></span><span data-k="hpText">100 / 100</span></div>

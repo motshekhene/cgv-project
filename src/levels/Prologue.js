@@ -10,6 +10,7 @@ import { createWaterMaterial } from '../shaders/water.js';
 import { BodyIK } from './level3/BodyIK.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
+import { say } from '../player/roster.js';
 import { GAME_TITLE } from '../ui/brand.js';
 import { lookScale } from '../core/settings.js';
 import {
@@ -180,7 +181,7 @@ const HORN_CYAN = 0x4fd6e0;  // the horn — matches how the level 01 pickup glo
 const CAIRN_GLOW = 0xb6e3a0; // the old markers: pale moss, never the horn's cyan
 const HORN_HEX = '#4fd6e0';
 const ZWANE_AMBER = SPEAKERS['BABA ZWANE'];  // the fire, then the lamp
-const KAI_GREEN = SPEAKERS.KAI;
+const KAI_GREEN = SPEAKERS.PLAYER;
 const CREAM = DIALOGUE_CREAM; // speaker colours and cream are shared with every level (ui/dialogue.js)
 
 // Night -> dawn. The dawn end of every pair below is level 01's exact morning
@@ -207,24 +208,25 @@ const SUN_DIR = new THREE.Vector3(-0.35, 0.55, -0.75).normalize();
 // Plain on purpose: the company wants the trees; its men won't pass the
 // stone because the last crew that did never came back; the horn is what
 // keeps the forest alive, which is why Kai should leave it; Baba Zwane wants it
-// gone so the cutting can start, and pays him.
+// gone so the cutting can start, and pays him. 'PLAYER' is Kai, or whoever was
+// chosen: the name and the lines go through say() (player/roster.js) as they're shown.
 const SCRIPT = [
-  { who: 'BABA ZWANE', text: 'Kai. You came.' },
+  { who: 'BABA ZWANE', text: '{name}. You came.' },
   { who: 'BABA ZWANE', text: 'You know the old stone, up past the ridge?' },
-  { who: 'KAI', text: 'The one with the horn on it. Everyone knows it.' },
+  { who: 'PLAYER', text: 'The one with the horn on it. Everyone knows it.' },
   { who: 'BABA ZWANE', text: "The company wants to cut down this forest. But their men won't go past that stone." },
-  { who: 'KAI', text: 'Can you blame them? The last crew that went past it never came back.' },
-  { who: 'KAI', text: 'That horn is what keeps this forest alive — the trees, the animals, all of it.' },
-  { who: 'KAI', text: 'They say if it ever leaves the stone, the whole forest goes silent.' },
+  { who: 'PLAYER', text: 'Can you blame them? The last crew that went past it never came back.' },
+  { who: 'PLAYER', text: 'That horn is what keeps this forest alive — the trees, the animals, all of it.' },
+  { who: 'PLAYER', text: 'They say if it ever leaves the stone, the whole forest goes silent.' },
   { who: 'BABA ZWANE', text: 'Old stories. Bring me the horn before the sun is up. No horn, nothing left to scare the men — and the cutting can start.' },
-  { who: 'KAI', text: 'You want them to cut it down?' },
+  { who: 'PLAYER', text: 'You want them to cut it down?' },
   { who: 'BABA ZWANE', text: "It's coming either way. This way, you get a year of the company's wages for one morning." },
-  { who: 'KAI', text: 'Why me?' },
+  { who: 'PLAYER', text: 'Why me?' },
   { who: 'BABA ZWANE', text: 'Because a guide out on the paths at dawn is a normal thing. Anyone else would be noticed.' },
-  { who: 'KAI', text: "…A year's wages. And they're only stories." },
+  { who: 'PLAYER', text: "…A year's wages. And they're only stories." },
   { who: 'BABA ZWANE', text: "One more thing. If anyone sees you out there — don't stop and explain. Just run." },
 ];
-const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, KAI: KAI_GREEN };
+const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, PLAYER: KAI_GREEN };
 
 /* ==========================================================================
    Sfx — a very small synth. Every sound here is generated at runtime.
@@ -2261,9 +2263,9 @@ export class Prologue extends Level {
 
   _showLine(i) {
     const line = this.script[i];
-    this.hud.subName.textContent = line.who;
+    this.hud.subName.textContent = line.who === 'PLAYER' ? say('{NAME}') : line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
-    this.hud.subLine.textContent = line.text;
+    this.hud.subLine.textContent = say(line.text);
     this.sfx.duckScore(Math.max(2.5, line.text.split(/\s+/).length * 0.38));
     if (line.who === 'BABA ZWANE') {
       // his words, at his head across the fire

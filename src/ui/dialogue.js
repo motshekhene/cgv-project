@@ -5,7 +5,7 @@
  *   cream     the spoken line itself, no box, just shadows and a soft dark
  *             gradient at the bottom of the screen
  *   names     above each line, wide-spaced, in the speaker's colour:
- *             KAI moss green, BABA ZWANE amber (the fire, the lamp), THE
+ *             the player (Kai, or whoever was chosen) moss green, BABA ZWANE amber (the fire, the lamp), THE
  *             MARSHAL ember (the colour of his mask's eyes)
  *   thoughts  Kai's own head: italic cream, no name, low in the frame
  *
@@ -20,7 +20,7 @@
 export const DIALOGUE_FONT = "'Crimson Pro', Georgia, 'Times New Roman', serif";
 export const CREAM = '#f2e8d5';
 export const SPEAKERS = {
-  KAI: '#9ed36a',
+  PLAYER: '#9ed36a', // by role, whatever the player's name (player/roster.js)
   'BABA ZWANE': '#ffb03a',
   'THE MARSHAL': '#f2934f',
 };

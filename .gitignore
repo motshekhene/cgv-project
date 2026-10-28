@@ -30,3 +30,5 @@ tools/concepts/out/
 
 # Claude Code local settings
 .claude/
+# raw Mixamo FBX downloads (100MB+). The game-ready builds live in assets/characters/
+new_characters/

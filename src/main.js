@@ -126,6 +126,7 @@ game.onLevelChanged = (name) => {
       onCards: () => cardAlbum.open(),
       onMap: () => gameMap.open(),
       onPlaybook: () => playbook.open(),
+      onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
   }

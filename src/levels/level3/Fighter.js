@@ -301,6 +301,32 @@ export class Fighter {
     return out;
   }
 
+  /**
+   * Where a bone is at its highest through a clip, in root's own frame (+z the
+   * way he faces): the top of his head while he sits, say. Measured like
+   * footTrack (the clip on its own; leaves idle playing), so call it before
+   * he's on screen. null if the rig has no such clip or bone.
+   */
+  highest(name, boneName, fps = 10) {
+    const act = this.actions[name];
+    const bone = this.bone(boneName);
+    if (!act || !bone) return null;
+    let best = null;
+    this.mixer.stopAllAction();
+    act.reset().play();
+    for (let i = 0, n = Math.floor(act.getClip().duration * fps); i <= n; i++) {
+      act.time = i / fps;
+      this.mixer.update(0);
+      this.root.updateMatrixWorld(true);
+      const p = this.root.worldToLocal(bone.getWorldPosition(_p0));
+      if (!best || p.y > best.y) best = p.clone();
+    }
+    act.stop();
+    this.current = null;
+    this.play('idle', { fade: 0 });
+    return best;
+  }
+
   roll(duration) {
     this.rollT = 0;
     this.rollDur = duration;

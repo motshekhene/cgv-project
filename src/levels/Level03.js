@@ -24,6 +24,7 @@ import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
+import { loadPlayer, say } from '../player/roster.js';
 import { attachHorn, poseHorn, HORN_HAND } from '../intros/cast.js';
 import { SPEAKERS, ensureDialogueFont, kaiThinks } from '../ui/dialogue.js';
 import { CardPickups } from '../cards/CardPickups.js';
@@ -146,11 +147,12 @@ const LEAP_FROM = 0.3;
 const LEAP_G = 13; // m/s²: a touch more than gravity, or a man falling 9 m reads as floating on screen
 // intro shot D: face to face before the fight, each line typed out on screen. pose: what the speaker does with it
 // the masked Marshal until phase II; Baba Zwane (the prologue's amber) once the mask is off
-// names and colours are the prologue's (ui/dialogue.js), so a line reads the same in every level
+// names and colours are the prologue's (ui/dialogue.js), so a line reads the same in every level;
+// the player's name and the lines that use it go through say() (player/roster.js) as they're shown
 const WHO = {
   handler: { name: 'THE MARSHAL', color: SPEAKERS['THE MARSHAL'] },
   zwane: { name: 'BABA ZWANE', color: SPEAKERS['BABA ZWANE'] },
-  kai: { name: 'KAI', color: SPEAKERS.KAI },
+  kai: { name: '{NAME}', color: SPEAKERS.PLAYER },
 };
 // Kai still has no idea who is under the mask: he thinks he is carrying the horn back to Baba Zwane
 const TALK = [
@@ -163,31 +165,31 @@ const TALK = [
 // Phase II: the mask comes off, and it is the man from the fire
 const REVEAL_TALK = [
   { who: 'kai', text: 'Baba Zwane\u2026?' },
-  { who: 'zwane', text: 'You were never meant to see this face again, Kai.' },
+  { who: 'zwane', text: 'You were never meant to see this face again, {name}.' },
   { who: 'kai', text: 'You taught me every path in this forest. Last night you sat with me at the fire.' },
   { who: 'zwane', text: 'And you listened. You always listened. That is why it had to be you.' },
   { who: 'kai', text: 'You sent me up that ridge knowing what would wake.' },
   { who: 'zwane', text: 'The company paid me to put that horn in their hands. If I had lifted it myself, the forest would have come for me.' },
   { who: 'zwane', text: 'A guide on the paths at dawn \u2014 nobody looks twice. You drew it off. You were the bait.', pose: 'angry' },
   { who: 'kai', text: 'I was bringing it to you.' },
-  { who: 'zwane', text: 'Bring it to me? There was never going to be a meeting, Kai. You\u2019d lift it, I\u2019d take it off you on the trail, and you\u2019d never know it was me.' },
+  { who: 'zwane', text: 'Bring it to me? There was never going to be a meeting, {name}. You\u2019d lift it, I\u2019d take it off you on the trail, and you\u2019d never know it was me.' },
   { who: 'kai', text: 'The last crew. The ones who went past the stone and never came back.' },
   { who: 'kai', text: 'Did you send them too?' },
   { who: 'zwane', text: '\u2026They didn\u2019t listen.' },
   { who: 'kai', text: 'A year\u2019s wages. That\u2019s what this whole forest was worth to you?' },
-  { who: 'zwane', text: 'Everything is worth something, boy. Give me the horn, and walk away.' },
+  { who: 'zwane', text: 'Everything is worth something, {boy}. Give me the horn, and walk away.' },
   { who: 'kai', text: 'It\u2019s going back on the stone. Even if I have to go through you.' },
 ];
 // a retry: he has seen the face before, so just the beat of it
 const REVEAL_AGAIN = [
   { who: 'kai', text: 'Baba Zwane.' },
-  { who: 'zwane', text: 'The horn, Kai.' },
+  { who: 'zwane', text: 'The horn, {name}.' },
 ];
 // Phase IV: down to a quarter, he tears the horn off Kai's hip and lifts it himself
 const SNATCH_TALK = [
   { who: 'kai', text: 'Baba, don\u2019t! You said it yourself \u2014 lift it, and the forest comes for you.' },
   { who: 'zwane', text: 'Then let it come. I have been afraid of this forest my whole life.', pose: 'angry' },
-  { who: 'zwane', text: 'Feel that, boy? It answers to whoever holds it.' },
+  { who: 'zwane', text: 'Feel that, {boy}? It answers to whoever holds it.' },
   { who: 'kai', text: 'It doesn\u2019t answer to anyone. It remembers.' },
 ];
 // down, after he had the horn: before the last words, what it did to him
@@ -206,7 +208,7 @@ const EPILOGUE_TALK = [
 const BARKS = {
   desperation: [{ who: 'zwane', text: 'I taught you every path in this forest! I know where you\u2019ll step before you do!' }],
   kaiLow: [
-    { who: 'zwane', text: 'Give it up, Kai. The forest won\u2019t thank you.' },
+    { who: 'zwane', text: 'Give it up, {name}. The forest won\u2019t thank you.' },
     { who: 'kai', text: 'It doesn\u2019t have to.' },
   ],
   kaiLowMasked: [{ who: 'handler', text: 'Hand it over, guide, and this ends here.' }],
@@ -290,7 +292,7 @@ const RISE_TALK = [
   { who: 'zwane', text: 'The forest\u2019s anger. It will not let the horn go home while it burns like this.' },
   { who: 'kai', text: 'Then let it burn at me.' },
 ];
-const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but Kai, and his hits land harder.';
+const PAUSE_TIP = 'Dodge at the very last instant for a perfect dodge: time slows for everyone but {name}, and {his} hits land harder.';
 const TOTAL_PAGES = 6; // three on Level 1's trail, three here
 const LETTER_SPOTS = {
   'l3-1': new THREE.Vector3(-9.6, 0, -3.6), // in the courtyard from the start
@@ -352,7 +354,7 @@ export class Level03 extends Level {
     this._clueThought = clueFor('think:level03');
     this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
-      loadRig(assets, 'kai-bryce', 'kai.fbx'),
+      loadPlayer(assets),
       loadRig(assets, 'handler-monk', 'handler.fbx'),
       this.arena.build(assets),
       this.wreck.build(assets),
@@ -457,7 +459,7 @@ export class Level03 extends Level {
     this._mapHeading = Math.PI;
     this._mapLast = new THREE.Vector3();
     this.style = new StyleMeter(this.hud);
-    this.pauseTip = PAUSE_TIP; // main.js's shared pause menu shows it under the controls
+    this.pauseTip = say(PAUSE_TIP); // main.js's shared pause menu shows it under the controls
     this.touch = new TouchControls(input, {
       canvas: this.game.renderer.domElement,
       onToggleView: () => this._toggleView(),
@@ -1406,7 +1408,7 @@ export class Level03 extends Level {
       if (this._shot !== 'A') {
         this._shot = 'A';
         this._setCine(new THREE.Vector3(-3.25, 1.0, -17.7), new THREE.Vector3(-4.5, 0.55, -21.0), { fov: 50, cut: true });
-        this.story.showCard('THE FALLS', 'The river took him over the edge. The horn is still in his hand.');
+        this.story.showCard('THE FALLS', say('The river took {him} over the edge. The horn is still in {his} hand.'));
       }
       const floor = this.arena.groundHeight(kp.x, kp.z);
       const sink = this.kaiMeta ? 0 : 0.45; // the old Kai's sitting clip sits on thin air: lower him onto the bed
@@ -1963,7 +1965,7 @@ export class Level03 extends Level {
     this._lineT = 0;
     this._lineHold = 0;
     const who = WHO[line.who];
-    this.story.showLine(who.name, line.text, who.color);
+    this.story.showLine(say(who.name), say(line.text), who.color);
     const bf = this.boss.fighter;
     if (line.pose && bf.actions[line.pose]) bf.playOnce(line.pose, { fade: 0.25 });
     const prev = this._talk[this._line - 1];
@@ -1987,7 +1989,7 @@ export class Level03 extends Level {
       this._bark = this._barks.shift();
       this._barkT = 1.6 + this._bark.text.length * 0.045;
       const who = WHO[this._bark.who];
-      this.story.showLine(who.name, this._bark.text, who.color, 60);
+      this.story.showLine(say(who.name), say(this._bark.text), who.color, 60);
     }
     if (!this._bark) return;
     this.story.updateLine(dt);
@@ -2638,7 +2640,7 @@ export class Level03 extends Level {
     this.story.setCinematic(false);
     this.story.showEnd({
       title: 'VICTORY',
-      sub: 'Baba Zwane is down, and the horn is Kai’s to carry home.',
+      sub: say('Baba Zwane is down, and the horn is {name}’s to carry home.'),
       // on to the epilogue: Kai takes it back up the mountain to its stone
       action: { label: 'CONTINUE', key: 'ENTER', onClick: () => this.game.setLevel('epilogue') },
     });
