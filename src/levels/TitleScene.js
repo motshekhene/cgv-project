@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { loadJungleKit, cloneProp, createJungleSky, createLightShaft } from './level1/jungleWorld.js';
-import { loadCast, makeHandler, makeHorn } from '../intros/cast.js';
+import { loadCast, makeHandler, makeHorn, rigOptions, KAI_LOOK } from '../intros/cast.js';
+import { Fighter } from './level3/Fighter.js';
+import { PLAYERS, loadPlayer } from '../player/roster.js';
 import { dotTexture } from '../intros/fx.js';
 
 /**
@@ -14,6 +16,10 @@ import { dotTexture } from '../intros/fx.js';
  * through them in shafts, mist, fireflies. The camera drifts slowly round the
  * stone. And far back in the mist, if you look, a man in a long coat and a
  * mask is standing very still, watching it.
+ *
+ * While the menu's PLAYER page is open, whoever is picked there stands at the
+ * stone in their fighting stance, turned to the camera, and the drift holds
+ * still until the page closes (showPlayer).
  */
 const STONE_AT = new THREE.Vector3(0, 0, 0);
 const ORBIT_R = 6.2;
@@ -23,6 +29,10 @@ export class TitleScene extends Level {
   constructor() {
     super('title');
     this.t = 0;
+    this.orbitT = 0; // the drift's own clock: it stops while a player is shown
+    this._players = new Map(); // id -> the Fighter standing at the stone, once loaded
+    this._loading = new Set();
+    this._shown = null;
   }
 
   async init(scene, assets, input, state) {
@@ -196,11 +206,42 @@ export class TitleScene extends Level {
     this.root.add(g);
   }
 
+  /**
+   * The player being picked on the PLAYER page (an id from player/roster.js),
+   * at the stone; null puts them away. Each one loads the first time it's
+   * shown; the latest call wins if they load out of order.
+   */
+  async showPlayer(id) {
+    this._shown = id;
+    const player = PLAYERS.find((p) => p.id === id);
+    if (player && !this._players.has(id) && !this._loading.has(id)) {
+      this._loading.add(id);
+      const rig = await loadPlayer(this.assets, player).catch(() => null);
+      this._loading.delete(id);
+      if (!this.scene) return; // torn down while loading
+      const f = new Fighter(this.root, { ...rigOptions(rig), capsuleColor: 0xdfe8ee, palette: KAI_LOOK });
+      f.play('idle', { fade: 0 });
+      this._players.set(id, f);
+    }
+    // between the stone and the camera, a little to its right, turned to face it
+    const a = this._orbitAngle();
+    for (const [pid, f] of this._players) {
+      f.root.visible = pid === this._shown;
+      f.root.position.set(Math.sin(a) * 1.7 + Math.cos(a) * 1.0, 0, Math.cos(a) * 1.7 - Math.sin(a) * 1.0);
+      f.root.rotation.y = a - 0.35;
+    }
+  }
+
+  _orbitAngle() {
+    return 0.6 + this.orbitT * ORBIT_SPEED;
+  }
+
   update(dt) {
     this.t += dt;
+    if (!this._shown) this.orbitT += dt;
     const cam = this.game.camera;
     // a slow drift round the stone, low, the horn just right of centre (the menu sits on the left)
-    const a = 0.6 + this.t * ORBIT_SPEED;
+    const a = this._orbitAngle();
     cam.position.set(Math.sin(a) * ORBIT_R, 1.55 + Math.sin(this.t * 0.2) * 0.12, Math.cos(a) * ORBIT_R);
     const side = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a)); // camera's right
     this._look.set(0, 1.05, 0).addScaledVector(side, -1.1);
@@ -222,6 +263,8 @@ export class TitleScene extends Level {
     p.needsUpdate = true;
     this.motes.material.opacity = 0.6 + 0.25 * Math.sin(this.t * 2.1);
     if (this.watcher) this.watcher.update(dt);
+    const shown = this._players.get(this._shown);
+    if (shown) shown.update(dt);
   }
 
   teardown() {

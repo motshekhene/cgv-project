@@ -1,4 +1,5 @@
 import { THEME_CSS, END_CSS, showEndScreen } from './theme.js';
+import { say } from '../player/roster.js';
 
 /**
  * FightHUD — DOM overlay for the Level 3 fight. Lives inside the shared #hud
@@ -168,7 +169,7 @@ export class FightHUD {
       <div class="fh-flash"></div>
       <div class="fh-top">
         <div class="fh-player plaque">
-          <div class="fh-name">KAI <span class="fh-awards">${AWARD_ICONS.map(([id, ch, c]) => `<i data-id="${id}" style="--c:${c}">${ch}</i>`).join('')}</span></div>
+          <div class="fh-name">${say('{NAME}')} <span class="fh-awards">${AWARD_ICONS.map(([id, ch, c]) => `<i data-id="${id}" style="--c:${c}">${ch}</i>`).join('')}</span></div>
           <div class="fh-bar"><div class="fh-lag"></div><div class="fh-hp"></div></div>
           <div class="fh-bar thin"><div class="fh-st"></div></div>
         </div>

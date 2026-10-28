@@ -112,6 +112,7 @@ game.onLevelChanged = (name) => {
       onOptions: () => options.open(),
       onControls: () => controlsOverlay.show(),
       onCredits: () => credits.open(),
+      onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
       skipPress: titleVisits++ > 0, // back from a level: straight to the menu
     });
   }

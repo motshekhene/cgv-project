@@ -39,12 +39,16 @@ export const CARS = [
   {
     id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4,
     blurb: 'Very fast, very fragile', stats: { speed: 48, accel: 25, handling: 1.0, strength: 0.75 },
-    door: { z: [-0.74, 0.72], y: [0.3, 1.23], depth: 0.32 },
+    // deep enough to take the whole window, which leans in to 0.42 m at the top;
+    // the seat in from the side, out from under where the roof slopes down to it
+    door: { z: [-0.74, 0.72], y: [0.3, 1.23], depth: 0.45, seat: { x: 0.6 } },
   },
   {
     id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb', length: 4.8,
     blurb: 'Fastest car here — one bad PIT and it is in pieces', stats: { speed: 50, accel: 24, handling: 0.9, strength: 0.65 },
-    door: { z: [-0.62, 0.85], y: [0.26, 1.08], depth: 0.35, swing: 'up' },
+    // the window leans in a long way (0.54 m at the top): deep enough that it rises
+    // with the door, out of his way; the seat under the top of its low roof
+    door: { z: [-0.62, 0.85], y: [0.26, 1.08], depth: 0.5, swing: 'up', seat: { x: 0.7 } },
   },
   {
     // "Pickup Truck" by Quaternius, CC0

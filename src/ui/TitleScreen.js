@@ -3,6 +3,7 @@ import { DIALOGUE_FONT, ensureDialogueFont } from './dialogue.js';
 import { CHAPTERS } from './LoadingScreen.js';
 import { GAME_TITLE, GAME_SUBTITLE, TAGLINE } from './brand.js';
 import { settings, onSettings } from '../core/settings.js';
+import { PLAYERS, currentPlayer, savePlayer } from '../player/roster.js';
 
 /**
  * TitleScreen — the words and the menu over the title level (levels/
@@ -15,12 +16,15 @@ import { settings, onSettings } from '../core/settings.js';
  *
  *   NEW GAME   the prologue, from the fire
  *   CHAPTERS   jump to any part of the story
+ *   PLAYER     who you play (player/roster.js), each standing at the stone
+ *              as you move through them; the choice is kept for next time
  *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   the same H panel every level has
  *   CREDITS    every asset the team didn't make, with links (ui/CreditsMenu.js)
  *
  * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
- * main.js passes onStart(levelName), onOptions, onControls and onCredits.
+ * main.js passes onStart(levelName), onOptions, onControls, onCredits, and
+ * onPlayer(id) to show a player at the stone (null to put them away).
  */
 
 const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background-music-instrumental-218942.mp3';
@@ -28,6 +32,7 @@ const THEME_MUSIC = './assets/audio/sounduniversestudio-repeat-gaming-background
 const MENU = [
   { id: 'new', label: 'NEW GAME' },
   { id: 'chapters', label: 'CHAPTERS' },
+  { id: 'player', label: 'PLAYER' },
   { id: 'options', label: 'OPTIONS' },
   { id: 'controls', label: 'CONTROLS' },
   { id: 'credits', label: 'CREDITS' },
@@ -78,12 +83,13 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onOptions, onControls, onCredits, skipPress = false }) {
+  constructor({ onStart, onOptions, onControls, onCredits, onPlayer, skipPress = false }) {
     ensureDialogueFont();
     this.onStart = onStart;
     this.onOptions = onOptions;
     this.onControls = onControls;
     this.onCredits = onCredits;
+    this.onPlayer = onPlayer;
     // the theme follows the OPTIONS volumes as they're changed
     this._offSettings = onSettings((s, key) => {
       if ((key === 'music' || key === 'master') && this.music && !this._leaving) {
@@ -143,7 +149,7 @@ export class TitleScreen {
     if (k === 'arrowdown' || k === 's') this._select(this.sel + 1);
     else if (k === 'arrowup' || k === 'w') this._select(this.sel - 1);
     else if (k === 'enter' || k === ' ') this._activate(this.items[this.sel]);
-    else if ((k === 'escape' || k === 'backspace') && this._page === 'chapters') this._showMain();
+    else if ((k === 'escape' || k === 'backspace') && this._page !== 'main') this._showMain(this._page);
     else return;
     e.preventDefault();
   }
@@ -157,9 +163,12 @@ export class TitleScreen {
     this._showMain();
   }
 
-  _showMain() {
+  /** `from`: the page coming back from, so its item is the one selected. */
+  _showMain(from = null) {
     this._page = 'main';
-    this._build(MENU.map((m) => ({ ...m })));
+    this.onPlayer?.(null);
+    // the chosen player's name under PLAYER
+    this._build(MENU.map((m) => ({ ...m, sub: m.id === 'player' ? currentPlayer().name : m.sub })), Math.max(0, MENU.findIndex((m) => m.id === from)));
   }
 
   _showChapters() {
@@ -172,7 +181,15 @@ export class TitleScreen {
     this._build(list);
   }
 
-  _build(items) {
+  /** Every player, with their line; the one already chosen is selected (and at the stone). */
+  _showPlayers() {
+    this._page = 'player';
+    const list = PLAYERS.map((p) => ({ id: 'pick', player: p, label: p.name.toUpperCase(), sub: p.line }));
+    list.push({ id: 'back', label: 'BACK' });
+    this._build(list, PLAYERS.indexOf(currentPlayer()));
+  }
+
+  _build(items, start = 0) {
     this.items = items;
     this.menuEl.innerHTML = '';
     items.forEach((it, i) => {
@@ -188,23 +205,30 @@ export class TitleScreen {
       it.el = b;
       this.menuEl.appendChild(b);
     });
-    this._select(0);
+    this._select(start);
   }
 
   _select(i) {
     const n = this.items.length;
     this.sel = (i + n) % n;
     this.items.forEach((it, j) => it.el.classList.toggle('on', j === this.sel));
+    // on the PLAYER page, whoever is selected stands at the stone (BACK: the one already chosen)
+    if (this._page === 'player') this.onPlayer?.((this.items[this.sel].player || currentPlayer()).id);
   }
 
   _activate(it) {
     if (!it || this._leaving) return;
     if (it.id === 'new') this._start('prologue');
     else if (it.id === 'chapters') this._showChapters();
+    else if (it.id === 'player') this._showPlayers();
+    else if (it.id === 'pick') {
+      savePlayer(it.player.id);
+      this._showMain('player');
+    }
     else if (it.id === 'options') this.onOptions?.();
     else if (it.id === 'controls') this.onControls?.();
     else if (it.id === 'credits') this.onCredits?.();
-    else if (it.id === 'back') this._showMain();
+    else if (it.id === 'back') this._showMain(this._page);
     else if (it.id === 'chapter') this._start(it.name);
   }
 

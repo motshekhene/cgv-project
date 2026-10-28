@@ -15,6 +15,7 @@ import * as THREE from "three";
  * a wheel, so the opening never shows daylight through a hollow shell.
  *
  *   const door = new CarDoor(renderer, holder, model, bounds, CARS[i].door);
+ *   door.fit(hips, head); // where he sits, under the roof (once, ahead of time: it casts rays)
  *   door.set(0.6);   // 0 shut .. 1 wide open; call every frame it can move
  *   door.dispose();  // shut for good: the car's own materials back, the cut gone
  *
@@ -31,12 +32,23 @@ export const DEFAULT_DOOR = { z: [-0.5, 0.6], y: [0.3, 1.1], depth: 0.3, swing: 
 const OPEN_OUT = THREE.MathUtils.degToRad(66);
 const OPEN_UP = THREE.MathUtils.degToRad(72);
 
+// how he sits (fit)
+const SIT_ON = 0.09; // his hips above the cushion he's sitting on
+const HEADROOM = 0.05; // between the top of his head and the roof
+const CHIN = 0.3; // the top of his head down to just below his chin
+
 /** A copy of a material for this car alone, keeping the paint shader (paint.js makePaintable) hooked up. */
 function ownMaterial(m) {
+  // clone() deep-copies userData through JSON, which throws on the paint's
+  // paintOwner (paint.js: the mesh, which points back at its material). It is
+  // shared below anyway, so it's left out of the copy
+  const data = m.userData;
+  m.userData = {};
   const c = m.clone();
+  m.userData = data;
   c.onBeforeCompile = m.onBeforeCompile;
   c.customProgramCacheKey = m.customProgramCacheKey;
-  c.userData = m.userData; // the paint uniforms are shared on purpose: it is the same paint
+  c.userData = data; // the paint uniforms are shared on purpose: it is the same paint
   return c;
 }
 
@@ -155,6 +167,8 @@ export class CarDoor {
     cabin.add(cushion, back, wheel);
     cabin.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
     this.cabin = cabin;
+    this._shell = shell;
+    this._seatParts = [cushion, back, wheel]; // fit() lowers them with him
     this.holder.add(cabin);
     void xIn;
   }
@@ -166,6 +180,63 @@ export class CarDoor {
     const s = this.spec.seat || {};
     const min = this.hinge.position.x; // the side skin
     return out.set(min + (s.x ?? 0.44), s.y ?? y0 + 0.18, s.z ?? (z0 + z1) / 2 - 0.2);
+  }
+
+  /**
+   * How high the roof is over (x, z) in the car's frame: the lowest of the
+   * car's top surfaces there and round it (r), counting only those higher
+   * than `above` (the seat and the floor under him are not a roof). Infinity
+   * where it's open to the sky (the convertible). Measured, because the car's
+   * highest point is not the roof over the seat: roofs slope down to the
+   * doors, and some models carry stray geometry far above theirs. The rays
+   * come down from above: the models are one-sided, so a ray going up from
+   * inside the cabin passes straight out through the roof.
+   */
+  roofOver(x, z, above, r = 0.09) {
+    const ray = new THREE.Raycaster();
+    const from = new THREE.Vector3();
+    this.holder.updateWorldMatrix(true, false);
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(this.holder.matrixWorld);
+    let roof = Infinity;
+    for (const [dx, dz] of [[0, 0], [-r, 0], [r, 0], [0, -r], [0, r]]) {
+      ray.set(this.holder.localToWorld(from.set(x + dx, 10, z + dz)), down);
+      const hit = ray.intersectObject(this.model, true)[0];
+      if (!hit) continue;
+      const y = this.holder.worldToLocal(hit.point).y;
+      if (y > above) roof = Math.min(roof, y);
+    }
+    return roof;
+  }
+
+  /**
+   * Where his feet go (the rig's origin, in the car's frame) for him to sit
+   * here facing +z, with his hips `hips` above his feet and the top of his
+   * head at `head` from them (Fighter.highest, on his sitting clip): on the
+   * cushion, unless the roof over his head is too low for that, when he sits
+   * lower, as far down as the sill, and the stand-in cabin's seat and wheel
+   * go down with him. Kept as `this.seat`. It casts rays at the car, so do it
+   * once, ahead of time.
+   */
+  fit(hips, head) {
+    const cushion = this.seatLocal();
+    const [y0] = this.spec.y;
+    const lowest = y0 - hips; // his hips no lower than the sill
+    const roof = this.roofOver(cushion.x + head.x, cushion.z + head.z, lowest + head.y - CHIN);
+    const feet = Math.max(lowest, Math.min(cushion.y + SIT_ON - hips, roof - HEADROOM - head.y));
+    this.seat = new THREE.Vector3(cushion.x, feet, cushion.z);
+
+    const drop = cushion.y - (feet + hips - SIT_ON); // the cushion's top, down to under him
+    if (this._seatParts && drop > 0.001) {
+      for (const p of this._seatParts) p.position.y -= drop;
+      // the cabin's floor goes down under the cushion, or it would hide it
+      const shell = this._shell;
+      const h = shell.geometry.parameters.height;
+      const top = shell.position.y + h / 2;
+      const bottom = Math.min(top - h, this._seatParts[0].position.y - 0.08);
+      shell.scale.y = (top - bottom) / h;
+      shell.position.y = (top + bottom) / 2;
+    }
+    return this.seat;
   }
 
   /** 0 shut .. 1 open. Moves the door and keeps both cuts where they belong. */

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Fighter } from '../levels/level3/Fighter.js';
 import { dressAsHandler } from '../levels/level3/HandlerBoss.js';
 import { loadRig } from '../player/rig.js';
+import { loadPlayer } from '../player/roster.js';
 import { mergeGroups } from '../levels/jungle/props.js';
 import { createLightShaft } from '../shaders/lightshaft.js';
 import { dotTexture } from './fx.js';
@@ -9,7 +10,8 @@ import { dotTexture } from './fx.js';
 /**
  * Kai and the Handler for the cutscenes and the chase: the same characters
  * Level 3 uses (the Mixamo builds, see player/rig.js; the old Quaternius FBXs
- * if they're missing), on the same Fighter rig, plus what each one carries
+ * if they're missing), on the same Fighter rig. "Kai" is whoever the player
+ * chose on the title screen (player/roster.js). Plus what each one carries
  * after the prologue: the horn in Kai's hand (the one he took off the stone),
  * and Baba Zwane's Handler kit (dressAsHandler: the armoured coat and the
  * helmet round the carved stone mask, which only comes off in Level 3) and,
@@ -31,7 +33,7 @@ export async function loadCast(assets) {
       return null;
     });
   const [kai, handler] = await Promise.all([
-    safe(loadRig(assets, 'kai-bryce', 'kai.fbx')),
+    safe(loadPlayer(assets)),
     safe(loadRig(assets, 'handler-monk', 'handler.fbx')),
   ]);
   return { kai, handler };
@@ -53,7 +55,7 @@ function mergeRig(src) {
 }
 
 /** Fighter options for a loadRig() result (or a bare FBX scene, as older callers pass). */
-function rigOptions(rig) {
+export function rigOptions(rig) {
   const { source, meta } = rig && rig.source !== undefined ? rig : { source: rig, meta: null };
   // the Mixamo builds are in metres and already lean on draw calls; the FBXs need their groups merged
   return meta ? { source, modelHeight: meta.height } : { source: mergeRig(source) };

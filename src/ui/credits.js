@@ -23,7 +23,7 @@ export const CREDIT_SECTIONS = [
     title: 'CHARACTERS',
     items: [
       { title: 'Characters and animations', by: 'Mixamo (Adobe)', licence: 'Mixamo', url: 'https://www.mixamo.com/',
-        use: 'Every character in the story, and every move they make' },
+        use: 'Every character in the story, every player you can choose, and every move they make' },
     ],
   },
   {
