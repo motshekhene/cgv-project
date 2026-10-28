@@ -8,22 +8,22 @@ import { CURRENCY, balance, owns } from '../core/wallet.js';
 import { CARS } from '../levels/level2/carSelect.js';
 import { CARDS, foundCount, todaysCard } from '../cards/cards.js';
 import { PLAYERS, currentPlayer, savePlayer } from '../player/roster.js';
+import { LandingHorn } from './LandingHorn.js';
 
 /**
  * TitleScreen — over the title level (levels/TitleScene.js: the glade at
  * dawn, the horn on its stone), in two parts:
  *
- *   THE LANDING   first thing on opening the game: a trailer. Full-screen
- *                 shots from the game (REEL: the fire, the trail, the Marshal
- *                 on Kai's heels, his car on the River Road, the falls, the
- *                 way home) crossfading under a slow zoom, a line of the
- *                 story with each, the title in gold with light running
- *                 across it, PRESS ANY KEY. The press is the horn being
- *                 blown: a deep call, a flash, and the trailer fades away onto
- *                 the glade (TitleScene.wake: the horn flares there, a ring of
- *                 its light running out), where the menu is. It is also the
- *                 gesture browsers want before they will play sound, so the
- *                 theme comes up with the menu.
+ *   THE LANDING   first thing on opening the game: the horn alone in the
+ *                 dark (ui/LandingHorn.js), turning slowly, glowing, mist and
+ *                 motes round it; the title fades in under it in gold with
+ *                 light running across it, then PRESS ANY KEY. The press is
+ *                 the horn being blown: a deep call, the horn blazing, a
+ *                 flash, and the dark fading away onto the glade
+ *                 (TitleScene.wake: the horn flares there, a ring of its light
+ *                 running out), where the menu is. It is also the gesture
+ *                 browsers want before they will play sound, so the theme
+ *                 comes up with the menu.
  *   THE MENU      the title small at the top left, the menu under it with a
  *                 line about whichever item is picked, and in the corner where
  *                 you stand: Forest Lights to spend, cars, spirit cards, and
@@ -60,16 +60,6 @@ const MENU = [
   { id: 'credits', label: 'CREDITS', about: 'The team, the cast, the music, and everyone else.' },
 ];
 const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
-// the trailer: frames from the game (public/assets/guide/), each with its line of the story
-const REEL = [
-  ['ch-prologue', 'ONE STORY AT THE FIRE'],
-  ['ch-level01', 'ONE OLD TRAIL DOWN THE MOUNTAIN'],
-  ['tr-chase', 'ONE MAN PAID TO CATCH YOU'],
-  ['tr-road', 'OUTRUN HIM'],
-  ['ch-level03', 'FACE HIM AT THE FALLS'],
-  ['ch-epilogue', 'AND BRING IT HOME'],
-];
-const SHOT_SECS = 5.5;
 const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
 const themeVolume = () => THEME_LEVEL * settings.music * settings.master;
 
@@ -79,23 +69,13 @@ const CSS = THEME_CSS + `
   transition:opacity .9s ease; }
 .ts.out { opacity:0; pointer-events:none; }
 
-/* ---- the landing: a trailer, full screen ---- */
+/* ---- the landing: the horn alone in the dark, the words under it ---- */
 .ts-land { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; text-align:center;
-  padding-bottom:9vh; background:#050605; transition:opacity 1.2s ease .35s, filter 1.2s ease .2s; }
-.ts.menu .ts-land { opacity:0; filter:blur(6px) brightness(1.6); pointer-events:none; }
-.ts-reel { position:absolute; inset:0; overflow:hidden; }
-.ts-shot { position:absolute; inset:-2%; background-size:cover; background-position:center; opacity:0; transition:opacity 1.4s ease; will-change:transform, opacity; }
-.ts-shot.on { opacity:1; }
-.ts-shot.a { animation:tsKenA ${SHOT_SECS + 2}s linear forwards; }
-.ts-shot.b { animation:tsKenB ${SHOT_SECS + 2}s linear forwards; }
-/* the grade over it: dark at the edges and under the words, a little grain of light */
-.ts-reel::after { content:''; position:absolute; inset:0;
-  background:radial-gradient(ellipse 75% 70% at 50% 40%, rgba(0,0,0,0) 30%, rgba(0,0,0,.55) 100%),
-             linear-gradient(0deg, rgba(3,4,3,.94) 0%, rgba(3,4,3,.7) 26%, rgba(3,4,3,0) 56%); }
-.ts-cap { position:relative; min-height:22px; margin-bottom:14px; font:600 clamp(13px, 1.3vw, 16px) var(--sans); letter-spacing:.5em; text-indent:.5em;
-  color:#f6e7c1; text-shadow:0 2px 12px #000; transition:opacity .6s ease, transform .6s ease; }
-.ts-cap.out { opacity:0; transform:translateY(6px); }
-.ts-land > :not(.ts-reel) { position:relative; }
+  padding-bottom:12vh; background:radial-gradient(ellipse at 50% 38%, #071214 0%, #020405 45%, #000 100%);
+  transition:opacity 1.3s ease .5s, filter 1.3s ease .3s; }
+.ts.menu .ts-land { opacity:0; filter:brightness(2.2) blur(3px); pointer-events:none; }
+.ts-stage { position:absolute; inset:0; width:100%; height:100%; opacity:0; animation:tsUp 2.4s ease .2s forwards; }
+.ts-land > :not(.ts-stage) { position:relative; }
 /* the flash when the horn is blown */
 .ts-flash { position:absolute; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at 50% 50%, rgba(200,255,255,.9), rgba(79,214,224,.45) 30%, rgba(79,214,224,0) 70%); }
 .ts.blown .ts-flash { animation:tsFlash 1.4s ease-out forwards; }
@@ -115,12 +95,6 @@ const CSS = THEME_CSS + `
   text-shadow:0 0 14px rgba(79,214,224,.6); opacity:0; animation:tsUp .8s ease 3.2s forwards; }
 .ts-press b { font-weight:600; animation:tsPulse 2.2s ease-in-out 4s infinite; }
 .ts-press i { width:8px; height:8px; background:#4fd6e0; transform:rotate(45deg); box-shadow:0 0 10px #4fd6e0; animation:tsPulse 2.2s ease-in-out 4s infinite; }
-/* which shot of the trailer this is */
-.ts-dots { display:flex; gap:6px; margin-top:26px; }
-.ts-dots i { width:26px; height:2px; background:rgba(239,228,200,.22); overflow:hidden; }
-.ts-dots i b { display:block; height:100%; width:0; background:#e3bb62; }
-.ts-dots i.on b { animation:tsFill ${SHOT_SECS}s linear forwards; }
-.ts-dots i.done b { width:100%; }
 
 /* ---- the menu: the left of the screen darkens for it; the scene keeps the right ---- */
 .ts-page { position:absolute; inset:0; opacity:0; pointer-events:none; transition:opacity .8s ease .35s; }
@@ -179,9 +153,6 @@ const CSS = THEME_CSS + `
 @keyframes tsLine { to { transform:scaleX(1); } }
 @keyframes tsUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
 @keyframes tsPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
-@keyframes tsKenA { from { transform:scale(1.02) translate(0, 0); } to { transform:scale(1.14) translate(-1.5%, -1%); } }
-@keyframes tsKenB { from { transform:scale(1.14) translate(1.5%, 1%); } to { transform:scale(1.02) translate(0, 0); } }
-@keyframes tsFill { to { width:100%; } }
 @keyframes tsShine { 0%, 62% { background-position:110% 0, 0 0; } 100% { background-position:-10% 0, 0 0; } }
 @keyframes tsFlash { 0% { opacity:0; } 8% { opacity:1; } 100% { opacity:0; } }
 `;
@@ -214,13 +185,11 @@ export class TitleScreen {
     this.el.className = 'ts fh';
     this.el.innerHTML = `
       <div class="ts-land">
-        <div class="ts-reel"><div class="ts-shot"></div><div class="ts-shot"></div></div>
-        <div class="ts-cap out"></div>
+        <canvas class="ts-stage"></canvas>
         <h1 class="ts-big">${letters}</h1>
         <hr class="ts-rule">
         <div class="ts-tag">${TAGLINE}</div>
         <div class="ts-press"><i></i><b>PRESS ANY KEY</b><i></i></div>
-        <div class="ts-dots">${REEL.map(() => '<i><b></b></i>').join('')}</div>
       </div>
       <div class="ts-flash"></div>
       <div class="ts-page">
@@ -246,47 +215,16 @@ export class TitleScreen {
     window.addEventListener('keydown', this._onKey);
     this.el.addEventListener('pointerdown', this._onPress);
     if (skipPress) this._openMenu(true);
-    else this._startReel();
+    else {
+      this.stage = new LandingHorn(this.el.querySelector('.ts-stage'));
+      this.stage.start();
+    }
   }
 
-  /* ---------------------------------------------------------------- the trailer */
-
-  /** The landing's shots, one after another, round and round, until the key. */
-  _startReel() {
-    for (const [img] of REEL) new Image().src = `./assets/guide/${img}.jpg`; // all of them in, so none arrives late
-    const shots = [...this.el.querySelectorAll('.ts-shot')];
-    const cap = this.el.querySelector('.ts-cap');
-    const dots = [...this.el.querySelectorAll('.ts-dots i')];
-    let i = -1, layer = 0;
-    const next = () => {
-      i = (i + 1) % REEL.length;
-      const [img, line] = REEL[i];
-      const shot = shots[layer];
-      shots[1 - layer].classList.remove('on');
-      shot.style.backgroundImage = `url('./assets/guide/${img}.jpg')`;
-      shot.classList.remove('a', 'b');
-      void shot.offsetWidth; // restart its slow zoom
-      shot.classList.add(i % 2 ? 'b' : 'a', 'on');
-      layer = 1 - layer;
-      // the line of the story with it, after the old one has gone
-      cap.classList.add('out');
-      clearTimeout(this._capT);
-      this._capT = setTimeout(() => { cap.textContent = line; cap.classList.remove('out'); }, 650);
-      dots.forEach((d, j) => {
-        d.classList.toggle('done', i > 0 && j < i);
-        d.classList.remove('on');
-      });
-      void dots[i].offsetWidth;
-      dots[i].classList.add('on');
-    };
-    next();
-    this._reelT = setInterval(next, SHOT_SECS * 1000);
-  }
-
-  _stopReel() {
-    clearInterval(this._reelT);
-    clearTimeout(this._capT);
-    this._reelT = 0;
+  /** The dark's horn, done with once the menu is up. */
+  _endStage() {
+    this.stage?.dispose();
+    this.stage = null;
   }
 
   /* ---------------------------------------------------------------- input */
@@ -320,7 +258,8 @@ export class TitleScreen {
   _openMenu(instant = false) {
     this.inMenu = true;
     this.el.classList.add('menu');
-    setTimeout(() => this._stopReel(), 1600); // once it has faded away
+    this.stage?.flare();
+    setTimeout(() => this._endStage(), 2000); // once the dark has faded away
     this.onEnter?.(instant);
     if (!instant) {
       this.el.classList.add('blown');
@@ -517,7 +456,7 @@ export class TitleScreen {
   }
 
   dispose() {
-    this._stopReel();
+    this._endStage();
     window.removeEventListener('keydown', this._onKey);
     this._offSettings();
     clearInterval(this._fadeTimer);
