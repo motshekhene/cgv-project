@@ -7,6 +7,7 @@ import { VALLEY, LANDMARKS, WALK_PTS, PATH_END_Z } from './prologue/places.js';
 import { CardPickups } from '../cards/CardPickups.js';
 import { clueFor } from '../cards/cards.js';
 import { createWaterMaterial } from '../shaders/water.js';
+import { BodyIK } from './level3/BodyIK.js';
 import { showEndCard } from '../ui/EndCard.js';
 import { musicVolumeNode } from '../audio/masterMute.js';
 import { GAME_TITLE } from '../ui/brand.js';
@@ -891,6 +892,12 @@ export class Prologue extends Level {
 
     // the take: where the horn leaves, and where it lands in his hand
     this._takeFromPos = new THREE.Vector3();
+    // the take's arms (_armsTo): where the horn lay, and scratch for the reach
+    this._hornLay = new THREE.Vector3();
+    this._hornAt = new THREE.Vector3();
+    this._holdLook = 0;
+    this._ikUp = new THREE.Vector3(0, 1, 0);
+    for (const k of ['_ikRoot', '_ikF', '_ikR', '_ikN', '_ikHold', '_ikT', '_ikP', '_ikS']) this[k] = new THREE.Vector3();
     this._reachQ = new THREE.Quaternion();
     this._reachX = new THREE.Vector3(1, 0, 0);
     this._palmAt = new THREE.Vector3();
@@ -2525,11 +2532,52 @@ export class Prologue extends Level {
       toX: this._takeFromPos.x + (dx / d) * reach, toZ: this._takeFromPos.z + (dz / d) * reach,
       walk: Math.max(0.3, Math.max(0, d - reach) / WALK),
       gripped: false,
+      bendMore: 0, // extra bend if his arm can't reach it as he stands
     };
+    this._ik ??= BodyIK.for(this.kaiF);
+    this.horn.getWorldPosition(this._hornLay);
     this.root.attach(this.hornLight);          // it will follow the horn from here
     this.matHorn.emissive.setHex(HORN_CYAN);
     this.matHorn.emissiveIntensity = 0;
     this.hornLight.intensity = 0;
+  }
+
+  /**
+   * His arms, during the take (level3/BodyIK.js's two-bone reach, over the
+   * clip): `onHorn` of the way to where the horn lay (his right hand to it,
+   * the elbow out), `holdUp` of the way to holding it up in front of his
+   * chest to look at it (both hands, the elbows down, his head bowed), all
+   * blended in by `w`. Feeds the camera too: _holdLook, how far it has
+   * turned from the stone to the horn.
+   */
+  _armsTo(onHorn, holdUp, w) {
+    const ik = this._ik;
+    this._holdLook = holdUp * w;
+    if (!ik || w < 0.002) return;
+    this.kai.updateMatrixWorld(true);
+    const h = this.kai.getWorldPosition(this._ikRoot);
+    const fwd = this._ikF.set(this._hornLay.x - h.x, 0, this._hornLay.z - h.z).normalize();
+    const right = this._ikR.set(-fwd.z, 0, fwd.x);           // his right, facing the horn
+    const neck = ik.head.parent.getWorldPosition(this._ikN);
+    // up in front of him: a hand's width below his chin and forward of it
+    const held = this._ikHold.copy(neck).addScaledVector(fwd, 0.34).addScaledVector(this._ikUp, -0.3).addScaledVector(right, 0.04);
+    const T = this._ikT.copy(this._hornLay).lerp(held, holdUp);
+    T.y += 0.03 * (1 - holdUp);                               // over it, not in it
+    const elbow = this._ikP.copy(right).multiplyScalar(0.8).addScaledVector(fwd, -0.2 * (1 - holdUp)).addScaledVector(this._ikUp, 0.3 - 1.1 * holdUp);
+    const a = onHorn + holdUp > 0 ? Math.min(1, onHorn + holdUp) * w : 0;
+    // can his arm get there? if not (the stone is in the way of his feet), he bends further over it
+    if (this._take && !this._take.gripped && onHorn > 0.3) {
+      const S = ik.arms[1].up.getWorldPosition(this._ikS);
+      const reachable = S.distanceTo(T) < 0.6;
+      this._take.bendMore = THREE.MathUtils.clamp(this._take.bendMore + (reachable ? -0.6 : 1.4) * (1 / 60), 0, 1.4);
+    }
+    ik.reach(ik.arms[1], T, elbow, a);
+    if (holdUp > 0.01) {
+      // the left hand comes up under it, cradling it
+      const L = this._ikT.copy(held).addScaledVector(right, -0.13).addScaledVector(this._ikUp, -0.04);
+      ik.reach(ik.arms[0], L, this._ikP.copy(right).multiplyScalar(-0.8).addScaledVector(this._ikUp, -0.8), holdUp * w * 0.9);
+      ik.turn(ik.head, right, 0.32 * holdUp * w);            // looking down at it
+    }
   }
 
   /** The reach: bent at the waist (on top of the held punch, his arm at full stretch); k 0..1. */
@@ -2603,7 +2651,9 @@ export class Prologue extends Level {
         this.pz + c * SHOULDER.back - s * SHOULDER.side,
       );
       this._fp.lerp(this._dir, k);
-      this._look3.lerp(this._dir.set(STONE.x, 0.95, STONE.z), k);
+      this._dir.set(STONE.x, 0.95, STONE.z);
+      if (this._holdLook > 0) this._dir.lerp(this.horn.getWorldPosition(this._hornAt), this._holdLook * 0.7); // onto the horn in his hands
+      this._look3.lerp(this._dir, k);
     }
 
     // Kai is always on screen: at his log in the two-shot, and from the
@@ -2888,7 +2938,10 @@ export class Prologue extends Level {
           // the reach: arm out, bending to it; his feet shuffle the last inch so the hand arrives at the horn
           const k = THREE.MathUtils.smoothstep(this.t, reachAt, gripAt);
           this.kaiF.play('reach', { fade: 0.45 });
-          this._reachBend(k);
+          this._reachBend(k * (1 + (T.bendMore || 0)));
+          // his hand goes to the horn, not near it: the arm steered onto where it lies (and if
+          // even at full stretch it can't get there, he bends further over it)
+          this._armsTo(k, 0, k);
           if (palm) {
             this.kai.updateMatrixWorld(true);
             palm.getWorldPosition(this._palmAt);
@@ -2914,9 +2967,11 @@ export class Prologue extends Level {
             state.hasKey = true;                    // what he carries through the game
             this.kaiF.play('idle', { fade: 0.9 });
           }
-          // up straight again with it, the horn settling into his fist, the glow waking in it
+          // up straight again with it, lifting it up in front of him to look at it (his other hand
+          // coming up under it, his head bowed to it), the horn settling into his fist, the glow waking
           const k = THREE.MathUtils.smoothstep(this.t, gripAt, liftEnd);
-          this._reachBend(1 - k);
+          this._reachBend((1 - k) * (1 + (T.bendMore || 0)));
+          this._armsTo(1 - k, k, 1);
           if (palm) poseHorn(this.horn, palm, HORN_HAND, 1 - Math.exp(-5 * dt));
           this.matHorn.emissiveIntensity = 0.5 * k;
           this.hornLight.intensity = 4.5 * k;
@@ -2930,6 +2985,7 @@ export class Prologue extends Level {
 
       // It is in his hand. The valley holds its breath.
       case 'taken': {
+        this._armsTo(0, 1, 1); // held up in front of him while it sinks in
         this._holdHorn(dt);
         this.matHorn.emissiveIntensity = 0.5 + Math.sin(this.t * 7) * 0.2;
         this.hornLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
@@ -2953,6 +3009,8 @@ export class Prologue extends Level {
       // way out in the same frame, one held breath. Nobody is shown coming;
       // whatever the silence woke is level 01's opening image.
       case 'wide': {
+        if (this.t < 0.6) this._armsTo(0, 1, 1 - this.t / 0.6); // the arms come down as he slings it
+        else this._holdLook = 0;
         this._slingHorn(dt);
         if (this.t < 1.1) this.cine = this.t / 1.1;
         else if (this.t < 4.4) this.cine = 1;

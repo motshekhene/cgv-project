@@ -605,6 +605,12 @@ const LEVEL1_HUD_CSS = `
 @media (max-width: 760px) { .l1h-lights { position:static; margin-top:6px; width:max-content; } }
 `;
 
+/** A run's time as the end cards show it: 2:41.3 */
+function runClock(seconds = 0) {
+  const t = Math.max(0, seconds);
+  return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.floor((t * 10) % 10)}`;
+}
+
 const _flyQ = new THREE.Quaternion();
 const _flyQ2 = new THREE.Quaternion();
 // the flight pose's legs, radians about each bone's own hinge (from the rest pose)
@@ -3164,7 +3170,7 @@ export class Level01 extends Level {
       sub: title,
       // what he caught is his whatever happens: it's still there to spend on a car
       lines: [{ stats: [
-        { label: "DISTANCE RUN", value: Math.round(this.state?.distance ?? 0), unit: "M" },
+        { label: "TIME", value: runClock(this._runTime) },
         { label: CURRENCY, value: this.rewardCount, note: `kept · ${lightsToSpend()} to spend on cars`, kind: "lights" },
         { label: "HORN CALLS", value: this._hornCalls },
       ] }],
@@ -3179,14 +3185,13 @@ export class Level01 extends Level {
       this._audio.playOneShot("win", { volume: 0.8 });
       this._duckMusic(0.55);
     }
-    const distance = Math.round(this.state?.distance ?? 0);
     const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
     this._escapedCard = showEndCard({
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
       lines: [{ stats: [
-        { label: "DISTANCE", value: distance, unit: "M" },
+        { label: "TIME", value: runClock(this._runTime) },
         { label: "CLOSEST CALL", value: Number(closest).toFixed(1), unit: "M" },
         { label: CURRENCY, value: this.rewardCount, note: `${lightsToSpend()} to spend on cars`, kind: "lights" },
         { label: "HORN CALLS", value: this._hornCalls },
@@ -4611,6 +4616,8 @@ export class Level01 extends Level {
       this._showCaughtOverlay("Kai was hit by the oncoming hazard.");
     }
 
+    // the run's clock, for the end cards: only while he is running for it
+    if (!this.caught && !this.escaped && !this._finale) this._runTime = (this._runTime || 0) + dt;
     state.distance = -this.z;
     state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
     this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
