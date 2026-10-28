@@ -138,11 +138,14 @@ export function controlRows(game, levelName) {
 }
 
 /**
- * ESC · PAUSE, in the corner of every level (not the main menu): opens out to
- * PRESS ESC TO PAUSE as each level starts, hides while paused or loading.
+ * The pill's look: the key drawn as a key, then what it does. ESC · PAUSE is
+ * one, the prologue's X · SKIP INTRO another (levels/Prologue.js). Put in the
+ * page once, by whichever comes first.
  */
-export function mountPauseHint(game) {
+function ensurePillCss() {
+  if (document.getElementById('ph-css')) return;
   const style = document.createElement('style');
+  style.id = 'ph-css';
   style.textContent = `
 .ph { position:fixed; z-index:9200; display:flex; align-items:center; gap:10px; padding:6px 13px 6px 7px; cursor:pointer; user-select:none;
   font:700 10px 'Segoe UI', system-ui, sans-serif; letter-spacing:.24em; color:#efe4c8;
@@ -159,9 +162,27 @@ export function mountPauseHint(game) {
 @keyframes phPulse { to { box-shadow:0 0 34px rgba(227,187,98,.75), 0 4px 14px rgba(0,0,0,.45); } }
 `;
   document.head.appendChild(style);
+}
+
+/**
+ * A pill: `key` drawn as a key, then `label`; with the class `big` it opens
+ * out to `lead` + label (PRESS ESC TO PAUSE), glowing. Whoever has it places it.
+ */
+export function keyPill(key, label, lead = '') {
+  ensurePillCss();
   const el = document.createElement('div');
-  el.className = 'ph off';
-  el.innerHTML = '<kbd>ESC</kbd><b><span>PRESS ESC TO&nbsp;</span>PAUSE</b>';
+  el.className = 'ph';
+  el.innerHTML = `<kbd>${key}</kbd><b><span>${lead}&nbsp;</span>${label}</b>`;
+  return el;
+}
+
+/**
+ * ESC · PAUSE, in the corner of every level (not the main menu): opens out to
+ * PRESS ESC TO PAUSE as each level starts, hides while paused or loading.
+ */
+export function mountPauseHint(game) {
+  const el = keyPill('ESC', 'PAUSE', 'PRESS ESC TO');
+  el.classList.add('off');
   el.title = 'Pause the game';
   el.addEventListener('click', (e) => {
     e.stopPropagation();

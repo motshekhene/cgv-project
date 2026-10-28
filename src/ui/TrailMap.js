@@ -24,7 +24,8 @@ export class TrailMap {
    * marks: [{ x, z, kind: 'fire' | 'camp' | 'stag' | 'gate' | 'stone', label }]
    */
   /** bounds: { x0, x1, z0, z1 }, the whole area to show (the valley); otherwise the path and marks, padded. */
-  constructor({ path, marks = [], bounds = null, title = 'THE OLD PATH' }) {
+  /** bottom: px up from the bottom of the screen (higher where something else has the corner). */
+  constructor({ path, marks = [], bounds = null, title = 'THE OLD PATH', bottom = 18 }) {
     this.title = title;
     this.path = path;
     this.marks = marks;
@@ -43,7 +44,8 @@ export class TrailMap {
 
     this.el = document.createElement('div');
     this.el.style.cssText =
-      'position:fixed;left:18px;bottom:18px;z-index:8500;pointer-events:none;opacity:0;transition:opacity .5s,width .25s,height .25s;' +
+      `position:fixed;left:18px;bottom:${bottom}px;z-index:8500;` +
+      'pointer-events:none;opacity:0;transition:opacity .5s,width .25s,height .25s;' +
       'background:radial-gradient(ellipse at 40% 35%, rgba(52,44,30,.92), rgba(20,17,12,.94));border:1px solid rgba(227,187,98,.55);' +
       'box-shadow:0 6px 24px rgba(0,0,0,.55), inset 0 0 22px rgba(0,0,0,.6);border-radius:6px;overflow:hidden';
     this.canvas = document.createElement('canvas');

@@ -3,6 +3,7 @@ import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
 import { TrailMap } from '../ui/TrailMap.js';
+import { keyPill } from '../ui/ControlsOverlay.js';
 import { VALLEY, LANDMARKS, WALK_PTS, PATH_END_Z } from './prologue/places.js';
 import { CardPickups } from '../cards/CardPickups.js';
 import { clueFor } from '../cards/cards.js';
@@ -1039,6 +1040,7 @@ export class Prologue extends Level {
         ...LANDMARKS.map((l) => ({ x: l.x, z: l.z, kind: 'landmark', label: l.name })),
       ],
       bounds: VALLEY,
+      bottom: 58, // over the X · SKIP INTRO pill in that corner
     });
     this._mapHeading = Math.PI;
 
@@ -1088,15 +1090,11 @@ export class Prologue extends Level {
   /** One line from Google Fonts; Georgia carries it if the network is gone. */
   _ensureSerif() {
     ensureDialogueFont();
-    // the click-hint pulse and the skip plaque's glow are one tiny
-    // stylesheet, shared by every visit
+    // the click-hint pulse is one tiny stylesheet, shared by every visit
     if (!document.getElementById('prologue-pulse')) {
       const st = document.createElement('style');
       st.id = 'prologue-pulse';
-      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}' +
-        '@keyframes prologueSkipGlow{0%,100%{box-shadow:0 4px 16px rgba(0,0,0,.5)}' +
-        '50%{box-shadow:0 4px 16px rgba(0,0,0,.5),0 0 24px rgba(227,187,98,.6);border-color:rgba(255,226,150,.95)}}' +
-        '.prologue-skip:hover{border-color:#ffe29a!important;background:rgba(40,34,14,.8)!important}';
+      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}';
       document.head.appendChild(st);
     }
   }
@@ -2209,28 +2207,22 @@ export class Prologue extends Level {
       'CLICK TO LOOK AROUND',
     );
 
-    // X skips the whole prologue. It sits top right, clear of the subtitles
-    // and of the ESC · PAUSE pill in the bottom corner: a lit plaque with
-    // the key drawn as a key, glowing three times as the scene opens so it
-    // is seen, and it can be clicked as well as pressed.
-    const KEYCAP = 'display:inline-block;min-width:24px;padding:2px 7px;margin-right:10px;border:1px solid rgba(227,187,98,.85);' +
-      "border-radius:3px;background:rgba(0,0,0,.5);color:#e3bb62;font:700 13px 'Segoe UI',system-ui,sans-serif;" +
-      'letter-spacing:0;text-align:center;box-shadow:0 2px 0 rgba(0,0,0,.6)';
-    this.hud.skip = mk(
-      'position:absolute;top:18px;right:18px;padding:9px 16px 9px 12px;pointer-events:auto;cursor:pointer;user-select:none;' +
-      'background:rgba(8,11,7,.66);border:1px solid rgba(227,187,98,.6);border-radius:4px;backdrop-filter:blur(3px);' +
-      `color:${CREAM};font-size:16px;font-weight:600;letter-spacing:.22em;${SERIF};text-shadow:0 1px 6px rgba(0,0,0,.9);` +
-      'animation:prologueSkipGlow 2.4s ease-in-out .8s 3;transition:opacity .4s',
-      `<span style="${KEYCAP}">X</span>SKIP INTRO`,
-    );
-    this.hud.skip.className = 'prologue-skip';
+    // X skips the whole prologue: a pill like ESC · PAUSE (ui/ControlsOverlay.js),
+    // in the other bottom corner, opening out to PRESS X TO SKIP INTRO as the
+    // scene starts so it is seen, then X · SKIP INTRO. It can be clicked as well
+    // as pressed.
+    this.hud.skip = keyPill('X', 'SKIP INTRO', 'PRESS X TO');
+    Object.assign(this.hud.skip.style, { left: '14px', bottom: '8px' });
+    this.hud.skip.classList.add('big');
+    this._skipBigFor = 5; // seconds from the first frame (update), not from now: this is still behind the loading screen
+    host.appendChild(this.hud.skip);
     this.hud.skip.title = 'Skip the prologue and start Level 1';
     this.hud.skip.addEventListener('click', (e) => {
       e.stopPropagation();
       this._skipAsked = true;   // update() takes it, the same as X
     });
     this.hud.mute = mk(
-      base + ';top:62px;right:20px;color:#cfd6c4;font-size:12px;letter-spacing:.24em;opacity:.8;' +
+      base + ';top:20px;right:20px;color:#cfd6c4;font-size:12px;letter-spacing:.24em;opacity:.8;' +
       `text-shadow:0 1px 6px rgba(0,0,0,.95);${SERIF}`,
       'M — MUTE',
     );
@@ -2722,6 +2714,7 @@ export class Prologue extends Level {
   update(dt, state) {
     this.t += dt;
     if (this._inFireShot()) this._shotT += dt;
+    if (this._skipBigFor > 0 && (this._skipBigFor -= dt) <= 0) this.hud.skip?.classList.remove('big');
 
     if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving && this.phase !== 'refused') { this._exit(state); return; } // (not past the other ending's card)
 
