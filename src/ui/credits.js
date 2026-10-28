@@ -47,6 +47,8 @@ export const CREDIT_SECTIONS = [
         use: 'The wreck in the pool below the falls: wheel, tyre, bumper, axle' },
       { title: '“Steering wheel”', by: 'Poly by Google', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/bIYbhKwE4L0',
         use: 'The wreck in the pool below the falls' },
+      { title: '“Hut”', by: 'Jarlan Perez', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/3OlnbRfwPLc',
+        use: 'The ruined hut in the prologue’s valley' },
     ],
   },
   {
@@ -60,7 +62,7 @@ export const CREDIT_SECTIONS = [
       { title: '“CAR Model”', by: 'Ignition Labs', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/5zUWP5UsLg-', use: 'The Supercar' },
       { title: '“Range Rover”', by: 'IvOfficial', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/8zk4o6nALW', use: 'The Marshal’s car' },
       { title: '“Richie”', by: 'joney_lol', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/BwaLw2Olre', use: 'The Marshal’s drones' },
-      { title: '“Pickup Truck”', by: 'Quaternius', licence: 'CC0', url: 'https://poly.pizza/m/qn4grQgHm8', use: 'The Bruiser, and the pickups in traffic' },
+      { title: '“Pickup Truck”', by: 'Quaternius', licence: 'CC0', url: 'https://poly.pizza/m/qn4grQgHm8', use: 'The Bruiser, the pickups in traffic, and the crew’s truck in the valley' },
       { title: '“Van”', by: 'jeremy', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/9hUUD2DWk1v', use: 'Traffic' },
       { title: '“Bus”', by: 'Poly by Google', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/4CPpvEmrMoF', use: 'Traffic' },
     ],

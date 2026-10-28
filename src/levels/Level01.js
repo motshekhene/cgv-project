@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
+import { CardPickups } from "../cards/CardPickups.js";
+import { clueFor } from "../cards/cards.js";
+import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -840,6 +843,7 @@ export class Level01 extends Level {
     this._buildAdventureHazards(mats);
     this._buildGuardianTeases();
     this._buildStoryLetters();
+    this._buildCards();
     this._buildHandlerPressureProps();
     this._trainEvents = [];
     this._trainActive = false;
@@ -1964,6 +1968,22 @@ export class Level01 extends Level {
         if (this.z < tease.z - 70) tease.group.visible = false;
       }
     }
+  }
+
+  /** The spirit cards hidden on the trail (cards/cards.js), and today's spirit if it's here. */
+  _buildCards() {
+    this._cards = new CardPickups(this.root, "level01", (spot) =>
+      new THREE.Vector3(LANE_X[spot.lane] + this._routeOffsetAt(spot.z, 0), jungleCourseHeight(spot.z) + 1.3, spot.z));
+    // on some days the clue is painted on a board at the side of the trail
+    const sign = clueFor("sign:level01");
+    if (sign) {
+      const board = createClueBoard(sign, { width: 3.6, height: 1.7 });
+      const z = -300;
+      board.position.set(LANE_X[0] - 4.2 + this._routeOffsetAt(z, 0), jungleCourseHeight(z), z);
+      board.rotation.y = 0.35; // turned to face the runner coming down the trail
+      this.root.add(board);
+    }
+    this._clueThought = clueFor("think:level01"); // or Kai remembers it, a while into the run
   }
 
   _buildStoryLetters() {
@@ -4160,6 +4180,15 @@ export class Level01 extends Level {
    */
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
+    // the rules are in the PLAYBOOK (ui/Playbook.js); here, only where to find it
+    if (!this._toldGoal && this._storyT > 0.6) {
+      this._toldGoal = true;
+      this._showTransientBanner("RUN · ESC · PLAYBOOK FOR THE RULES", 2.6);
+    }
+    if (this._clueThought && this._storyT > 70) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
+    }
     if (!this._saidStart && this._storyT > 1.4) {
       this._saidStart = true;
       kaiThinks("Every sound in the forest stopped when I took it.");
@@ -4196,6 +4225,7 @@ export class Level01 extends Level {
     if (this.sliding && this._dust && Math.random() < 0.6) this._kickDust(0.15);
     this._dust?.update(dt);
     this._debris?.update(dt);
+    if (this._cards && this.player) this._cards.update(dt, this.player.position, 1.05);
     if (this._finale || this.caught) state.timeScale = 1; // never stuck in a horn call's slow beat
     const cam = this.game?.camera;
     if (!cam) return;

@@ -79,6 +79,7 @@ const LEVEL_CONTROLS = {
     rows: [
       { label: 'LOOK', keys: 'MOUSE' },
       { label: 'WALK', keys: 'W A S D' },
+      { label: 'MAP (BIGGER \u00b7 SMALLER)', keys: 'N' },
       { label: 'USE \u00b7 CONFIRM', action: 'interact' },
       { label: 'REFUSE', action: 'decline' },
       { label: 'SKIP THE INTRO', action: 'skipScene' },
@@ -128,6 +129,7 @@ const LEVEL_CONTROLS = {
       { label: 'CAMERA \u00b7 LOCK ON', action: 'lockOn' },
       { label: 'NEXT LINE', action: 'skip' },
       { label: 'SHRINES · PAGES', keys: 'WALK INTO THEM' },
+      { label: 'MAP (BIGGER · SMALLER)', keys: 'N' },
       { label: 'RESTART', action: 'restart' },
     ],
   },
