@@ -128,6 +128,7 @@ const COMPOSITE = /* glsl */ `
   uniform float uKick;       // extra fringe for a moment (boost, dodge)
   uniform float uHit;        // 0..1 damage pulse
   uniform float uDanger;     // 0..1 how close the pursuer is: the edges glow ember and beat like a heart
+  uniform float uSilence;    // 0..1 the colour draining out of the world (the prologue's other ending)
   uniform vec3 uFlashColor;
   uniform float uFlash;      // 0..1 full-screen flash
   uniform float uGrain;
@@ -166,6 +167,11 @@ const COMPOSITE = /* glsl */ `
     col = clamp(0.18 * pow(max(col, vec3(0.0)) / 0.18, vec3(uContrast)), 0.0, 1.0);
     float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(lum), col, uSaturation);
+    // the silence: the world goes grey, but anything cyan (the horn, its
+    // light, the Forest Lights) keeps its colour
+    float cyanKeep = clamp((min(col.g, col.b) - col.r) * 3.0, 0.0, 1.0);
+    float grey = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, vec3(grey) * vec3(0.96, 0.99, 1.04), uSilence * (1.0 - cyanKeep));
 
     // vignette: darker (and tinted) toward the corners
     float v = smoothstep(0.25, 0.85, r);
@@ -229,6 +235,9 @@ export class PostFX {
     this._kick = 0;
     this.danger = 0; // 0..1, set by Game from how close the pursuer is
     this._danger = 0;
+    this.silence = 0; // 0..1, set by a level: the colour draining away (eases there at silenceRate)
+    this._silence = 0;
+    this.silenceRate = 0.6;
     this.profile = { ...DEFAULT };
     this._bgKeep = new THREE.Color();
     this._clearKeep = new THREE.Color();
@@ -260,7 +269,7 @@ export class PostFX {
       uLift: { value: new THREE.Vector3() }, uGain: { value: new THREE.Vector3() },
       uContrast: { value: 1 }, uSaturation: { value: 1 },
       uVignette: { value: 0 }, uVignetteColor: { value: new THREE.Vector3() },
-      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 }, uDanger: { value: 0 },
+      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 }, uDanger: { value: 0 }, uSilence: { value: 0 },
       uFlashColor: { value: new THREE.Color(1, 1, 1) }, uFlash: { value: 0 },
       uGrain: { value: 0 }, uTime: { value: 0 }, uAspect: { value: new THREE.Vector2(1, 1) },
     }, { toneMapped: true }); // the one pass that tone maps (and converts to sRGB)
@@ -280,6 +289,9 @@ export class PostFX {
   /** A level's look: the level's PROFILES entry, plus anything given here. */
   setProfile(p = {}, name = null) {
     this.profile = { ...DEFAULT, ...(name ? PROFILES[name] : null), ...p };
+    // every chapter starts in full colour: only the scene that drains it keeps it drained
+    this.silence = this._silence = 0;
+    this.silenceRate = 0.6;
   }
 
   /** Kai is hurt: a red pulse that fades over about half a second. */
@@ -305,6 +317,7 @@ export class PostFX {
     this._flash *= Math.exp(-7 * dt);
     this._kick *= Math.exp(-5 * dt);
     this._danger += (this.danger - this._danger) * (1 - Math.exp(-4 * dt));
+    this._silence += (this.silence - this._silence) * (1 - Math.exp(-this.silenceRate * dt));
   }
 
   _resize(w, h) {
@@ -420,6 +433,7 @@ export class PostFX {
     u.uKick.value = this._kick;
     u.uHit.value = this._hit;
     u.uDanger.value = this._danger;
+    u.uSilence.value = this._silence;
     u.uFlash.value = this._flash;
     u.uGrain.value = p.grain;
     u.uTime.value = this.time % 100;

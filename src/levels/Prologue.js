@@ -2671,7 +2671,7 @@ export class Prologue extends Level {
     this.t += dt;
     if (this._inFireShot()) this._shotT += dt;
 
-    if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving) { this._exit(state); return; }
+    if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving && this.phase !== 'refused') { this._exit(state); return; } // (not past the other ending's card)
 
     if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
     this._mouseIdle += dt;
@@ -2851,10 +2851,16 @@ export class Prologue extends Level {
           this._prompt(
             '<b style="color:' + HORN_HEX + '">E</b> — TAKE THE HORN' +
             '<span style="opacity:.45"> &nbsp;&nbsp;|&nbsp;&nbsp; </span>' +
-            '<b style="color:#8f9bb0">Q</b> — LEAVE IT',
+            '<b style="color:#8f9bb0">Q</b> — ' + (this._hadDoubt ? 'WALK AWAY FOR GOOD' : 'LEAVE IT'),
           );
           if (this.input.pressed('decline')) {
-            // a moment of doubt, in his own head
+            if (this._hadDoubt) {
+              // the second time he means it: the other ending
+              this._refuse();
+              break;
+            }
+            // a moment of doubt, in his own head (a second Q means it)
+            this._hadDoubt = true;
             this.doubted = true;
             this._prompt('');
             this._say('Walk away. Tell him it wouldn\u2019t come loose.', null, true);
@@ -3070,6 +3076,44 @@ export class Prologue extends Level {
     poseHorn(this.horn, hips, HORN_SLING, 1 - Math.exp(-5 * dt));
   }
 
+  /**
+   * THE OTHER ENDING (Kea's): Kai leaves the horn on its stone and walks
+   * away. The forest keeps its sound tonight, but the company only needed
+   * someone, and someone else will take it. The colour drains out of the
+   * world (PostFX's silence) and the card says what became of the valley.
+   * TRY AGAIN puts him back at the stone with the choice in front of him.
+   */
+  _refuse() {
+    this.phase = 'refused';
+    this.standing = false;
+    this._prompt('');
+    this._say('No. It stays where it is.', 3, true);
+    if (this.game?.postfx) { this.game.postfx.silenceRate = 0.18; this.game.postfx.silence = 0.85; }
+    clearTimeout(this._refuseTimer);
+    this._refuseTimer = setTimeout(() => {
+      if (!this.scene || this.phase !== 'refused') return;
+      this._refusedCard = showEndCard({
+        kind: 'lose',
+        title: 'THE HORN STAYS',
+        sub: 'Kai walked back down to the camp and left the horn on its stone. By morning the company had found someone else who would take it. By winter, the valley was cleared.',
+        lines: [{ text: 'ANOTHER ENDING · TAKE THE HORN TO CHANGE IT' }],
+        action: { label: 'TRY AGAIN', key: 'ENTER', onClick: () => this._backToStone() },
+        extra: [{ label: 'MAIN MENU', onClick: () => this.game.setLevel('title') }],
+      });
+    }, 3600);
+  }
+
+  /** TRY AGAIN, from the other ending: back at the stone, in colour, the horn still there to take. */
+  _backToStone() {
+    this._refusedCard?.destroy();
+    this._refusedCard = null;
+    if (this.game?.postfx) { this.game.postfx.silenceRate = 1.2; this.game.postfx.silence = 0; }
+    this.phase = 'choice';
+    this.t = 0;
+    this._hadDoubt = false;
+    this.doubted = false;
+    this.standing = true;
+  }
 
   /**
    * The walk. Things in the trees go off where he is, talking or not: the
@@ -3179,6 +3223,8 @@ export class Prologue extends Level {
 
   /* ==================================================== teardown */
   teardown() {
+    clearTimeout(this._refuseTimer);
+    this._refusedCard?.destroy();
     this.sfx.stop();
     this.map?.dispose();
     this.game.renderer.domElement.removeEventListener('click', this._onClick);

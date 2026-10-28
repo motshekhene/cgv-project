@@ -8,7 +8,8 @@ import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
 import { Skids, Smoke, TyreTracks } from './level2/skids.js';
 import { CarDamage } from './level2/CarDamage.js';
-import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint } from './level2/carSelect.js';
+import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint, canBuyACar } from './level2/carSelect.js';
+import { CURRENCY, balance, owns, buy } from '../core/wallet.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
 import { createGameOverScreen } from './level2/gameOver.js';
@@ -281,8 +282,10 @@ export class Level02 extends Level {
       onMute: () => toggleMuted(), // the game's one mute (M does the same)
     });
     this._buildShield();
-    // a RETRY after a wreck goes straight back on the road in the same car
-    if (this.fromIntro || retryDriving) this._startDriving();
+    // a RETRY after a wreck goes straight back on the road in the same car;
+    // straight from Level 1, the yard first if the Forest Lights he caught buy a car he hasn't got
+    const shop = this.fromIntro && !retryDriving && canBuyACar();
+    if ((this.fromIntro || retryDriving) && !shop) this._startDriving();
     else this._openCarPicker();
     retryDriving = false;
   }
@@ -462,6 +465,18 @@ export class Level02 extends Level {
 
   async _confirmCar() {
     if (!this._selectingCar || this._confirmingCar) return;
+    // a car that isn't his yet: DRIVE is BUY (if he has the Forest Lights), then DRIVE
+    const pick = CARS[this._carIndex];
+    if (!owns(pick.id)) {
+      if (buy(pick.id, pick.price)) {
+        this._flash(`${pick.name.toUpperCase()} · YOURS`, '#8ff0f6');
+        this.sound.dodge?.();
+      } else {
+        this._flash(`${pick.price - balance()} MORE ${CURRENCY} NEEDED`, '#f2934f');
+      }
+      this._picker?.refresh();
+      return;
+    }
     this._confirmingCar = true;
     await this._modelSwap;
     saveCar(this._carIndex);

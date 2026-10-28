@@ -1,6 +1,7 @@
 import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { LANDMARKS } from '../levels/prologue/places.js';
+import { CARS } from '../levels/level2/carSelect.js';
 
 /**
  * PLAYBOOK, from the main menu and the pause menu: everything a new player
@@ -24,21 +25,24 @@ const IMG = (name) => `./assets/guide/${name}.jpg`;
 const CHAPTERS = [
   {
     no: '00', kicker: 'PROLOGUE', title: 'The Fire and the Stone', color: '#ffb03a', img: 'p-camp',
-    goal: 'Hear Baba Zwane out at the fire, then walk up the old path to the stone and take the horn (E). Q leaves it there for a moment, but the story only goes on with the horn.',
+    goal: 'Hear Baba Zwane out at the fire, then walk up the old path to the stone and take the horn (E).',
+    more: ['THE CHOICE', 'Q at the stone and Kai has his doubts. Q a second time and he walks away for good: another ending (TRY AGAIN puts you back at the stone).'],
     lose: 'Nothing chases you yet. The valley is open: wander off the path to its landmarks, and press N for the map.',
-    keys: [['W A S D', 'walk'], ['MOUSE', 'look'], ['E', 'take the horn'], ['Q', 'leave it'], ['N', 'map'], ['X', 'skip']],
+    keys: [['W A S D', 'walk'], ['MOUSE', 'look'], ['E', 'take the horn'], ['Q', 'leave it (twice: walk away)'], ['N', 'map'], ['X', 'skip the intro']],
   },
   {
     no: '01', kicker: 'LEVEL 1', title: 'The Old Trail', color: '#9ed36a', img: 'l1-fork',
     goal: 'Run down the mountain to the company’s camp with the Marshal behind you. Switch lanes, jump and slide past what’s on the trail.',
+    more: ['FOREST LIGHTS', 'Catch the glowing cyan lights: 40 fill the horn, and every one is kept, even on a run that ends badly, to buy cars in Level 2.'],
     lose: 'He always gains a little: hold SHIFT to sprint away, until your stamina runs dry (it refills when you let go). Every hit costs health and lets him jump closer. You lose if he catches you (the red dot reaches yours on the chase meter), if your health runs out, if you fall through the bridge, or if the stone guardian or a hazard hits you.',
     keys: [['A D / ← →', 'lanes'], ['SPACE', 'jump'], ['CTRL', 'slide'], ['SHIFT', 'sprint'], ['V', 'blow the horn'], ['RMB', 'look back']],
   },
   {
     no: '02', kicker: 'LEVEL 2', title: 'The River Road', color: '#7fc8e8', img: 'l2-road',
-    goal: 'Drive the company’s car down the River Road to the falls with the Marshal hunting you in his own car. Find the gap in the company’s barricades.',
+    goal: 'Drive down the River Road to the falls with the Marshal hunting you in his own car. Find the gap in the company’s barricades.',
+    more: ['THE CAR YARD', `The Executive is yours. The other five cost Forest Lights (${CARS.filter((c) => c.price).sort((a, b) => a.price - b.price).map((c) => `${c.name} ${c.price}`).join(', ')}). Come from Level 1 with enough for one and you start in the yard; V opens it any time. A car bought is yours for good.`],
     lose: 'The car breaks down if it takes too much damage: from the Marshal’s rams, traffic, animals and barricades.',
-    keys: [['W S', 'drive'], ['A D', 'steer'], ['SHIFT', 'boost'], ['Q', 'drift'], ['SPACE', 'handbrake'], ['C', 'view']],
+    keys: [['W S', 'drive'], ['A D', 'steer'], ['SHIFT', 'boost'], ['Q', 'drift'], ['SPACE', 'handbrake'], ['C', 'view'], ['V', 'the car yard']],
   },
   {
     no: '03', kicker: 'LEVEL 3', title: 'The Falls', color: '#f2934f', img: 'l3-yard',
@@ -53,8 +57,8 @@ const ANY_TIME = [['ESC', 'pause (and this playbook)'], ['H', 'the controls'], [
 const WHERE_COLOR = { 'Level 1': '#9ed36a', 'Levels 1 and 3': '#9ed36a', 'Levels 1, 2, 3': '#f2934f', 'Level 3': '#f2934f', Anywhere: '#4fd6e0' };
 
 const THINGS = [
-  { img: 'light', name: 'THE FOREST’S LIGHT', what: 'Glowing cyan lights floating over the trail. Run through them: 40 fill the horn. Some float high, only in reach with a jetpack.', where: 'Level 1' },
-  { img: 'p-stone', name: 'THE HORN', what: 'Level 1 (V, when 40 lights fill it): smashes everything on the trail ahead and roots the Marshal for a moment. Level 3 (V): slows time for 3 seconds.', where: 'Levels 1 and 3' },
+  { img: 'light', name: 'FOREST LIGHTS', what: 'Glowing cyan lights floating over the trail. Every one you catch is kept, to buy cars in Level 2, and 40 fill the horn. Some float high, only in reach with a jetpack.', where: 'Level 1' },
+  { img: 'p-stone', name: 'THE HORN', what: 'Level 1 (V, when 40 Forest Lights fill it): smashes everything on the trail ahead and roots the Marshal for a moment. Level 3 (V): slows time for 3 seconds.', where: 'Levels 1 and 3' },
   { img: 'page', name: 'TORN PAGES', what: 'The company’s own papers. Run through one to read it. On the trail, TORN PAGE AHEAD says which side one is on as you get close. Find all 6 (3 on the trail, 3 at the falls) for the true ending.', where: 'Levels 1 and 3' },
   { img: 'card', name: 'SPIRIT CARDS', what: 'One card hides somewhere in the game each day. Where it sleeps is only said in the game: by Baba Zwane, in Kai’s thoughts, or on a sign. Find the place on the map, then go there and touch it. See SPIRIT CARDS on the main menu.', where: 'Anywhere' },
   { img: 'health', name: 'HEALTH PACKS', what: 'Red-and-white kits on the trail. Run through one for 25 health.', where: 'Level 1' },
@@ -114,25 +118,43 @@ const CSS = THEME_CSS + `
   border:1px solid rgba(227,187,98,.55); border-bottom-width:3px; border-radius:4px; background:linear-gradient(180deg, rgba(60,66,44,.95), rgba(22,26,16,.95));
   box-shadow:0 2px 5px rgba(0,0,0,.45); }
 .pb kbd + kbd { margin-left:3px; }
-.pb-key { display:inline-flex; align-items:center; gap:7px; padding:4px 10px 4px 5px; border-radius:999px; background:rgba(0,0,0,.3); border:1px solid rgba(239,228,200,.08); }
-.pb-key i { font-style:normal; color:var(--gold-dim); margin:0 2px; }
-.pb-key em { font:italic 14px ${DIALOGUE_FONT}; color:var(--ink); white-space:nowrap; }
-.pb-keys { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
 
-/* HOW TO PLAY: a card per chapter, its picture down the left */
-.pb-ch { position:relative; display:grid; grid-template-columns:minmax(150px, 230px) 1fr; margin:0 0 14px; border-radius:6px; overflow:hidden;
-  border:1px solid color-mix(in srgb, var(--c) 45%, transparent);
-  background:linear-gradient(110deg, color-mix(in srgb, var(--c) 12%, rgba(0,0,0,.3)), rgba(0,0,0,.3) 45%); }
-.pb-pic { position:relative; min-height:150px; background-size:cover; background-position:center; }
-.pb-pic::after { content:''; position:absolute; inset:0; background:linear-gradient(90deg, transparent 40%, rgba(12,14,9,.95)), linear-gradient(0deg, color-mix(in srgb, var(--c) 30%, transparent), transparent 55%); }
-.pb-no { position:absolute; left:12px; bottom:4px; z-index:1; font:600 54px/1 ${DIALOGUE_FONT}; color:var(--c); text-shadow:0 0 18px color-mix(in srgb, var(--c) 70%, transparent), 0 2px 0 #000; opacity:.95; }
-.pb-txt { padding:12px 16px 14px 6px; }
+/* HOW TO PLAY: one chapter at a time, with room: chips to pick it, a wide
+   picture with its number and name, what you're doing on the left, the keys
+   one to a row on the right, and the way to the next */
+.pb-chs { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:2px 0 14px; }
+.pb-chip { cursor:pointer; padding:6px 13px; border-radius:999px; font:700 10px var(--sans); letter-spacing:.22em; color:var(--ink-dim);
+  border:1px solid color-mix(in srgb, var(--c) 35%, transparent); background:rgba(0,0,0,.3); transition:color .15s, background .15s, box-shadow .15s; }
+.pb-chip b { color:var(--c); margin-right:6px; }
+.pb-chip:hover { color:var(--ink); }
+.pb-chip.on { color:#fff; border-color:var(--c); background:color-mix(in srgb, var(--c) 18%, transparent); box-shadow:0 0 14px color-mix(in srgb, var(--c) 30%, transparent); }
+.pb-hero { position:relative; height:clamp(120px, 24vh, 220px); border-radius:8px; overflow:hidden; background-size:cover; background-position:center 60%;
+  border:1px solid color-mix(in srgb, var(--c) 45%, transparent); }
+.pb-hero::after { content:''; position:absolute; inset:0;
+  background:linear-gradient(0deg, rgba(10,12,8,.94), transparent 70%), linear-gradient(90deg, color-mix(in srgb, var(--c) 22%, transparent), transparent 55%); }
+.pb-hero-t { position:absolute; left:20px; right:20px; bottom:12px; z-index:1; display:flex; align-items:flex-end; gap:16px; }
+.pb-no { font:600 64px/0.9 ${DIALOGUE_FONT}; color:var(--c); text-shadow:0 0 18px color-mix(in srgb, var(--c) 70%, transparent), 0 2px 0 #000; }
 .pb-kick { font:700 10px var(--sans); letter-spacing:.32em; color:var(--c); }
-.pb-txt h3 { margin:1px 0 6px; font:600 24px/1.1 ${DIALOGUE_FONT}; color:var(--ink); }
-.pb-txt p { margin:5px 0; font:15.5px/1.45 ${DIALOGUE_FONT}; color:var(--ink); }
-.pb-txt p b { display:inline-block; min-width:86px; font:700 10px var(--sans); letter-spacing:.2em; color:var(--c); }
-.pb-any { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; border:1px dashed rgba(227,187,98,.3); }
+.pb-hero h3 { margin:2px 0 0; font:600 clamp(24px, 3vw, 32px)/1.05 ${DIALOGUE_FONT}; color:#fff6dc; text-shadow:0 2px 8px #000; }
+.pb-cols { display:grid; grid-template-columns:1.45fr 1fr; gap:26px; margin-top:18px; align-items:start; }
+.pb-block { margin:0 0 16px; }
+.pb-block h4 { display:flex; align-items:center; gap:8px; margin:0 0 6px; font:700 10px var(--sans); letter-spacing:.3em; color:var(--c); }
+.pb-block h4::before { content:'\\25C6'; font-size:8px; }
+.pb-block p { margin:0; font:16px/1.6 ${DIALOGUE_FONT}; color:var(--ink); }
+.pb-keypanel { padding:10px 14px 4px; border-radius:8px; background:rgba(0,0,0,.28); border:1px solid rgba(239,228,200,.08); }
+.pb-keypanel h4 { margin:2px 0 6px; font:700 10px var(--sans); letter-spacing:.3em; color:var(--c); }
+.pb-keyrow { display:flex; justify-content:space-between; align-items:center; gap:14px; padding:8px 0; border-top:1px solid rgba(239,228,200,.07); }
+.pb-keyrow > span { white-space:nowrap; }
+.pb-keyrow i { font-style:normal; color:var(--gold-dim); margin:0 3px; }
+.pb-keyrow em { font:italic 15px ${DIALOGUE_FONT}; color:var(--ink); text-align:right; }
+.pb-any { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:6px; padding:10px 14px; border-radius:6px; border:1px dashed rgba(227,187,98,.3); }
 .pb-any > b { font:700 10px var(--sans); letter-spacing:.3em; color:var(--gold); margin-right:6px; }
+.pb-key { display:inline-flex; align-items:center; gap:7px; padding:4px 10px 4px 5px; border-radius:999px; background:rgba(0,0,0,.3); border:1px solid rgba(239,228,200,.08); }
+.pb-key em { font:italic 14px ${DIALOGUE_FONT}; color:var(--ink); white-space:nowrap; }
+.pb-pager { display:flex; justify-content:space-between; margin-top:14px; }
+.pb-pg { cursor:pointer; padding:6px 12px; font:700 10px var(--sans); letter-spacing:.24em; color:var(--ink-dim); border:1px solid rgba(227,187,98,.22); border-radius:2px; background:rgba(0,0,0,.25); }
+.pb-pg:hover { color:var(--gold); border-color:var(--gold); }
+.pb-pg.off { visibility:hidden; }
 
 /* THINGS: picture cards, the picture leaning in on hover */
 .pb-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
@@ -177,11 +199,8 @@ const CSS = THEME_CSS + `
 .pb-foot { text-align:center; margin-top:10px; }
 .pb-hint { margin-top:7px; font-size:10px; letter-spacing:.2em; color:var(--ink-dim); text-align:center; }
 @keyframes pb-spin { to { transform:rotate(360deg); } }
-@media (max-width:640px) {
-  .pb-ch { grid-template-columns:1fr; }
-  .pb-pic { min-height:110px; }
-  .pb-pic::after { background:linear-gradient(0deg, rgba(12,14,9,.95), transparent 70%); }
-  .pb-txt { padding:4px 14px 14px; }
+@media (max-width:700px) {
+  .pb-cols { grid-template-columns:1fr; gap:10px; }
 }
 @media (max-height:860px) {
   .pb-in { padding:12px 20px 10px; }
@@ -241,17 +260,9 @@ export class Playbook {
   _tab(id) {
     this.tab = id;
     for (const b of this.el.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === id);
-    const keyRow = (list) => list.map(([k, what]) => `<span class="pb-key">${caps(k)}<em>${what}</em></span>`).join('');
     if (id === 'how') {
-      this.body.innerHTML = CHAPTERS.map((c, i) => `<div class="pb-ch pb-deal" style="--c:${c.color};--i:${i}">
-          <div class="pb-pic" style="background-image:url('${IMG(c.img)}')"><span class="pb-no">${c.no}</span></div>
-          <div class="pb-txt">
-            <div class="pb-kick">${c.kicker}</div><h3>${c.title}</h3>
-            <p><b>GOAL</b>${c.goal}</p><p><b>WATCH OUT</b>${c.lose}</p>
-            <div class="pb-keys">${keyRow(c.keys)}</div>
-          </div>
-        </div>`).join('')
-        + `<div class="pb-any pb-deal" style="--i:${CHAPTERS.length}"><b>ANY TIME</b>${keyRow(ANY_TIME)}</div>`;
+      this._chapter(this.chapterAt ?? 0);
+      return;
     } else if (id === 'things') {
       this.body.innerHTML = `<div class="pb-grid">${THINGS.map((t, i) => `<div class="pb-thing pb-deal" style="--c:${WHERE_COLOR[t.where] || '#e3bb62'};--i:${i}">
           <div class="pb-shot"><img alt="" src="${IMG(t.img)}"><span class="pb-where">${t.where.toUpperCase()}</span><b>${t.name}</b></div>
@@ -273,7 +284,43 @@ export class Playbook {
     this.body.scrollTop = 0;
   }
 
-  open(tab = 'how') {
+  /** HOW TO PLAY, one chapter: its picture, what you're doing, its keys, and the way to the others. */
+  _chapter(i) {
+    this.chapterAt = i;
+    const c = CHAPTERS[i];
+    const keyRow = (list) => list.map(([k, what]) => `<span class="pb-key">${caps(k)}<em>${what}</em></span>`).join('');
+    const prev = CHAPTERS[i - 1], next = CHAPTERS[i + 1];
+    this.body.innerHTML = `
+      <div class="pb-chs">${CHAPTERS.map((ch, j) => `<span class="pb-chip${j === i ? ' on' : ''}" data-ch="${j}" style="--c:${ch.color}"><b>${ch.no}</b>${ch.kicker}</span>`).join('')}</div>
+      <div class="pb-page pb-deal" style="--c:${c.color}">
+        <div class="pb-hero" style="background-image:url('${IMG(c.img)}')">
+          <div class="pb-hero-t"><span class="pb-no">${c.no}</span><div><div class="pb-kick">${c.kicker}</div><h3>${c.title}</h3></div></div>
+        </div>
+        <div class="pb-cols">
+          <div>
+            <div class="pb-block"><h4>GOAL</h4><p>${c.goal}</p></div>
+            ${c.more ? `<div class="pb-block"><h4>${c.more[0]}</h4><p>${c.more[1]}</p></div>` : ''}
+            <div class="pb-block"><h4>WATCH OUT</h4><p>${c.lose}</p></div>
+          </div>
+          <div class="pb-keypanel"><h4>KEYS</h4>${c.keys.map(([k, what]) => `<div class="pb-keyrow"><span>${caps(k)}</span><em>${what}</em></div>`).join('')}</div>
+        </div>
+        <div class="pb-any"><b>ANY TIME</b>${keyRow(ANY_TIME)}</div>
+        <div class="pb-pager">
+          <span class="pb-pg${prev ? '' : ' off'}" data-ch="${i - 1}">‹ ${prev ? prev.kicker : ''}</span>
+          <span class="pb-pg${next ? '' : ' off'}" data-ch="${i + 1}">${next ? next.kicker : ''} ›</span>
+        </div>
+      </div>`;
+    for (const el of this.body.querySelectorAll('[data-ch]')) {
+      const j = +el.dataset.ch;
+      if (CHAPTERS[j]) el.addEventListener('click', () => this._chapter(j));
+    }
+    this.body.scrollTop = 0;
+  }
+
+  /** `level`: the level it's opened from (the pause menu), so HOW TO PLAY opens on that chapter. */
+  open(tab = 'how', level = null) {
+    const at = { prologue: 0, level01: 1, 'level02-intro': 2, level02: 2, level03: 3 }[level];
+    if (at !== undefined) this.chapterAt = at;
     this._tab(tab);
     this.el.classList.add('show');
   }

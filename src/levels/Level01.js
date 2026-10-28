@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Particles } from "../fx/Particles.js";
 import { renderChaseScore } from "../audio/chaseScore.js";
 import { CardPickups } from "../cards/CardPickups.js";
+import { CURRENCY, balance as lightsToSpend, earn as earnLights } from "../core/wallet.js";
 import { clueFor } from "../cards/cards.js";
 import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
@@ -2354,6 +2355,7 @@ export class Level01 extends Level {
       r.collected = true;
       this.rewardCount++;
       this.rewardScore += r.value;
+      earnLights(1); // kept, to spend on cars in Level 2 (core/wallet.js)
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
       // every light feeds the horn
@@ -2636,7 +2638,7 @@ export class Level01 extends Level {
     const stat = document.createElement("div");
     stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div class="l1h-name">KAI <em><span data-reward-count>0</span> LIGHTS · <span data-reward-score>0</span></em></div>
+      <div class="l1h-name">KAI <em><span data-reward-count>0</span> ${CURRENCY}</em></div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
@@ -2759,7 +2761,6 @@ export class Level01 extends Level {
 
     this._templeHud = root;
     this._hudRewardCount = stat.querySelector("[data-reward-count]");
-    this._hudRewardScore = stat.querySelector("[data-reward-score]");
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
     this._hudHornLabel = stat.querySelector("[data-horn-label]");
     this._hudHornFill = stat.querySelector("[data-horn-fill]");
@@ -2944,7 +2945,6 @@ export class Level01 extends Level {
     const left = Math.max(0, FINISH_DISTANCE + this.z);
 
     if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
-    if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
     if (this._hudHornFill) {
       const full = this._hornCharge >= 1;
       this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
@@ -3111,7 +3111,8 @@ export class Level01 extends Level {
     this._caughtOverlay = showLoseCard(this.game, {
       title: "CAUGHT",
       sub: title,
-      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
+      // what he caught is his whatever happens: it's still there to spend on a car
+      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }, { text: `${this.rewardCount} ${CURRENCY} KEPT  ·  ${lightsToSpend()} TO SPEND ON CARS` }],
     });
   }
 
@@ -3129,7 +3130,7 @@ export class Level01 extends Level {
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
-      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  ${this.rewardCount} LIGHTS  ·  HORN CALLS ${this._hornCalls}` }],
+      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  HORN CALLS ${this._hornCalls}` }, { text: `${this.rewardCount} ${CURRENCY} CAUGHT  ·  ${lightsToSpend()} TO SPEND ON CARS` }],
       action: {
         label: "CONTINUE",
         key: "SPACE",
@@ -5079,7 +5080,7 @@ export class Level01 extends Level {
         this._hornCharge = 0;
         this._hornCalls++;
       } else {
-        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} LIGHTS`, 1.2);
+        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} ${CURRENCY}`, 1.2);
       }
     }
     if (this._hornT >= 0) {

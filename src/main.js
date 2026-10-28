@@ -136,7 +136,7 @@ const pauseMenu = new PauseMenu({
   onResume: () => game.setPaused(false),
   onRestart: () => game.restart(),
   onOptions: () => options.open(),
-  onPlaybook: () => playbook.open(),
+  onPlaybook: () => playbook.open("how", game.levelName), // on the chapter being played
   onMenu: () => goTo("title"),
 });
 game.onPaused = (v, reason) => {
