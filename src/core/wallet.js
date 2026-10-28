@@ -14,7 +14,7 @@
 export const CURRENCY = 'FOREST LIGHTS';
 export const CURRENCY_ONE = 'FOREST LIGHT';
 /** The car that is everyone's from the start (level2/carSelect.js CARS). */
-export const FREE_CAR = 'executive';
+export const FREE_CAR = 'bruiser';
 
 const KEY = 'silent-horn.wallet';
 function load() {

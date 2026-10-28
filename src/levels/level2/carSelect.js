@@ -9,8 +9,9 @@ import { CURRENCY, FREE_CAR, balance, owns } from '../../core/wallet.js';
  *   strength  armour + weight: damage taken is divided by it, and a heavier
  *             car is shoved less by the Handler and by traffic
  *   price     Forest Lights to buy it (core/wallet.js), caught on the trail in
- *             Level 1: the Executive is everyone's; a decent first run (100-150
- *             lights of the ~390) buys a cheap one, the Supercar takes several
+ *             Level 1: the Bruiser is everyone's (first here, so it's the yard's
+ *             first too); a decent first run (100-150 lights of the ~390) buys a
+ *             cheap one, the Supercar takes several
  */
 // Models: Quaternius "Cars Bundle" (CC0) + "CAR Model" by Ignition Labs (CC BY 3.0).
 // `length` is the car's real-world length in metres; everything (lights,
@@ -19,8 +20,14 @@ import { CURRENCY, FREE_CAR, balance, owns } from '../../core/wallet.js';
 // the car's own frame, measured off the model side-on (see level1/carDoor.js).
 export const CARS = [
   {
+    // "Pickup Truck" by Quaternius, CC0
+    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3, price: 0,
+    blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
+    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
+  },
+  {
     // "Convertible" by Poly by Google, CC BY 3.0
-    id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9, price: 0,
+    id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9, price: 90,
     blurb: 'All-rounder — quick, comfortable, nothing to prove', stats: { speed: 43, accel: 22, handling: 1.0, strength: 1.0 },
     door: { z: [-0.52, 0.63], y: [0.24, 1.04], depth: 0.37, interior: true, seat: { x: 0.62, y: 0.4 } },
   },
@@ -53,12 +60,6 @@ export const CARS = [
     // the window leans in a long way (0.54 m at the top): deep enough that it rises
     // with the door, out of his way; the seat under the top of its low roof
     door: { z: [-0.62, 0.85], y: [0.26, 1.08], depth: 0.5, swing: 'up', seat: { x: 0.7 } },
-  },
-  {
-    // "Pickup Truck" by Quaternius, CC0
-    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3, price: 90,
-    blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
-    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
   },
 ];
 
