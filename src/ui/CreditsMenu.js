@@ -236,7 +236,7 @@ export class CreditsMenu {
         <div class="cm-r-links">${link(it.url, 'cm-url', host(it.url) + ' ↗')}${link(lic.url ?? it.url, 'cm-lic', lic.name)}</div></div>`;
     }).join('') + (sec.note ? `<div class="cm-r-note">${sec.note}</div>` : '')).join('');
     const assets = `<div class="cm-roll">
-        <div class="cm-r-open"><small>WITH THANKS TO</small><h3>THE ARTISTS AND TOOLS</h3><p>Everything in the game we didn’t make ourselves.</p></div>
+        <div class="cm-r-open"><small>MADE POSSIBLE BY</small><h3>THOSE WHO SHARED</h3><p>The models, sounds, fonts and tools in this game that other people made and shared.</p></div>
         ${roll}
         <div class="cm-r-end">
           <svg viewBox="0 0 260 200" aria-hidden="true"><path d="${HORN_PATH}" fill="#8ff0f6"/></svg>
