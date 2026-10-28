@@ -121,6 +121,10 @@ export const CREDIT_SECTIONS = [
         url: 'https://pixabay.com/sound-effects/collect-points-190037/', use: 'Catching Forest Lights on the trail' },
       { title: '“Car crash (swerving, and crash)”', by: 'RSF_STUDIOS', licence: 'Pixabay',
         url: 'https://pixabay.com/sound-effects/car-crash-swerving-and-crash-592672/', use: 'Wrecks on the River Road' },
+      { title: '“racing car engine sound loops”', by: 'domasx2', licence: 'CC0', url: 'https://opengameart.org/content/racing-car-engine-sound-loops',
+        use: 'Your car’s engine on the River Road' },
+      { title: '“Big Explosion”', by: 'elnineo', licence: 'CC0', url: 'https://opengameart.org/content/explosion-tilesets',
+        use: 'A wreck going up, and the Marshal’s bombs' },
     ],
   },
   {

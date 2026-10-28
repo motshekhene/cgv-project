@@ -11,9 +11,11 @@
  *   music        the game's theme — the recorded loop, with the synthesised
  *                'drive' arrangement as the fallback — on the same music
  *                bus, so N and ducking work unchanged
- *   continuous   a four-cylinder engine (firing pulses through an exhaust, revving
- *                through 5 gears, shifts, overrun pops, misfires when damaged,
- *                turbo on boost), the flames' roar when it burns
+ *   continuous   the car's engine: a recording of a real one (OpenGameArt, CC0)
+ *                pitched with the revs through 5 gears, dipping on shifts,
+ *                popping on the overrun, misfiring when damaged, turbo on boost
+ *                (a four-cylinder written in code stands in until it decodes);
+ *                the flames' roar when it burns
  *                with a strained, rattling layer as the car takes damage,
  *                Handler siren (wail when chasing, fast yelp while attacking)
  *                over his own diesel engine — deeper and lumpier than the
@@ -48,6 +50,19 @@ import {
 } from "../../audio/jungleAudio.js";
 import { musicVolumeNode } from "../../audio/masterMute.js";
 import { renderScore } from "../../audio/chaseScore.js";
+
+/** Where in a recording (s) its loudest 20 ms is: the impact in a crash. */
+function loudestAt(buf) {
+  const d = buf.getChannelData(0);
+  const win = Math.max(1, Math.floor(buf.sampleRate * 0.02));
+  let best = 0, at = 0;
+  for (let i = 0; i < d.length; i += win) {
+    let e = 0;
+    for (let j = i, n = Math.min(d.length, i + win); j < n; j++) e += d[j] * d[j];
+    if (e > best) { best = e; at = i; }
+  }
+  return at / buf.sampleRate;
+}
 
 export class Level2Sound {
   constructor({ volume = 0.75 } = {}) {
@@ -108,7 +123,17 @@ export class Level2Sound {
     // the recorded traffic wreck (Pixabay, ~5 s of swerve and crunch) —
     // trafficCrash prefers it the moment it's decoded
     loadAudioFileBuffer(ctx, './assets/audio/rsf_studios-car-crash-swerving-and-crash-592672.mp3', { peak: 0.9 })
-      .then((b) => { if (b && this.ctx) this._crashBuffer = b; });
+      .then((b) => {
+        if (!b || !this.ctx) return;
+        this._crashBuffer = b;
+        this._crashHit = loudestAt(b); // where in it the cars meet: crash() plays from there
+      });
+    // a real engine (OpenGameArt, CC0) takes over from the synthesised one the moment it decodes,
+    // and a real explosion for the wreck and the bombs
+    loadAudioFileBuffer(ctx, './assets/audio/domasx2-racing-car-engine-loop.wav', { peak: 0.9 })
+      .then((b) => { if (b && this.ctx && this.engine) this._useRecordedEngine(b); });
+    loadAudioFileBuffer(ctx, './assets/audio/elnineo-big-explosion.ogg', { peak: 0.95 })
+      .then((b) => { if (b && this.ctx) this._boomBuffer = b; });
 
     // The shared jungle world: cue palette, living bed and drive music, at
     // contract levels that land on the same loudness as Level 1 (the levels
@@ -165,7 +190,29 @@ export class Level2Sound {
     const turbo = ctx.createOscillator(); turbo.type = 'sine'; turbo.frequency.value = 1400;
     const turboGain = ctx.createGain(); turboGain.gain.value = 0;
     turbo.connect(turboGain).connect(this.master); turbo.start();
-    this.engine = { src, shaper, filter, shift, out, intake, rumble, whine, whineGain, turbo, turboGain, gear: 0, lastThrottle: false };
+    this.engine = { src, shaper, exhaust, filter, shift, out, intake, rumble, whine, whineGain, turbo, turboGain, gear: 0, lastThrottle: false };
+  }
+
+  /**
+   * The recorded engine (domasx2's loop, a real car) in place of the written
+   * one: the same chain after it, so the revs, shifts, misfires and overrun
+   * all still work, with a lighter clip and less colour from the exhaust
+   * filter, since the recording has its own.
+   */
+  _useRecordedEngine(buf) {
+    const E = this.engine, ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.playbackRate.value = 0.8;
+    src.connect(E.shaper);
+    src.start();
+    try { E.src.stop(); } catch { /* already stopped */ }
+    E.src.disconnect();
+    E.src = src;
+    E.recorded = true;
+    E.shaper.curve = this._clipCurve(1.1);
+    E.exhaust.gain.value = 2;
   }
 
   /**
@@ -322,8 +369,10 @@ export class Level2Sound {
     const E = this.engine;
     if (!this._engineOff) {
       const revs = v < 0.02 ? 850 + (s.throttle ? 900 : 0) : 1500 + rpm * 5000 + (s.boosting ? 600 : 0);
-      smooth(E.src.playbackRate, revs / 1000, 0.07);
-      smooth(E.filter.frequency, 500 + rpm * 1400 + (s.throttle ? 1500 : 0), 0.08);
+      // the recording is pitched up with the revs (idle at 0.8x, the limiter at ~2.5x); the written one is at 1000 rpm
+      const revN = Math.max(0, Math.min(1, (revs - 850) / 6250));
+      smooth(E.src.playbackRate, E.recorded ? 0.8 + revN * 1.75 : revs / 1000, 0.07);
+      smooth(E.filter.frequency, E.recorded ? 1600 + rpm * 2600 + (s.throttle ? 2600 : 0) : 500 + rpm * 1400 + (s.throttle ? 1500 : 0), 0.08);
       smooth(E.out.gain, 0.06 + (s.throttle ? 0.07 : 0.03) + v * 0.04, 0.1);
       smooth(E.intake.gain.gain, s.throttle ? 0.012 + rpm * 0.03 : 0.004, 0.08);
       smooth(E.intake.filter.frequency, 700 + rpm * 1800, 0.1);
@@ -466,6 +515,25 @@ export class Level2Sound {
   crash(impact = 0.6, pan = 0) {
     if (!this.ready) return;
     const k = Math.max(0.2, Math.min(1, impact));
+    if (this._crashBuffer && this._crashHit != null) {
+      // the real thing: the recorded wreck from the moment the cars meet, cut short (longer the
+      // harder the hit), with a thud under it for the weight, and the glass on a hard one
+      const ctx = this.ctx, at = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = this._crashBuffer;
+      src.playbackRate.value = 0.94 + Math.random() * 0.12;
+      const g = ctx.createGain();
+      const len = 0.6 + 0.6 * k;
+      g.gain.setValueAtTime(0.24 + 0.38 * k, at);
+      g.gain.setTargetAtTime(0, at + len - 0.15, 0.06);
+      const p = ctx.createStereoPanner(); p.pan.value = pan;
+      src.connect(g).connect(p).connect(this.master);
+      src.start(at, Math.max(0, this._crashHit - 0.06), len);
+      this._tone({ freq: 110, to: 36, peak: 0.3 * k + 0.08, attack: 0.002, decay: 0.32, pan });
+      if (k > 0.6) this._cue('glass', { volume: 0.2 * k + 0.06, rate: 0.96 + Math.random() * 0.08 });
+      if (k > 0.7) this._duck(0.3, 0.4);
+      return;
+    }
     this._tone({ freq: 120, to: 34, peak: 0.42 * k + 0.1, attack: 0.002, decay: 0.38, pan });       // the bodies meeting
     this._burst({ freq: 420, peak: 0.3 * k + 0.08, attack: 0.002, decay: 0.22, pan });               // ...and the air in them
     for (let i = 0; i < 3 + Math.round(k * 3); i++) {
@@ -564,6 +632,19 @@ export class Level2Sound {
   explosion(dist = 5) {
     if (!this.ready) return;
     const k = 1 / (1 + dist / 18);
+    if (this._boomBuffer) {
+      // the real thing (elnineo's, CC0), with a sub-bass drop under it you feel more than hear
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._boomBuffer;
+      src.playbackRate.value = 0.92 + Math.random() * 0.1;
+      const g = this.ctx.createGain();
+      g.gain.value = 1.1 * k;
+      src.connect(g).connect(this.master);
+      src.start();
+      this._tone({ freq: 62, to: 24, peak: 0.45 * k, attack: 0.005, decay: 1.3 });
+      this._duck(0.6, 1.2);
+      return;
+    }
     this._burst({ type: 'highpass', freq: 1800, peak: 0.5 * k, attack: 0.001, decay: 0.05 });               // the crack
     this._burst({ freq: 2600, q: 0.8, peak: 0.75 * k, attack: 0.004, decay: 1.5, sweepTo: 70 });            // the boom
     this._tone({ freq: 70, to: 24, peak: 0.6 * k, attack: 0.005, decay: 1.4 });                             // felt more than heard
