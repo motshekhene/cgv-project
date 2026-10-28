@@ -100,7 +100,7 @@ export class Game {
 
     // OPTIONS > GRAPHICS: applied now, on every level load, and once a second (lights a level adds later)
     this._qualityT = 0;
-    onSettings((s, key) => key === "quality" && this.applyQuality());
+    onSettings((s, key) => key === "quality" && this.applyQuality(true));
   }
 
   /** Render resolution for the GRAPHICS setting: full (up to 2x on sharp screens), 1x, or 70%. */
@@ -116,9 +116,18 @@ export class Game {
    * casting, so no shadow pass is drawn) and 70% resolution. MEDIUM: shadow
    * maps capped at 1024 and 1x resolution. HIGH: as each level made them.
    * Lights are put back exactly as they were when the setting goes up again.
+   *
+   * Shadows going on or off, or PostFX (off on LOW), rebuilds every shader in
+   * the scene (seconds on a laptop: the game freezes), so those only follow
+   * the setting when `settle` is set: as a level loads, when its shaders are
+   * built anyway, or from OPTIONS. The slow-frame step-down mid-level
+   * (_watchFrameRate) changes the rest at once, and those from the next level.
    */
-  applyQuality() {
+  applyQuality(settle = false) {
     const q = settings.quality;
+    if (settle || this._shadowQ === undefined) this._shadowQ = q;
+    const sq = this._shadowQ; // the quality the shaders are built for
+    this.postfx.shaderQuality = sq;
     const pr = this._pixelRatio();
     if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) {
       this.renderer.setPixelRatio(pr);
@@ -128,10 +137,10 @@ export class Game {
       if (!o.isLight || !o.shadow) return;
       const u = o.userData;
       // shadows off for LOW, back on above it (only the ones this switched off)
-      if (q === "low" && o.castShadow) {
+      if (sq === "low" && o.castShadow) {
         o.castShadow = false;
         u.qShadowOff = true;
-      } else if (q !== "low" && u.qShadowOff) {
+      } else if (sq !== "low" && u.qShadowOff) {
         o.castShadow = true;
         delete u.qShadowOff;
       }
@@ -179,10 +188,12 @@ export class Game {
     this.levelName = name;
     try {
       await level.init(this.scene, this.assets, this.input, this.state);
+      // still behind the loading screen: the GRAPHICS level settled, then every shader the level draws built
+      this.applyQuality(true);
+      await this.precompile();
     } finally {
       this.loading = false;
     }
-    this.applyQuality();
     if (this.onLevelChanged) this.onLevelChanged(name);
     return level;
   }
@@ -336,22 +347,92 @@ export class Game {
     }
   }
 
-  /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
-  renderScene(scene, camera) {
-    // shaders that write screen colours directly get the inverse of PostFX's
-    // tone curve (shaders/display.js); checked every so often for new ones
-    if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
-      this._pfxScan = 30;
-      let sun = null;
-      scene.traverse((o) => {
-        const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-        for (const m of ms) {
-          if (isDisplayReferred(m)) patchDisplayReferred(m);
-          // the level's sky knows where the sun is: PostFX's god rays aim at it
-          if (o.isMesh && m.side === THREE.BackSide && m.uniforms?.uSunDir) sun = m.uniforms.uSunDir.value;
+  /**
+   * Builds every shader `object` (the whole level, by default) is drawn with,
+   * now, behind the loading screen, instead of each the first time it comes
+   * into view: that is the game freezing mid-level, up to seconds at a time on
+   * a laptop. three's compile() needs help with three things. A shader is built
+   * for where it's drawn to, so it's compiled for PostFX's target, as every
+   * frame is drawn. It skips hidden things (Kai before he stands up, the
+   * pickups not out yet), so those are shown for it; hidden lights stay hidden,
+   * since every shader is built for the number of lights. And the shaders
+   * patched for screen colours are patched first, as the first frame would.
+   * Then one frame is drawn (the shadows' shaders) and the textures go up.
+   */
+  async precompile(object = this.scene) {
+    const r = this.renderer;
+    if (!r.compileAsync || !this.camera) return;
+    this._scanDisplayShaders(this.scene);
+    if (object !== this.scene) this._scanDisplayShaders(object, false);
+    const roots = object === this.scene ? [this.scene] : [this.scene, object];
+    const lit = new Set();
+    for (const root of roots) root.traverseVisible((o) => o.isLight && lit.add(o));
+    const shown = [];
+    object.traverse((o) => {
+      if (!o.visible && !o.isLight) {
+        o.visible = true;
+        shown.push(o);
+      }
+    });
+    const keptDark = [];
+    for (const root of roots) {
+      root.traverseVisible((o) => {
+        if (o.isLight && !lit.has(o)) {
+          o.visible = false;
+          keptDark.push(o);
         }
       });
-      this.postfx.sunDir = sun ? (this._sunDir || (this._sunDir = new THREE.Vector3())).copy(sun).normalize() : null;
+    }
+    let ready = Promise.resolve();
+    const target = r.getRenderTarget();
+    try {
+      r.setRenderTarget(this.postfx.enabled ? this.postfx.sceneRT : null);
+      ready = r.compileAsync(object, this.camera, this.scene);
+      r.setRenderTarget(target);
+      if (object === this.scene) this.renderScene(this.scene, this.camera);
+    } catch (err) {
+      console.warn("[game] shader precompile failed", err);
+    } finally {
+      r.setRenderTarget(target);
+      for (const o of shown) o.visible = false;
+      for (const o of keptDark) o.visible = true;
+    }
+    // the textures, each of which otherwise goes up to the GPU the first time it's drawn
+    const textures = new Set();
+    const take = (v) => v?.isTexture && !v.isRenderTargetTexture && v.image && textures.add(v);
+    object.traverse((o) => {
+      for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+        for (const k in m) take(m[k]);
+        if (m.uniforms) for (const k in m.uniforms) take(m.uniforms[k]?.value);
+      }
+    });
+    for (const t of textures) r.initTexture(t);
+    await Promise.race([ready.catch(() => {}), new Promise((done) => setTimeout(done, 10000))]);
+  }
+
+  /**
+   * Shaders that write screen colours directly get the inverse of PostFX's
+   * tone curve (shaders/display.js), and (`aimRays`) the scene's sky says
+   * where the sun is, for PostFX's god rays.
+   */
+  _scanDisplayShaders(scene, aimRays = true) {
+    let sun = null;
+    scene.traverse((o) => {
+      const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of ms) {
+        if (isDisplayReferred(m)) patchDisplayReferred(m);
+        if (o.isMesh && m.side === THREE.BackSide && m.uniforms?.uSunDir) sun = m.uniforms.uSunDir.value;
+      }
+    });
+    if (aimRays) this.postfx.sunDir = sun ? (this._sunDir || (this._sunDir = new THREE.Vector3())).copy(sun).normalize() : null;
+  }
+
+  /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
+  renderScene(scene, camera) {
+    // checked every so often for new display-colour shaders (precompile did the level's own)
+    if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
+      this._pfxScan = 30;
+      this._scanDisplayShaders(scene);
     }
     displayUniforms.uDisplayExposure.value = this.renderer.toneMappingExposure;
     displayUniforms.uViaPostFX.value = this.postfx.enabled ? 1 : 0;

@@ -945,14 +945,11 @@ export class Level01 extends Level {
 
     // Every glow on the course shares a fixed set of real lights (see
     // level1/lightPool.js), so showing or hiding one never recompiles the
-    // scene's shaders. Then all of them are compiled now, behind the loading
-    // screen, instead of each the first time it comes into view mid-run.
+    // scene's shaders. Game compiles all of them once init() is done, behind
+    // the loading screen (Game.precompile), instead of each the first time it
+    // comes into view mid-run.
     this._lightPool = new LightPool(this.root); // 8 real point lights handed to the nearest glows each frame (no shader recompiles)
     this._poolFocus = new THREE.Vector3();
-    const renderer = this.game?.renderer;
-    if (renderer?.compileAsync && this.game.camera) {
-      await renderer.compileAsync(scene, this.game.camera).catch((err) => console.warn("[level01] shader precompile failed", err));
-    }
 
     // The shared readout, so the chase shows its numbers like every other
     // level. Level 1 has no damage model — the comment in GameState holds:
@@ -3517,7 +3514,7 @@ export class Level01 extends Level {
       if (this._bayDoor.cabin) this._bayDoor.cabin.visible = false;
     }
     this._fitBaySeat();
-    renderer?.compileAsync?.(vehicle, this.game.camera, this.scene).catch(() => {});
+    this.game?.precompile?.(vehicle).catch(() => {});
   }
 
   /**

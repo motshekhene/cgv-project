@@ -281,9 +281,13 @@ export class PostFX {
     this.quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   }
 
-  /** On for MEDIUM and HIGH; LOW draws straight to the screen. */
+  /**
+   * On for MEDIUM and HIGH; LOW draws straight to the screen. By the quality
+   * Game has settled on (`shaderQuality`, Game.applyQuality): every shader is
+   * built for where it draws to, so switching mid-level would rebuild them all.
+   */
   get enabled() {
-    return settings.quality !== "low";
+    return (this.shaderQuality ?? settings.quality) !== "low";
   }
 
   /** A level's look: the level's PROFILES entry, plus anything given here. */

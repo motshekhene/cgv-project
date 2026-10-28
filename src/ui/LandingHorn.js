@@ -157,12 +157,15 @@ export class LandingHorn {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** Frees this renderer and its context (the horn's geometry and the mote texture are shared with the glade, so they stay). */
+  /**
+   * Frees this renderer (the horn's geometry and the mote texture are shared
+   * with the glade, so they stay). Its context goes when the browser collects
+   * it: forcing it lost here held the menu still for a fifth of a second.
+   */
   dispose() {
     this._running = false;
     if (!this.renderer) return;
     this.renderer.dispose();
-    this.renderer.forceContextLoss?.();
     this.renderer = null;
   }
 }

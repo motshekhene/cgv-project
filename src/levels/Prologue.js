@@ -3258,8 +3258,10 @@ export class Prologue extends Level {
     _zSphere.center.set(z.x, 1, z.z);
     if (!_frustum.intersectsSphere(_zSphere) || (far > 20 && this._trunkBetween(cam.position, z)) || z.x < VALLEY.x0 + 3) {
       g.gone = true;
-      this.zwane.visible = false;
+      // his lamp's light stays in the scene, out: one light fewer would rebuild every shader in view (a freeze)
       this.zwaneLampLight.intensity = 0;
+      this.root.attach(this.zwaneLampLight);
+      this.zwane.visible = false;
     }
   }
 
