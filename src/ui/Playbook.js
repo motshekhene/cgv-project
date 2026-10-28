@@ -2,6 +2,7 @@ import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { LANDMARKS } from '../levels/prologue/places.js';
 import { CARS } from '../levels/level2/carSelect.js';
+import { FREE_CAR } from '../core/wallet.js';
 import { say } from '../player/roster.js';
 
 /**
@@ -41,9 +42,12 @@ const CHAPTERS = [
   {
     no: '02', kicker: 'LEVEL 2', title: 'The River Road', color: '#7fc8e8', img: 'ch-level02',
     goal: 'Drive down the River Road to the falls with the Marshal hunting you in his own car. Find the gap in the company’s barricades.',
-    more: ['THE CAR YARD', `The Executive is yours. The other five cost Forest Lights (${CARS.filter((c) => c.price).sort((a, b) => a.price - b.price).map((c) => `${c.name} ${c.price}`).join(', ')}). Come from Level 1 with enough for one and you start in the yard; V opens it any time. A car bought is yours for good.`],
+    more: [
+      ['THE CAR YARD', `The ${CARS.find((c) => c.id === FREE_CAR).name} is yours. The other five cost Forest Lights (${CARS.filter((c) => c.price).sort((a, b) => a.price - b.price).map((c) => `${c.name} ${c.price}`).join(', ')}). Come from Level 1 with enough for one and you start in the yard; V opens it any time. A car bought is yours for good.`],
+      ['THE HORN', 'It fills over 30 seconds (HORN on the top left). Then F: the forest’s animals burst onto the road in front of the Marshal, and he has to stop dead.'],
+    ],
     lose: 'The car breaks down if it takes too much damage: from the Marshal’s rams, traffic, animals and barricades.',
-    keys: [['W S', 'drive'], ['A D', 'steer'], ['SHIFT', 'boost'], ['Q', 'drift'], ['SPACE', 'handbrake'], ['C', 'view'], ['V', 'the car yard']],
+    keys: [['W S', 'drive'], ['A D', 'steer'], ['SHIFT', 'boost'], ['Q', 'drift'], ['SPACE', 'handbrake'], ['F', 'the horn: the animals'], ['C', 'view'], ['V', 'the car yard']],
   },
   {
     no: '03', kicker: 'LEVEL 3', title: 'The Falls', color: '#f2934f', img: 'ch-level03',
@@ -59,7 +63,7 @@ const WHERE_COLOR = { 'Level 1': '#9ed36a', 'Levels 1 and 3': '#9ed36a', 'Levels
 
 const THINGS = [
   { img: 'light', name: 'FOREST LIGHTS', what: 'Glowing cyan lights floating over the trail. Every one you catch is kept, to buy cars in Level 2, and 40 fill the horn. Some float high, only in reach with a jetpack.', where: 'Level 1' },
-  { img: 'p-stone', name: 'THE HORN', what: 'Level 1 (V, when 40 Forest Lights fill it): smashes everything on the trail ahead and roots the Marshal for a moment. Level 3 (V): slows time for 3 seconds.', where: 'Levels 1 and 3' },
+  { img: 'p-stone', name: 'THE HORN', what: 'Level 1 (V, when 40 Forest Lights fill it): smashes everything on the trail ahead and roots the Marshal for a moment. Level 2 (F, every 30 seconds): the forest’s animals burst onto the road in front of the Marshal. Level 3 (V): slows time for 3 seconds.', where: 'Levels 1, 2, 3' },
   { img: 'page', name: 'TORN PAGES', what: 'The company’s own papers. Run through one to read it. On the trail, TORN PAGE AHEAD says which side one is on as you get close. Find all 6 (3 on the trail, 3 at the falls) for the true ending.', where: 'Levels 1 and 3' },
   { img: 'card', name: 'SPIRIT CARDS', what: 'One card hides somewhere in the game each day. Where it sleeps is only said in the game: by Baba Zwane, in {name}’s thoughts, or on a sign. Find the place on the map, then go there and touch it. See SPIRIT CARDS on the main menu.', where: 'Anywhere' },
   { img: 'health', name: 'HEALTH PACKS', what: 'Red-and-white kits on the trail. Run through one for 25 health.', where: 'Level 1' },
@@ -300,7 +304,7 @@ export class Playbook {
         <div class="pb-cols">
           <div>
             <div class="pb-block"><h4>GOAL</h4><p>${c.goal}</p></div>
-            ${c.more ? `<div class="pb-block"><h4>${c.more[0]}</h4><p>${say(c.more[1])}</p></div>` : ''}
+            ${c.more ? (Array.isArray(c.more[0]) ? c.more : [c.more]).map(([h, p]) => `<div class="pb-block"><h4>${h}</h4><p>${say(p)}</p></div>`).join('') : ''}
             <div class="pb-block"><h4>WATCH OUT</h4><p>${c.lose}</p></div>
           </div>
           <div class="pb-keypanel"><h4>KEYS</h4>${c.keys.map(([k, what]) => `<div class="pb-keyrow"><span>${caps(k)}</span><em>${what}</em></div>`).join('')}</div>

@@ -503,6 +503,13 @@ export class Level02 extends Level {
     kaiThinks('Down the river road. Lose him, then get this horn to Baba Zwane.');
   }
 
+  /**
+   * THE HORN (F): it fills over 30 s (its chip on the HUD); blown, the
+   * forest's animals burst onto the road in the Marshal's path, between him
+   * and Kai, and he has to stand on his brakes. The moment is shown
+   * (_hornShot): time slows and the camera looks back past the car at the
+   * herd crossing in front of him, then it's back on the road.
+   */
   _updateHorn(dt) {
     if (!this._announced || this._finale || this._wreck) return;
     const was = this._hornCharge ?? 0;
@@ -523,18 +530,61 @@ export class Level02 extends Level {
     this.sound.hornCall();
     this.game?.postfx?.flash(0.25, 0x4fd6e0);
     this.game?.postfx?.kick(0.6);
-    // the herd crosses between Kai and the Marshal, wherever he is
-    const cz = this.car.mesh.position.z, hz = this.handler.mesh.position.z;
-    const herdZ = Math.abs(hz - cz) > 10 ? (cz + hz) / 2 : cz - 9 * Math.sign(cz - hz || 1);
-    this.obstacles.herd(herdZ);
+    // the herd, in his path: just ahead of him and short of Kai's back bumper, however close he is
+    const car = this.car.mesh.position, him = this.handler.mesh.position;
+    const gap = car.z - him.z;
+    const herdZ = gap > 0 ? him.z + THREE.MathUtils.clamp(gap * 0.45, 3.5, 16) : car.z - 8;
+    this.obstacles.herd(herdZ, him.x);
     this.handler.giveSpace(5);
     this.handler.speed *= 0.35;
+    this._hornCam = { start: performance.now(), dur: 1.7, z: herdZ };
     this._flash('THE FOREST ANSWERS', '#4fd6e0');
+  }
+
+  /**
+   * The horn's moment, on real time (time itself is slowed under it): eased
+   * into slow motion and back out, over 1.7 s. Ends early if the drive does.
+   */
+  _tickHornMoment(state) {
+    const h = this._hornCam;
+    const t = (performance.now() - h.start) / 1000;
+    if (t >= h.dur || this._finale || this._gameOver || this._wreck || this._selectingCar) {
+      this._hornCam = null;
+      state.timeScale = 1;
+      return;
+    }
+    h.w = THREE.MathUtils.smoothstep(t, 0, 0.3) * (1 - THREE.MathUtils.smoothstep(t, h.dur - 0.45, h.dur));
+    state.timeScale = 1 - 0.7 * h.w;
+  }
+
+  /**
+   * The horn's shot, blended over whichever camera is up by the moment's
+   * weight: from in front of the car and off to one side, looking back down
+   * the road at the herd crossing in front of the Marshal. The camera it's
+   * blended over is put back each frame (_updateCamera), so that one keeps
+   * following underneath and the shot hands back to it smoothly.
+   */
+  _hornShot() {
+    const h = this._hornCam;
+    const cam = this.game.camera;
+    const held = this._camHeld || (this._camHeld = { pos: new THREE.Vector3(), q: new THREE.Quaternion(), on: false });
+    held.pos.copy(cam.position);
+    held.q.copy(cam.quaternion);
+    held.on = true;
+    const p = this.car.mesh.position, him = this.handler.mesh.position;
+    const sh = Math.sin(this.car.heading), ch = Math.cos(this.car.heading);
+    const from = (this._shotFrom || (this._shotFrom = new THREE.Vector3())).set(p.x + sh * 6.5 + ch * 3.2, p.y + 2.6, p.z + ch * 6.5 - sh * 3.2);
+    const at = (this._shotAt || (this._shotAt = new THREE.Vector3())).set((p.x + him.x) / 2, 1, h.z - 2);
+    const m = this._shotM || (this._shotM = new THREE.Matrix4());
+    const q = (this._shotQ || (this._shotQ = new THREE.Quaternion())).setFromRotationMatrix(m.lookAt(from, at, cam.up));
+    cam.position.lerpVectors(held.pos, from, h.w);
+    cam.quaternion.slerpQuaternions(held.q, q, h.w);
   }
 
   /* ======================== per frame ======================== */
 
   update(dt, state) {
+    if (this._hornCam) this._tickHornMoment(state);
     dt = this._steady(dt);
     // today's card clue, if Kai is the one who remembers it today
     if (this._announced && this._clueThought && (this._clueT2 = (this._clueT2 || 0) + dt) > 75) {
@@ -690,6 +740,9 @@ export class Level02 extends Level {
         { label: 'DRIFT', t: this.car.driftDir ? this.car.driftTime : 0, text: `${this.car.driftTime.toFixed(1)}s`, color: '#ffd36a' },
         { label: 'SHIELD', t: this.car.shield, color: '#6fe3ff' },
         { label: 'NITRO', t: this.car.freeBoost, color: '#ff8a2a' },
+        // the horn (F): filling, then ready
+        { label: 'HORN', t: this._announced ? 1 : 0, color: this._hornCharge >= 1 ? '#8ff0f6' : '#5e8f93',
+          text: this._hornCharge >= 1 ? 'READY · F' : `${Math.floor((this._hornCharge || 0) * 100)}%` },
       ].filter((b) => b.t > 0),
     });
 
@@ -1001,10 +1054,18 @@ export class Level02 extends Level {
    *   - smooth (not random-per-frame) shake, plus an FOV "punch" on big hits
    */
   _updateCamera(dt) {
-    if (this._view === 'driver') {
-      this._updateDriverCamera(dt);
-      return;
+    // the horn's shot moved the camera last frame: the follow carries on from where it really was
+    if (this._camHeld?.on) {
+      this.game.camera.position.copy(this._camHeld.pos);
+      this.game.camera.quaternion.copy(this._camHeld.q);
+      this._camHeld.on = false;
     }
+    if (this._view === 'driver') this._updateDriverCamera(dt);
+    else this._updateChaseCamera(dt);
+    if (this._hornCam?.w) this._hornShot();
+  }
+
+  _updateChaseCamera(dt) {
     const cam = this.game.camera;
     const car = this.car;
     const v = Math.min(1.3, Math.abs(car.speed) / car.maxSpeed);

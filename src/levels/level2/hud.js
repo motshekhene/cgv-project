@@ -98,7 +98,7 @@ export function createLevel2Hud() {
         <div class="l2h-state" data-k="state">APPROACH</div>
       </div>
     </div>
-    <div class="l2h-keys plaque"><b>W/S</b> drive · <b>A/D</b> steer · <b>Q</b> drift · <b>SPACE</b> brake · <b>SHIFT</b> boost · <b>V</b> car · <b>C</b> view</div>`;
+    <div class="l2h-keys plaque"><b>W/S</b> drive · <b>A/D</b> steer · <b>Q</b> drift · <b>SPACE</b> brake · <b>SHIFT</b> boost · <b>F</b> horn · <b>V</b> car · <b>C</b> view</div>`;
   parent.appendChild(root);
 
   const q = (k) => root.querySelector(`[data-k="${k}"]`);
