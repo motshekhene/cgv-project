@@ -14,7 +14,7 @@ import { CARS } from '../levels/level2/carSelect.js';
  *   PLACES        the named places in every chapter, with a picture of each
  *   MAP           opens the game map (ui/GameMap.js)
  *
- * The pictures are frames taken from the game itself (public/assets/guide/).
+ * The pictures are frames taken from the game itself (public/assets/guide/); the chapters' banners (ch-*.jpg) at 1600 x 900, so they stay sharp across the panel.
  * ← → / A D / 1-4 or a click change tab; Esc, Backspace or BACK closes it.
  *
  *   const book = new Playbook({ onMap: () => map.open() });  book.open();
@@ -24,28 +24,28 @@ const IMG = (name) => `./assets/guide/${name}.jpg`;
 // keys: [keys, what they do]; 'A D / ← →' is two ways of doing it
 const CHAPTERS = [
   {
-    no: '00', kicker: 'PROLOGUE', title: 'The Fire and the Stone', color: '#ffb03a', img: 'p-camp',
+    no: '00', kicker: 'PROLOGUE', title: 'The Fire and the Stone', color: '#ffb03a', img: 'ch-prologue',
     goal: 'Hear Baba Zwane out at the fire, then walk up the old path to the stone and take the horn (E).',
     more: ['THE CHOICE', 'Q at the stone and Kai has his doubts. Q a second time and he walks away for good: another ending (TRY AGAIN puts you back at the stone).'],
     lose: 'Nothing chases you yet. The valley is open: wander off the path to its landmarks, and press N for the map.',
     keys: [['W A S D', 'walk'], ['MOUSE', 'look'], ['E', 'take the horn'], ['Q', 'leave it (twice: walk away)'], ['N', 'map'], ['X', 'skip the intro']],
   },
   {
-    no: '01', kicker: 'LEVEL 1', title: 'The Old Trail', color: '#9ed36a', img: 'l1-fork',
+    no: '01', kicker: 'LEVEL 1', title: 'The Old Trail', color: '#9ed36a', img: 'ch-level01',
     goal: 'Run down the mountain to the company’s camp with the Marshal behind you. Switch lanes, jump and slide past what’s on the trail.',
     more: ['FOREST LIGHTS', 'Catch the glowing cyan lights: 40 fill the horn, and every one is kept, even on a run that ends badly, to buy cars in Level 2.'],
     lose: 'He always gains a little: hold SHIFT to sprint away, until your stamina runs dry (it refills when you let go). Every hit costs health and lets him jump closer. You lose if he catches you (the red dot reaches yours on the chase meter), if your health runs out, if you fall through the bridge, or if the stone guardian or a hazard hits you.',
     keys: [['A D / ← →', 'lanes'], ['SPACE', 'jump'], ['CTRL', 'slide'], ['SHIFT', 'sprint'], ['V', 'blow the horn'], ['RMB', 'look back']],
   },
   {
-    no: '02', kicker: 'LEVEL 2', title: 'The River Road', color: '#7fc8e8', img: 'l2-road',
+    no: '02', kicker: 'LEVEL 2', title: 'The River Road', color: '#7fc8e8', img: 'ch-level02',
     goal: 'Drive down the River Road to the falls with the Marshal hunting you in his own car. Find the gap in the company’s barricades.',
     more: ['THE CAR YARD', `The Executive is yours. The other five cost Forest Lights (${CARS.filter((c) => c.price).sort((a, b) => a.price - b.price).map((c) => `${c.name} ${c.price}`).join(', ')}). Come from Level 1 with enough for one and you start in the yard; V opens it any time. A car bought is yours for good.`],
     lose: 'The car breaks down if it takes too much damage: from the Marshal’s rams, traffic, animals and barricades.',
     keys: [['W S', 'drive'], ['A D', 'steer'], ['SHIFT', 'boost'], ['Q', 'drift'], ['SPACE', 'handbrake'], ['C', 'view'], ['V', 'the car yard']],
   },
   {
-    no: '03', kicker: 'LEVEL 3', title: 'The Falls', color: '#f2934f', img: 'l3-yard',
+    no: '03', kicker: 'LEVEL 3', title: 'The Falls', color: '#f2934f', img: 'ch-level03',
     goal: 'Face the Marshal and his men in the courtyard below the falls. Dodge, block, parry and fight back; the spirit shrines in the jungle ring help you.',
     lose: 'Your health runs out. Dodge just before a hit for a perfect dodge that slows time.',
     keys: [['W A S D', 'move'], ['LMB / ENTER', 'attack'], ['K', 'kick'], ['RMB / B', 'block'], ['C', 'dodge'], ['TAB', 'lock on'], ['V', 'the horn: slow time'], ['N', 'map']],
@@ -184,7 +184,7 @@ const CSS = THEME_CSS + `
 
 /* MAP: a banner over the valley, a compass turning, and the way in */
 .pb-map { position:relative; box-sizing:border-box; display:grid; place-items:center; min-height:100%; padding:30px 20px; border-radius:8px; overflow:hidden; text-align:center; }
-.pb-map::before { content:''; position:absolute; inset:0; background:url('${IMG('p-camp')}') center / cover; filter:blur(2px) brightness(.4) saturate(.8); transform:scale(1.05); }
+.pb-map::before { content:''; position:absolute; inset:0; background:url('${IMG('ch-prologue')}') center / cover; filter:blur(2px) brightness(.4) saturate(.8); transform:scale(1.05); }
 .pb-map > div { position:relative; }
 .pb-compass { position:relative; width:110px; height:110px; margin:0 auto 18px; border-radius:50%; border:1px solid rgba(227,187,98,.6);
   background:radial-gradient(circle, rgba(227,187,98,.18), rgba(10,12,8,.8) 70%); box-shadow:0 0 30px rgba(227,187,98,.25); }
