@@ -2,6 +2,7 @@ import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { LANDMARKS } from '../levels/prologue/places.js';
 import { CARS } from '../levels/level2/carSelect.js';
+import { say } from '../player/roster.js';
 
 /**
  * PLAYBOOK, from the main menu and the pause menu: everything a new player
@@ -26,7 +27,7 @@ const CHAPTERS = [
   {
     no: '00', kicker: 'PROLOGUE', title: 'The Fire and the Stone', color: '#ffb03a', img: 'ch-prologue',
     goal: 'Hear Baba Zwane out at the fire, then walk up the old path to the stone and take the horn (E).',
-    more: ['THE CHOICE', 'Q at the stone and Kai has his doubts. Q a second time and he walks away for good: another ending (TRY AGAIN puts you back at the stone).'],
+    more: ['THE CHOICE', 'Q at the stone and {name} has {his} doubts. Q a second time and {he} walks away for good: another ending (TRY AGAIN puts you back at the stone).'],
     lose: 'Nothing chases you yet. The valley is open: wander off the path to its landmarks, and press N for the map.',
     keys: [['W A S D', 'walk'], ['MOUSE', 'look'], ['E', 'take the horn'], ['Q', 'leave it (twice: walk away)'], ['N', 'map'], ['X', 'skip the intro']],
   },
@@ -60,7 +61,7 @@ const THINGS = [
   { img: 'light', name: 'FOREST LIGHTS', what: 'Glowing cyan lights floating over the trail. Every one you catch is kept, to buy cars in Level 2, and 40 fill the horn. Some float high, only in reach with a jetpack.', where: 'Level 1' },
   { img: 'p-stone', name: 'THE HORN', what: 'Level 1 (V, when 40 Forest Lights fill it): smashes everything on the trail ahead and roots the Marshal for a moment. Level 3 (V): slows time for 3 seconds.', where: 'Levels 1 and 3' },
   { img: 'page', name: 'TORN PAGES', what: 'The company’s own papers. Run through one to read it. On the trail, TORN PAGE AHEAD says which side one is on as you get close. Find all 6 (3 on the trail, 3 at the falls) for the true ending.', where: 'Levels 1 and 3' },
-  { img: 'card', name: 'SPIRIT CARDS', what: 'One card hides somewhere in the game each day. Where it sleeps is only said in the game: by Baba Zwane, in Kai’s thoughts, or on a sign. Find the place on the map, then go there and touch it. See SPIRIT CARDS on the main menu.', where: 'Anywhere' },
+  { img: 'card', name: 'SPIRIT CARDS', what: 'One card hides somewhere in the game each day. Where it sleeps is only said in the game: by Baba Zwane, in {name}’s thoughts, or on a sign. Find the place on the map, then go there and touch it. See SPIRIT CARDS on the main menu.', where: 'Anywhere' },
   { img: 'health', name: 'HEALTH PACKS', what: 'Red-and-white kits on the trail. Run through one for 25 health.', where: 'Level 1' },
   { img: 'marshal', name: 'THE MARSHAL', what: 'The company’s man in the hard hat, the hi-vis vest and the mask. He chases you on foot, then in his car, then fights you at the falls.', where: 'Levels 1, 2, 3' },
   { img: 'chase', name: 'THE CHASE METER', what: 'Top right: your green dot and his red dot. When red reaches green, he has you. When he’s close, the edges of the screen burn and beat.', where: 'Level 1' },
@@ -266,7 +267,7 @@ export class Playbook {
     } else if (id === 'things') {
       this.body.innerHTML = `<div class="pb-grid">${THINGS.map((t, i) => `<div class="pb-thing pb-deal" style="--c:${WHERE_COLOR[t.where] || '#e3bb62'};--i:${i}">
           <div class="pb-shot"><img alt="" src="${IMG(t.img)}"><span class="pb-where">${t.where.toUpperCase()}</span><b>${t.name}</b></div>
-          <p>${t.what}</p>
+          <p>${say(t.what)}</p>
         </div>`).join('')}</div>`;
     } else if (id === 'places') {
       let n = 0;
@@ -299,7 +300,7 @@ export class Playbook {
         <div class="pb-cols">
           <div>
             <div class="pb-block"><h4>GOAL</h4><p>${c.goal}</p></div>
-            ${c.more ? `<div class="pb-block"><h4>${c.more[0]}</h4><p>${c.more[1]}</p></div>` : ''}
+            ${c.more ? `<div class="pb-block"><h4>${c.more[0]}</h4><p>${say(c.more[1])}</p></div>` : ''}
             <div class="pb-block"><h4>WATCH OUT</h4><p>${c.lose}</p></div>
           </div>
           <div class="pb-keypanel"><h4>KEYS</h4>${c.keys.map(([k, what]) => `<div class="pb-keyrow"><span>${caps(k)}</span><em>${what}</em></div>`).join('')}</div>

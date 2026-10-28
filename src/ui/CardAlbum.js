@@ -2,6 +2,7 @@ import { THEME_CSS } from './theme.js';
 import { DIALOGUE_FONT } from './dialogue.js';
 import { CARDS, isFound, foundCount, todaysCard, RARITY_NAME } from '../cards/cards.js';
 import { cardCanvas, cardBackCanvas } from '../cards/cardArt.js';
+import { say } from '../player/roster.js';
 
 /**
  * SPIRIT CARDS on the main menu: the album. Every card in the game, common
@@ -82,7 +83,7 @@ export class CardAlbum {
           <div>
             ${today.taken
               ? `<b>TODAY\u2019S CARD \u00b7 FOUND \u2713</b><p>${today.card.name}. A new card hides somewhere tomorrow.</p>`
-              : `<b>TODAY\u2019S CARD \u00b7 A ${kind} CARD IS HIDING</b><p>Where it sleeps is said somewhere in the game today: listen to Baba Zwane and Kai, and read the signs. Then find the place.</p>${this.onMap ? '<a data-map>OPEN THE MAP \u2192</a>' : ''}`}
+              : `<b>TODAY\u2019S CARD \u00b7 A ${kind} CARD IS HIDING</b><p>Where it sleeps is said somewhere in the game today: listen to Baba Zwane and ${say('{name}')}, and read the signs. Then find the place.</p>${this.onMap ? '<a data-map>OPEN THE MAP \u2192</a>' : ''}`}
           </div>
         </div>
         <div class="ca-grid">${cards}</div>
