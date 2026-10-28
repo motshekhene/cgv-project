@@ -127,6 +127,7 @@ const COMPOSITE = /* glsl */ `
   uniform float uFringe;     // chromatic aberration toward the edges, always on (a lens)
   uniform float uKick;       // extra fringe for a moment (boost, dodge)
   uniform float uHit;        // 0..1 damage pulse
+  uniform float uDanger;     // 0..1 how close the pursuer is: the edges glow ember and beat like a heart
   uniform vec3 uFlashColor;
   uniform float uFlash;      // 0..1 full-screen flash
   uniform float uGrain;
@@ -169,6 +170,10 @@ const COMPOSITE = /* glsl */ `
     // vignette: darker (and tinted) toward the corners
     float v = smoothstep(0.25, 0.85, r);
     col = mix(col, col * uVignetteColor, v * uVignette);
+    // danger: the edges burn ember, beating faster the closer he is, so it can be
+    // felt out of the corner of the eye without reading a number
+    float beat = pow(0.5 + 0.5 * sin(uTime * mix(5.0, 13.0, uDanger)), 3.0);
+    col = mix(col, vec3(0.75, 0.12, 0.03), uDanger * smoothstep(0.32, 0.95, r) * (0.3 + 0.45 * beat));
     // damage: the edges bleed red and the whole frame drains a little
     col = mix(col, vec3(lum) * vec3(1.0, 0.35, 0.3), uHit * 0.25);
     col = mix(col, vec3(0.55, 0.02, 0.02), uHit * smoothstep(0.3, 0.9, r) * 0.75);
@@ -222,6 +227,8 @@ export class PostFX {
     this._hit = 0;
     this._flash = 0;
     this._kick = 0;
+    this.danger = 0; // 0..1, set by Game from how close the pursuer is
+    this._danger = 0;
     this.profile = { ...DEFAULT };
     this._bgKeep = new THREE.Color();
     this._clearKeep = new THREE.Color();
@@ -253,7 +260,7 @@ export class PostFX {
       uLift: { value: new THREE.Vector3() }, uGain: { value: new THREE.Vector3() },
       uContrast: { value: 1 }, uSaturation: { value: 1 },
       uVignette: { value: 0 }, uVignetteColor: { value: new THREE.Vector3() },
-      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 },
+      uFringe: { value: 0 }, uKick: { value: 0 }, uHit: { value: 0 }, uDanger: { value: 0 },
       uFlashColor: { value: new THREE.Color(1, 1, 1) }, uFlash: { value: 0 },
       uGrain: { value: 0 }, uTime: { value: 0 }, uAspect: { value: new THREE.Vector2(1, 1) },
     }, { toneMapped: true }); // the one pass that tone maps (and converts to sRGB)
@@ -297,6 +304,7 @@ export class PostFX {
     this._hit *= Math.exp(-4 * dt);
     this._flash *= Math.exp(-7 * dt);
     this._kick *= Math.exp(-5 * dt);
+    this._danger += (this.danger - this._danger) * (1 - Math.exp(-4 * dt));
   }
 
   _resize(w, h) {
@@ -411,6 +419,7 @@ export class PostFX {
     u.uFringe.value = p.fringe;
     u.uKick.value = this._kick;
     u.uHit.value = this._hit;
+    u.uDanger.value = this._danger;
     u.uFlash.value = this._flash;
     u.uGrain.value = p.grain;
     u.uTime.value = this.time % 100;

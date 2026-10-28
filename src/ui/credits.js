@@ -80,7 +80,7 @@ export const CREDIT_SECTIONS = [
       { title: '“Repeat (Gaming Background Music)”', by: 'SoundUniverseStudio', licence: 'Pixabay',
         url: 'https://pixabay.com/music/video-games-repeat-gaming-background-music-instrumental-218942/', use: 'The music on the title screen' },
       { title: '“Collect Points”', by: 'Liecio', licence: 'Pixabay',
-        url: 'https://pixabay.com/sound-effects/collect-points-190037/', use: 'The coins on the trail' },
+        url: 'https://pixabay.com/sound-effects/collect-points-190037/', use: 'Catching the forest’s lights on the trail' },
       { title: '“Car crash (swerving, and crash)”', by: 'RSF_STUDIOS', licence: 'Pixabay',
         url: 'https://pixabay.com/sound-effects/car-crash-swerving-and-crash-592672/', use: 'Wrecks on the River Road' },
     ],

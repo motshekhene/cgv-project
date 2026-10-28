@@ -169,6 +169,7 @@ export class Game {
     this.overlays.clear();
     this.state.resetForLevel(name);
     this.postfx.setProfile({}, name); // the level's look; init() can change it
+    this.postfx.danger = 0;
     this._lastHealth = null;
     this._lastShake = null;
     this._pfxScan = 0; // look for display-colour shaders on the first frame
@@ -266,6 +267,10 @@ export class Game {
       if (jump > 0.6) this.postfx.flash(Math.min(0.35, (jump - 0.5) * 0.4), 0xfff1dc);
     }
     this._lastShake = shake;
+    // a pursuer within ~14 m makes the screen's edges burn (PostFX uDanger)
+    const st = this.state;
+    const chasing = st.handlerState === "CLOSING" || st.handlerState === "LOSING_GROUND";
+    this.postfx.danger = chasing && st.handlerGap > 0 && !this.paused ? Math.min(1, Math.max(0, (14 - st.handlerGap) / 11)) : 0;
     this.postfx.update(raw);
 
     // a level can take over drawing (e.g. its own post-processing pass); most just let Game render
