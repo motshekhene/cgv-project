@@ -4,6 +4,7 @@ import { renderChaseScore } from "../audio/chaseScore.js";
 import { CardPickups } from "../cards/CardPickups.js";
 import { createTornPage } from "../fx/tornPage.js";
 import { CURRENCY, balance as lightsToSpend, earn as earnLights } from "../core/wallet.js";
+import { submit as submitRecord } from "../core/records.js";
 import { clueFor } from "../cards/cards.js";
 import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
@@ -3173,10 +3174,10 @@ export class Level01 extends Level {
     this._caughtOverlay = showLoseCard(this.game, {
       title: "CAUGHT",
       sub: title,
-      // what he caught is his whatever happens: it's still there to spend on a car
+      // what he caught is his whatever happens: it's still there to spend on a car (and a run's lights are a record)
       lines: [{ stats: [
         { label: "TIME", value: runClock(this._runTime) },
-        { label: CURRENCY, value: this.rewardCount, note: `kept · ${lightsToSpend()} to spend on cars`, kind: "lights" },
+        { label: CURRENCY, value: this.rewardCount, note: `kept · ${lightsToSpend()} to spend on cars`, kind: "lights", best: submitRecord("l1.lights", this.rewardCount) },
         { label: "HORN CALLS", value: this._hornCalls },
       ] }],
     });
@@ -3195,10 +3196,11 @@ export class Level01 extends Level {
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
+      // each against its record (core/records.js): NEW BEST on the ones that beat it
       lines: [{ stats: [
-        { label: "TIME", value: runClock(this._runTime) },
-        { label: "CLOSEST CALL", value: Number(closest).toFixed(1), unit: "M" },
-        { label: CURRENCY, value: this.rewardCount, note: `${lightsToSpend()} to spend on cars`, kind: "lights" },
+        { label: "TIME", value: runClock(this._runTime), best: submitRecord("l1.time", this._runTime || 0) },
+        { label: "CLOSEST CALL", value: Number(closest).toFixed(1), unit: "M", best: submitRecord("l1.closest", Math.round(Number(closest) * 10) / 10) },
+        { label: CURRENCY, value: this.rewardCount, note: `${lightsToSpend()} to spend on cars`, kind: "lights", best: submitRecord("l1.lights", this.rewardCount) },
         { label: "HORN CALLS", value: this._hornCalls },
       ] }],
       action: {

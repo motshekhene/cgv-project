@@ -9,6 +9,7 @@ import { CARS } from '../levels/level2/carSelect.js';
 import { CARDS, foundCount, todaysCard } from '../cards/cards.js';
 import { PLAYERS, currentPlayer, savePlayer } from '../player/roster.js';
 import { LandingHorn } from './LandingHorn.js';
+import { lastChapter } from '../core/progress.js';
 
 /**
  * TitleScreen — over the title level (levels/TitleScene.js: the glade at
@@ -35,18 +36,23 @@ import { LandingHorn } from './LandingHorn.js';
  *                 at a time, and whatever has changed since it was last shown
  *                 counts on from what it was, the difference beside it.
  *
+ *   CONTINUE   the start of the last chapter played (core/progress.js); only
+ *              there once a story is under way, and the one selected
  *   NEW GAME   the prologue, from the fire
  *   CHAPTERS   jump to any part of the story
  *   PLAYER     who you play (player/roster.js), each standing at the stone as
  *              you move through them; the choice is kept for next time
  *   PLAYBOOK   the rules, what everything does, and the places, with pictures (ui/Playbook.js)
  *   SPIRIT CARDS  the card album (ui/CardAlbum.js)
+ *   RECORDS    each level's bests (ui/RecordsMenu.js, core/records.js)
  *   MAP        every landmark in the valley and the three levels (ui/GameMap.js)
  *   OPTIONS    volume, mouse, graphics (ui/OptionsMenu.js)
  *   CONTROLS   every chapter's controls (ui/ControlsMenu.js)
  *   CREDITS    the team, the cast, the music, and every asset with links (ui/CreditsMenu.js)
  *
- * Arrow keys / W S and Enter, or the mouse. It never touches Game itself:
+ * Arrow keys / W S and Enter, or the mouse, each with its own small sound
+ * (_sound): a pluck as the selection moves, a deeper one choosing, a falling
+ * one going back. It never touches Game itself:
  * main.js passes onStart(levelName), the panels' openers, onPlayer(id) to show
  * a player at the stone (null to put them away) and onEnter(instant) for the
  * scene's wake. Back from a level (skipPress) it opens straight on the menu.
@@ -60,6 +66,7 @@ const MENU = [
   { id: 'player', label: 'PLAYER', about: 'Who you play. They stand at the stone as you choose.' },
   { id: 'playbook', label: 'PLAYBOOK', about: 'How to play, what everything does, and every place.' },
   { id: 'cards', label: 'SPIRIT CARDS', about: 'Your album. One card hides somewhere in the game each day.' },
+  { id: 'records', label: 'RECORDS', about: 'Your best times and runs, level by level.' },
   { id: 'map', label: 'MAP', about: 'The valley and all three levels, every place named.' },
   { id: 'options', label: 'OPTIONS', about: 'Volume, mouse and graphics.' },
   { id: 'controls', label: 'CONTROLS', about: 'Every chapter’s keys.' },
@@ -69,6 +76,10 @@ const CHAPTER_LIST = ['prologue', 'level01', 'level02', 'level03', 'epilogue'];
 const THEME_LEVEL = 0.4; // the theme's volume here, before the OPTIONS volumes
 const themeVolume = () => THEME_LEVEL * settings.music * settings.master;
 const SEEN_KEY = 'silent-horn.seen'; // what YOUR JOURNEY showed last time, so it can count on from there
+// 'THE FIRE AND THE STONE' -> 'The Fire and the Stone', 'LEVEL 2' -> 'Level 2'
+const SMALL_WORDS = new Set(['a', 'and', 'of', 'the', 'to']);
+const titleCase = (s) => s.toLowerCase().split(' ')
+  .map((w, i) => (i > 0 && SMALL_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
 
 
 const CSS = THEME_CSS + `
@@ -197,9 +208,10 @@ const CSS = THEME_CSS + `
 `;
 
 export class TitleScreen {
-  constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, onPlaybook, onPlayer, onEnter, skipPress = false, loading = false }) {
+  constructor({ onStart, onOptions, onControls, onCredits, onCards, onMap, onPlaybook, onRecords, onPlayer, onEnter, skipPress = false, loading = false }) {
     this.loading = loading; // the game still loading behind the landing: no key yet
     this._born = performance.now();
+    this.onRecords = onRecords;
     this.onPlayer = onPlayer;
     this.onEnter = onEnter;
     this.onCards = onCards;
@@ -313,7 +325,10 @@ export class TitleScreen {
     if (k === 'arrowdown' || k === 's') this._select(this.sel + 1);
     else if (k === 'arrowup' || k === 'w') this._select(this.sel - 1);
     else if (k === 'enter' || k === ' ') this._activate(this.items[this.sel]);
-    else if ((k === 'escape' || k === 'backspace') && this._page !== 'main') this._showMain(this._page);
+    else if ((k === 'escape' || k === 'backspace') && this._page !== 'main') {
+      this._sound('back');
+      this._showMain(this._page);
+    }
     else return;
     e.preventDefault();
   }
@@ -412,7 +427,15 @@ export class TitleScreen {
     this._page = 'main';
     this.onPlayer?.(null);
     // the chosen player's name under PLAYER
-    this._build(MENU.map((m) => ({ ...m, sub: m.id === 'player' ? currentPlayer().name : m.sub })), Math.max(0, MENU.findIndex((m) => m.id === from)));
+    const items = MENU.map((m) => ({ ...m, sub: m.id === 'player' ? currentPlayer().name : m.sub }));
+    // a story under way: CONTINUE on top, and selected, with the chapter it picks up at
+    const last = lastChapter();
+    if (last && CHAPTERS[last]) {
+      const c = CHAPTERS[last];
+      const name = titleCase(c.title);
+      items.unshift({ id: 'continue', chapter: last, label: 'CONTINUE', sub: `${titleCase(c.kicker)} · ${name}`, about: `Back to the start of ${name}.` });
+    }
+    this._build(items, Math.max(0, items.findIndex((m) => m.id === from)));
   }
 
   /** Every player, with their line; the one already chosen is selected (and at the stone). */
@@ -449,12 +472,15 @@ export class TitleScreen {
       it.el = b;
       this.menuEl.appendChild(b);
     });
-    this._select(start);
+    this._select(start, true);
   }
 
-  _select(i) {
+  /** `quiet`: a page just built, not the player moving, so no sound. */
+  _select(i, quiet = false) {
     const n = this.items.length;
-    this.sel = (i + n) % n;
+    const to = (i + n) % n;
+    if (!quiet && to !== this.sel) this._sound('move');
+    this.sel = to;
     this.items.forEach((it, j) => it.el.classList.toggle('on', j === this.sel));
     this.aboutEl.textContent = this.items[this.sel].about || '';
     // on the PLAYER page, whoever is selected stands at the stone (BACK: the one already chosen)
@@ -463,7 +489,9 @@ export class TitleScreen {
 
   _activate(it) {
     if (!it || this._leaving) return;
-    if (it.id === 'new') this._start('prologue');
+    this._sound(it.id === 'back' ? 'back' : 'pick');
+    if (it.id === 'continue') this._start(it.chapter);
+    else if (it.id === 'new') this._start('prologue');
     else if (it.id === 'chapters') this._showChapters();
     else if (it.id === 'player') this._showPlayers();
     else if (it.id === 'pick') {
@@ -474,6 +502,7 @@ export class TitleScreen {
     else if (it.id === 'controls') this.onControls?.();
     else if (it.id === 'credits') this.onCredits?.();
     else if (it.id === 'cards') this.onCards?.();
+    else if (it.id === 'records') this.onRecords?.();
     else if (it.id === 'map') this.onMap?.();
     else if (it.id === 'playbook') this.onPlaybook?.();
     else if (it.id === 'back') this._showMain(this._page);
@@ -542,6 +571,58 @@ export class TitleScreen {
     setTimeout(() => ctx.close().catch(() => {}), 4500);
   }
 
+  /**
+   * The menu's small sounds, made here like the horn call: a pluck like an
+   * mbira's tine (a sine, with the tine's bright overtone dying fast) as the
+   * selection moves; a lower, fuller one with a soft knock under it on
+   * choosing; two falling notes going back. Quiet, under the theme. One
+   * AudioContext for all of them, made on the first (the landing's key has let
+   * the page make sound by then); like every context in the game it goes
+   * through the OPTIONS master volume and M (audio/masterMute.js).
+   */
+  _sound(kind) {
+    if (this._leaving) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      const ctx = this._uiCtx || (this._uiCtx = new AC());
+      if (ctx.state === 'suspended') ctx.resume();
+      const t = ctx.currentTime + 0.005;
+      const pluck = (f, at, len, vol) => {
+        for (const [mul, g, decay] of [[1, 1, len], [5.4, 0.22, len * 0.18]]) {
+          const o = ctx.createOscillator();
+          o.frequency.value = f * mul;
+          const e = ctx.createGain();
+          e.gain.setValueAtTime(0.0001, t + at);
+          e.gain.exponentialRampToValueAtTime(vol * g, t + at + 0.004);
+          e.gain.exponentialRampToValueAtTime(0.0001, t + at + decay);
+          o.connect(e).connect(ctx.destination);
+          o.start(t + at);
+          o.stop(t + at + decay + 0.02);
+        }
+      };
+      if (kind === 'move') pluck(784, 0, 0.22, 0.07); // G
+      else if (kind === 'back') {
+        pluck(587, 0, 0.2, 0.07); // D, falling to
+        pluck(392, 0.07, 0.32, 0.07); // G
+      } else {
+        pluck(392, 0, 0.65, 0.12); // G and the D over it
+        pluck(587, 0.045, 0.5, 0.07);
+        const knock = ctx.createOscillator();
+        knock.frequency.setValueAtTime(130, t);
+        knock.frequency.exponentialRampToValueAtTime(62, t + 0.14);
+        const kg = ctx.createGain();
+        kg.gain.setValueAtTime(0.16, t);
+        kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+        knock.connect(kg).connect(ctx.destination);
+        knock.start(t);
+        knock.stop(t + 0.2);
+      }
+    } catch {
+      // no sound to be had: the menu works the same
+    }
+  }
+
   _startMusic() {
     if (this.music) return;
     const a = new Audio(THEME_MUSIC);
@@ -585,6 +666,8 @@ export class TitleScreen {
     // (0.65 s), and its own pause at the end never ran, so the theme used to
     // carry on, quietly, under the prologue
     if (this.music) this.music.pause();
+    // the choosing pluck is still ringing as the page goes: let it finish
+    if (this._uiCtx) setTimeout(() => this._uiCtx.close().catch(() => {}), 800);
     this.el.remove();
     this.style.remove();
   }

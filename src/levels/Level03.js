@@ -20,6 +20,7 @@ import { Fireflies } from './level3/Fireflies.js';
 import { Level3Sound } from './level3/sound.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { showLoseCard } from '../ui/EndCard.js';
+import { submit as submitRecord, clock } from '../core/records.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
@@ -791,6 +792,7 @@ export class Level03 extends Level {
     const real = dt / Math.max(state.timeScale, 0.05);
     this.time += real;
     this.beatT += real;
+    if (this.mode === 'FIGHT' && !this._ended) this._fightTime = (this._fightTime || 0) + real; // the fight's clock, for its record
     // the pointer is only held while he's fighting in the follow view: cutscenes, cards and menus get it back
     const canvas = this.game.renderer.domElement;
     if (document.pointerLockElement === canvas && (this.mode !== 'FIGHT' || this._ended || this.camMode !== 'follow')) document.exitPointerLock();
@@ -1308,6 +1310,10 @@ export class Level03 extends Level {
     this.finished = true;
     state.timeScale = 1;
     if (this._endKind === 'win') {
+      // the fight against its records (core/records.js), for the VICTORY card's tiles
+      const time = this._fightTime || 0;
+      const life = Math.max(0, Math.round((100 * state.health) / state.maxHealth));
+      this._won = { time, life, bestTime: submitRecord('l3.time', time), bestLife: submitRecord('l3.life', life) };
       this._startEpilogue();
       return;
     }
@@ -2638,9 +2644,14 @@ export class Level03 extends Level {
     this._enterBeat('END');
     this._shot = 'E0'; // keep the same slow circle going behind the card
     this.story.setCinematic(false);
+    const w = this._won;
     this.story.showEnd({
       title: 'VICTORY',
       sub: say('Baba Zwane is down, and the horn is {name}’s to carry home.'),
+      stats: w && [
+        { label: 'FIGHT TIME', value: clock(w.time), best: w.bestTime },
+        { label: 'LIFE LEFT', value: w.life, unit: '%', best: w.bestLife },
+      ],
       // on to the epilogue: Kai takes it back up the mountain to its stone
       action: { label: 'CONTINUE', key: 'ENTER', onClick: () => this.game.setLevel('epilogue') },
     });

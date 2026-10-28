@@ -36,6 +36,7 @@ import { createClueBoard } from '../cards/clueSign.js';
 import { Obstacles, loadAnimalModels } from './level2/obstacles.js';
 import { Rain } from './level2/rain.js';
 import { isMuted, toggleMuted } from '../audio/masterMute.js';
+import { submit as submitRecord, clock } from '../core/records.js';
 
 /**
  * Level 02 — The River Road. Kai drives off the trail with the horn, the
@@ -840,6 +841,7 @@ export class Level02 extends Level {
   /* ======================== the falls ======================== */
 
   _startFall() {
+    this._driveTime = this._time; // the River Road's time, start to the lip (a record)
     const car = this.car;
     const v = Math.max(car.speed, 14);
     const p = car.mesh.position;
@@ -1224,15 +1226,19 @@ export class Level02 extends Level {
   _showSurvivedCard() {
     this.sound.win(); // the same fanfare Level 1 plays on its win
     const integrity = Math.round((100 * this.car.health) / this.car.maxHealth);
+    const time = this._driveTime ?? this._time;
+    submitRecord('l2.speed', Math.round(this._topSpeed * 3.6)); // not on this card: on the RECORDS page
     this._survivedCard = showEndCard({
       kind: 'win',
       title: 'SURVIVED',
       sub: 'You went over the falls. He stopped at the edge.',
+      // each against its record (core/records.js): NEW BEST on the ones that beat it
       lines: [{ stats: [
+        { label: 'TIME', value: clock(time), best: submitRecord('l2.time', time) },
         { label: 'DISTANCE', value: Math.round(this.state.distance), unit: 'M' },
-        { label: 'INTEGRITY', value: integrity, unit: '%' },
+        { label: 'INTEGRITY', value: integrity, unit: '%', best: submitRecord('l2.integrity', integrity) },
         { label: 'RAMS TAKEN', value: this._rams || 0 },
-        { label: 'TAKEDOWNS', value: this._takedowns || 0 },
+        { label: 'TAKEDOWNS', value: this._takedowns || 0, best: submitRecord('l2.takedowns', this._takedowns || 0) },
       ] }],
       action: { label: 'CONTINUE', key: 'SPACE', onClick: () => this._handOff() },
     });
@@ -1269,8 +1275,10 @@ export class Level02 extends Level {
     // TRY AGAIN is the River Road from the top, straight back in the same car
     // (R included, which Game handles itself: hence the flag is set now, not on the click)
     retryDriving = true;
+    submitRecord('l2.takedowns', this._takedowns || 0);
     this._gameOverScreen = createGameOverScreen(this.game, {
       topSpeedKmh,
+      bestSpeed: submitRecord('l2.speed', Math.round(topSpeedKmh)),
       distance: dist,
       time,
       onMenu: () => { retryDriving = false; },

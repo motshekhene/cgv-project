@@ -21,6 +21,8 @@ import { CreditsMenu } from "./ui/CreditsMenu.js";
 import { CardAlbum } from "./ui/CardAlbum.js";
 import { GameMap } from "./ui/GameMap.js";
 import { Playbook } from "./ui/Playbook.js";
+import { RecordsMenu } from "./ui/RecordsMenu.js";
+import { reached } from "./core/progress.js";
 import { mountFpsCounter } from "./ui/FpsCounter.js";
 
 /**
@@ -97,6 +99,8 @@ const gameMap = new GameMap();
 const cardAlbum = new CardAlbum({ onMap: () => gameMap.open() });
 // PLAYBOOK, from the title and pause menus: the rules, what everything does, and the places, with pictures
 const playbook = new Playbook({ onMap: () => gameMap.open() });
+// RECORDS, from the title menu: each level's bests (core/records.js)
+const recordsMenu = new RecordsMenu();
 mountFpsCounter();
 
 // the title's words and menu, over the title level while it is up
@@ -121,6 +125,7 @@ game.onLoadProgress = (p) => {
 };
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
+  reached(name); // where the story is up to, for CONTINUE (core/progress.js)
   pauseHint.setLevel(name);
   loading.hide();
   if (titleScreen && name !== "title") {
@@ -145,6 +150,7 @@ function makeTitleScreen({ skipPress, loading: waiting = false }) {
     onCards: () => cardAlbum.open(),
     onMap: () => gameMap.open(),
     onPlaybook: () => playbook.open(),
+    onRecords: () => recordsMenu.open(),
     onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
     onEnter: (instant) => game.level?.wake?.(instant), // the landing's key: the horn wakes, the camera pulls back to the menu
     skipPress,
