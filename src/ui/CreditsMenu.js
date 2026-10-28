@@ -10,8 +10,14 @@ import { CREDIT_SECTIONS, LICENCES, TEAM, CAST, CAST_CREDIT, SCORE } from './cre
  *   THE TEAM            the five developers, each on a medallion of their initials
  *   THE CAST            who's in the story, each in the colour of their lines
  *   THE MUSIC           the score written for the game, one piece per chapter
- *   ASSETS AND TOOLS    everything the team did not make: who made it, its
- *                       licence, where it is in the game and a link to it
+ *   ASSETS AND TOOLS    everything the team did not make, as a film's end
+ *                       credits: rolling up the panel by themselves, centred,
+ *                       each with who made it, where it is in the game, its
+ *                       licence and a link; to THE SILENT HORN and the six of
+ *                       us at the end, then round again. Hover holds it still
+ *                       (so a link can be clicked), the wheel or ↑ ↓ wind it,
+ *                       Space stops and starts it. With reduced motion it is
+ *                       a plain list to scroll.
  *
  * It used to be a paragraph on the last card of the game; here it can be
  * found without finishing it, and every link can be followed. Each tab deals
@@ -31,6 +37,9 @@ const initials = (name) => name.split(/\s+/).map((w) => w[0]).join('').slice(0, 
 // cyan, orange, green, violet, crimson, gold
 const TEAM_COLOURS = ['#4fd6e0', '#ff8a3a', '#6fbf4a', '#c48cff', '#ff5f7a', '#f2d45c'];
 const STILL = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ROLL_SPEED = 38; // px a second, the credits rolling up
+// the horn, as on its stone (Level01's coin emblem shape, on a 260 x 200 grid)
+const HORN_PATH = 'M38 168 C30 104 76 42 146 40 C196 39 226 72 224 112 C223 138 204 154 186 150 C204 138 206 112 192 94 C174 72 142 66 114 78 C84 92 70 124 76 168 Z';
 
 const CSS = THEME_CSS + `
 .cm { position:fixed; inset:0; z-index:9700; display:flex; align-items:center; justify-content:center; font-family:var(--sans); color:var(--ink);
@@ -162,6 +171,28 @@ const CSS = THEME_CSS + `
   .cm-back { margin-top:8px; padding:5px 24px; }
   .cm-keys { margin-top:5px; }
 }
+/* ASSETS AND TOOLS: the credits roll, centred, faded in at the bottom and out at the top like film */
+.cm-list.rolling { overflow:hidden; -webkit-mask-image:linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%);
+  mask-image:linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%); }
+.cm-roll { text-align:center; padding:0 12px; will-change:transform; }
+.cm-r-open { margin:0 0 30px; }
+.cm-r-open small, .cm-r-end small { display:block; font:700 10px var(--sans); letter-spacing:.44em; color:var(--gold-dim); }
+.cm-r-open h3, .cm-r-end h3 { margin:10px 0 8px; font:600 clamp(24px, 3.4vw, 34px) ${DIALOGUE_FONT}; letter-spacing:.28em; color:var(--gold);
+  text-shadow:0 2px 0 #000, 0 0 20px rgba(227,187,98,.35); }
+.cm-r-open p { margin:0; font:italic 16px ${DIALOGUE_FONT}; color:var(--ink-dim); }
+.cm-r-sec { display:flex; align-items:center; gap:16px; max-width:560px; margin:64px auto 30px; font:700 12px var(--sans); letter-spacing:.42em; color:var(--gold); white-space:nowrap; }
+.cm-r-sec::before, .cm-r-sec::after { content:''; flex:1; height:1px; background:linear-gradient(90deg, transparent, rgba(227,187,98,.7)); }
+.cm-r-sec::after { background:linear-gradient(90deg, rgba(227,187,98,.7), transparent); }
+.cm-r-item { max-width:560px; margin:0 auto 30px; }
+.cm-r-item b { display:block; font:600 22px/1.25 ${DIALOGUE_FONT}; color:#fff4d8; text-shadow:0 2px 8px #000; }
+.cm-r-item i { display:block; margin-top:3px; font:italic 16px ${DIALOGUE_FONT}; color:var(--gold); }
+.cm-r-item small { display:block; margin-top:4px; font:italic 14px ${DIALOGUE_FONT}; color:var(--ink-dim); }
+.cm-r-links { display:flex; justify-content:center; align-items:center; gap:10px; margin-top:7px; }
+.cm-r-links .cm-url { margin:0; }
+.cm-r-note { max-width:520px; margin:-6px auto 0; font:italic 14px ${DIALOGUE_FONT}; color:var(--ink-dim); }
+.cm-r-end { margin:110px 0 30px; }
+.cm-r-end svg { width:70px; height:54px; filter:drop-shadow(0 0 10px #4fd6e0) drop-shadow(0 0 24px rgba(79,214,224,.5)); }
+.cm-r-end p { margin:8px 0 0; font:italic 16px ${DIALOGUE_FONT}; letter-spacing:.06em; color:#e8ddc8; }
 @media (prefers-reduced-motion: reduce) {
   .cm *, .cm *::before { animation:none !important; transition:none !important; }
 }
@@ -194,20 +225,20 @@ export class CreditsMenu {
         <span class="cm-where">${t.where}</span>
       </div>`).join('');
 
-    const assets = CREDIT_SECTIONS.map((s) => {
-      const items = s.items.map((it) => {
-        const lic = LICENCES[it.licence];
-        return `<div class="cm-item">
-          <div>
-            <div class="cm-what">${it.title} <span>— ${it.by}</span></div>
-            <div class="cm-use">${it.use}</div>
-            ${link(it.url, 'cm-url', host(it.url) + ' ↗')}
-          </div>
-          ${link(lic.url ?? it.url, 'cm-lic', lic.name)}
-        </div>`;
-      }).join('');
-      return `<div class="cm-sec">${s.title}</div>${items}${s.note ? `<div class="cm-note">${s.note}</div>` : ''}`;
-    }).join('');
+    // ASSETS AND TOOLS, as a film's end credits (rolled by _startRoll)
+    const roll = CREDIT_SECTIONS.map((sec) => `<div class="cm-r-sec">${sec.title}</div>` + sec.items.map((it) => {
+      const lic = LICENCES[it.licence];
+      return `<div class="cm-r-item"><b>${it.title}</b><i>by ${it.by}</i><small>${it.use}</small>
+        <div class="cm-r-links">${link(it.url, 'cm-url', host(it.url) + ' ↗')}${link(lic.url ?? it.url, 'cm-lic', lic.name)}</div></div>`;
+    }).join('') + (sec.note ? `<div class="cm-r-note">${sec.note}</div>` : '')).join('');
+    const assets = `<div class="cm-roll">
+        <div class="cm-r-open"><small>WITH THANKS TO</small><h3>THE ARTISTS AND TOOLS</h3><p>Everything in the game we didn’t make ourselves.</p></div>
+        ${roll}
+        <div class="cm-r-end">
+          <svg viewBox="0 0 260 200" aria-hidden="true"><path d="${HORN_PATH}" fill="#8ff0f6"/></svg>
+          <h3>${GAME_TITLE}</h3><small>A GAME BY</small><p>${TEAM.join(' · ')}</p>
+        </div>
+      </div>`;
 
     const TABS = [
       ['team', 'THE TEAM', `<div class="cm-lead">Six of us, one forest.</div><div class="cm-team">${team}</div>
@@ -215,7 +246,7 @@ export class CreditsMenu {
       ['cast', 'THE CAST', `<div class="cm-lead">Who you’ll meet between the fire and the falls.</div><div class="cm-cast">${cast}</div>
         <div class="cm-note">${CAST_CREDIT.title}: ${CAST_CREDIT.by}, ${link(castLic.url, '', castLic.name.toLowerCase())}.</div>`],
       ['music', 'THE MUSIC', `<div class="cm-lead">Written for this game and synthesised in code, every note of it. The tune from the fire runs through all four.</div>${score}`],
-      ['assets', 'ASSETS AND TOOLS', `<div class="cm-lead">Everything in the game we didn’t make ourselves, with thanks.</div>${assets}`],
+      ['assets', 'ASSETS AND TOOLS', assets],
     ];
     this.el.innerHTML = `
       <div class="cm-in plaque">
@@ -228,7 +259,17 @@ export class CreditsMenu {
         <div class="cm-keys">← → TAB · ↑ ↓ SCROLL · CLICK A LINK TO OPEN IT · ESC BACK</div>
       </div>`;
     this.list = this.el.querySelector('.cm-list');
+    this.rollEl = this.el.querySelector('.cm-roll');
+    this.keysEl = this.el.querySelector('.cm-keys');
     this.tabs = TABS.map(([id]) => id);
+    // the roll: held still under the pointer (to click a link), wound on or back with the wheel
+    this.rollEl.addEventListener('pointerenter', () => { this._rollHold = true; });
+    this.rollEl.addEventListener('pointerleave', () => { this._rollHold = false; });
+    this.list.addEventListener('wheel', (e) => {
+      if (!this._rolling) return;
+      e.preventDefault();
+      this._rollY += e.deltaY;
+    }, { passive: false });
     for (const t of this.el.querySelectorAll('.cm-tab')) t.addEventListener('click', () => this.show(t.dataset.tab));
     // the team's cards tilt toward the pointer, and their light follows it
     for (const card of this.el.querySelectorAll('.cm-dev')) {
@@ -269,6 +310,41 @@ export class CreditsMenu {
     for (const t of this.el.querySelectorAll('.cm-tab')) t.classList.toggle('on', t.dataset.tab === id);
     for (const p of this.el.querySelectorAll('.cm-pane')) p.classList.toggle('on', p.dataset.pane === id);
     this.list.scrollTop = 0;
+    this._stopRoll();
+    if (id === 'assets' && !STILL && this.visible) this._startRoll();
+    this.keysEl.textContent = this._rolling
+      ? '← → TAB · HOVER TO HOLD IT · ↑ ↓ OR THE WHEEL TO WIND IT · SPACE STOP / START · ESC BACK'
+      : '← → TAB · ↑ ↓ SCROLL · CLICK A LINK TO OPEN IT · ESC BACK';
+  }
+
+  /** The credits start to roll: from just below the panel, up. */
+  _startRoll() {
+    this._rolling = true;
+    this._rollPaused = false;
+    this._rollHold = false;
+    this.list.classList.add('rolling');
+    this._rollY = -this.list.clientHeight * 0.8;
+    this._rollLast = null;
+    const step = (now) => {
+      if (!this._rolling) return;
+      const dt = this._rollLast === null ? 0 : Math.min(0.05, (now - this._rollLast) / 1000);
+      this._rollLast = now;
+      if (!this._rollHold && !this._rollPaused) this._rollY += ROLL_SPEED * dt;
+      // past the end, round again from the bottom; never wound back past the start
+      const view = this.list.clientHeight;
+      if (this._rollY > this.rollEl.offsetHeight) this._rollY = -view;
+      this._rollY = Math.max(-view, this._rollY);
+      this.rollEl.style.transform = `translateY(${(-this._rollY).toFixed(1)}px)`;
+      this._rollRaf = requestAnimationFrame(step);
+    };
+    this._rollRaf = requestAnimationFrame(step);
+  }
+
+  _stopRoll() {
+    this._rolling = false;
+    cancelAnimationFrame(this._rollRaf);
+    this.list.classList.remove('rolling');
+    if (this.rollEl) this.rollEl.style.transform = '';
   }
 
   open() {
@@ -279,6 +355,7 @@ export class CreditsMenu {
 
   close() {
     if (!this.visible) return;
+    this._stopRoll();
     this.el.classList.remove('show');
     this.onClose?.();
   }
@@ -291,6 +368,9 @@ export class CreditsMenu {
     if (k === 'arrowright' || k === 'd' || k === 'tab') this.show(this.tabs[(at + 1) % this.tabs.length]);
     else if (k === 'arrowleft' || k === 'a') this.show(this.tabs[(at + this.tabs.length - 1) % this.tabs.length]);
     else if (k >= '1' && k <= String(this.tabs.length)) this.show(this.tabs[+k - 1]);
+    else if (this._rolling && (k === 'arrowdown' || k === 's')) this._rollY += 90;
+    else if (this._rolling && (k === 'arrowup' || k === 'w')) this._rollY -= 90;
+    else if (this._rolling && k === ' ') this._rollPaused = !this._rollPaused;
     else if (k === 'arrowdown' || k === 's') this.list.scrollBy({ top: 70, behavior: 'smooth' });
     else if (k === 'arrowup' || k === 'w') this.list.scrollBy({ top: -70, behavior: 'smooth' });
     else if (k === ' ' || k === 'pagedown') this.list.scrollBy({ top: page, behavior: 'smooth' });
