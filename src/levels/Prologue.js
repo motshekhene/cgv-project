@@ -112,12 +112,19 @@ import {
 // stone stands; and from the glade one straight trail east, down the
 // mountain — the way out, and where level 01 starts.
 // The valley is open (VALLEY, places.js): Kai can wander anywhere in it, off
-// the path and round its landmarks; only the trees, the fire and the stone
-// stop him. The run, once he has the horn, is the trail east and nothing else.
+// the path and round its landmarks; the trees, the rocks, the relics, the
+// camps and the landmarks stop him like the fire and the stone do. The run,
+// once he has the horn, is the trail east and nothing else.
 const SEAT = { x: 0, z: 10.8 };            // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
 const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
-const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
+const WALKOFF = { x: -9.6, z: 3.2 };       // the way Baba Zwane leaves the fire: past here, into the forest
+const ZWANE_WALK = 1.5;                    // m/s, his pace as he goes
+const ZWANE_FOLLOW = 8;                    // m: the two-shot follows him this far, then lets him walk out of it
+const _follow = new THREE.Vector3();
+const _frustum = new THREE.Frustum();
+const _viewProj = new THREE.Matrix4();
+const _zSphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
@@ -1432,7 +1439,10 @@ export class Prologue extends Level {
       const x = -14 + rnd() * 76, z = GLADE.z - 10 + rnd() * (26 - GLADE.z);
       const out = outside(clear, x, z);
       if (out < 0.6 || out > 4) continue;
-      put(this.kit['rock' + (1 + (i % 3))], x, -0.15, z, 0.011 + rnd() * 0.007, rnd() * Math.PI * 2);
+      const rock = this.kit['rock' + (1 + (i % 3))], s = 0.011 + rnd() * 0.007;
+      put(rock, x, -0.15, z, s, rnd() * Math.PI * 2);
+      const r = this._footprint(rock) * s * 0.75; // round enough: a rock is as solid as a trunk
+      if (r > 0.15) this._addTree(x, z, r);
       i++;
     }
     for (const [proto, list] of plant) this._scatter(proto, list);
@@ -1441,20 +1451,52 @@ export class Prologue extends Level {
     // anyone cut a line through it: a pair of columns either side of the
     // way, a dead tree, the stag watching the halfway gate, a second pair
     // of columns, and the fox watching the stone
+    // (all of them solid: _solidProp for the columns and statues, a trunk for the dead trees)
     const px = (z) => this._pathAtZ(z).x; // the relics stand beside the path, wherever it bends
-    placeProp(this.root, cloneProp(this.kit.column), px(-9) - 4.2, 0, -9, { s: 0.014, ry: 0.2 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), px(-11.5) + 4.2, 0, -11.5, { s: 0.012, ry: 1.4 });
-    placeProp(this.root, cloneProp(this.kit.deadTree), px(-17) + 4.6, 0, -17, { s: 0.02, ry: 1.1 });
-    placeProp(this.root, cloneProp(this.kit.stag), STAG_AT.x, 0, STAG_AT.z, { s: 0.0105, ry: -1.3 });
-    placeProp(this.root, cloneProp(this.kit.column), px(-36) - 4.2, 0, -36, { s: 0.014, ry: 2.3 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), px(-38.5) + 4.2, 0, -38.5, { s: 0.012, ry: 0.6 });
-    placeProp(this.root, cloneProp(this.kit.deadTree), px(-60) - 4.4, 0, -60, { s: 0.022, ry: 2.6 });
-    placeProp(this.root, cloneProp(this.kit.column), px(-75) + 4.2, 0, -75, { s: 0.014, ry: 1.0 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), px(-78) - 4.2, 0, -78, { s: 0.012, ry: 2.2 });
-    placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, GLADE.z - 2.6, { s: 0.0105, ry: 0.9 });
+    const relic = (proto, x, z, s, ry) => this._solidProp(placeProp(this.root, cloneProp(proto), x, 0, z, { s, ry }));
+    const deadTree = (x, z, s, ry) => {
+      placeProp(this.root, cloneProp(this.kit.deadTree), x, 0, z, { s, ry });
+      this._addTree(x, z, 0.45);
+    };
+    relic(this.kit.column, px(-9) - 4.2, -9, 0.014, 0.2);
+    relic(this.kit.columnShort, px(-11.5) + 4.2, -11.5, 0.012, 1.4);
+    deadTree(px(-17) + 4.6, -17, 0.02, 1.1);
+    relic(this.kit.stag, STAG_AT.x, STAG_AT.z, 0.0105, -1.3);
+    relic(this.kit.column, px(-36) - 4.2, -36, 0.014, 2.3);
+    relic(this.kit.columnShort, px(-38.5) + 4.2, -38.5, 0.012, 0.6);
+    deadTree(px(-60) - 4.4, -60, 0.022, 2.6);
+    relic(this.kit.column, px(-75) + 4.2, -75, 0.014, 1.0);
+    relic(this.kit.columnShort, px(-78) - 4.2, -78, 0.012, 2.2);
+    relic(this.kit.fox, -4.6, GLADE.z - 2.6, 0.0105, 0.9);
 
     this._buildCrewCamp();
     this._buildLandmarks();
+  }
+
+  /**
+   * A placed prop made as solid as it looks: its footprint on the ground (the
+   * world box round it, pulled in by `shrink` so brushing past isn't a wall)
+   * blocks Kai the way the fire and the stone do. For compact things: a
+   * column, a statue, a crate, a barrel. Returns the prop.
+   */
+  _solidProp(obj, shrink = 0.12) {
+    if (!obj) return obj;
+    obj.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(obj);
+    if (b.isEmpty()) return obj;
+    const x0 = b.min.x + shrink, x1 = b.max.x - shrink, z0 = b.min.z + shrink, z1 = b.max.z - shrink;
+    if (x1 - x0 > 0.1 && z1 - z0 > 0.1) this.blockers.push({ x0, x1, z0, z1 });
+    return obj;
+  }
+
+  /** Half a model's widest side on the ground, at scale 1 (measured once per model). */
+  _footprint(proto) {
+    if (!proto) return 0;
+    if (proto.userData.footprint === undefined) {
+      const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3());
+      proto.userData.footprint = Math.max(size.x, size.z) * 0.5;
+    }
+    return proto.userData.footprint;
   }
 
   /** A solid trunk at (x, z), in a coarse grid so a step only checks its neighbours. */
@@ -1560,7 +1602,7 @@ export class Prologue extends Level {
       this.root.add(pool);
       for (let i = 0; i < 9; i++) {
         const a = (i / 9) * Math.PI * 2 + 0.2;
-        placeProp(this.root, cloneProp(k['rock' + (1 + (i % 3))]), L.x + Math.cos(a) * 5.8, -0.1, L.z + Math.sin(a) * 5.8, { s: 0.012 + (i % 2) * 0.004, ry: a });
+        this._solidProp(placeProp(this.root, cloneProp(k['rock' + (1 + (i % 3))]), L.x + Math.cos(a) * 5.8, -0.1, L.z + Math.sin(a) * 5.8, { s: 0.012 + (i % 2) * 0.004, ry: a }), 0.2);
       }
       solid(L.x, L.z, 5.0); // nobody walks on water
     }
@@ -1634,11 +1676,12 @@ export class Prologue extends Level {
    */
   _buildCrewCamp() {
     const C = CREW_CAMP;
-    this._putFit(this.kit.crates, C.x + 1.2, C.z + 1.7, 1.4, 0.3);
-    this._putFit(this.kit.barrel, C.x + 2.0, C.z - 0.3, 0.95, 1.1);
-    this._putFit(this.kit.logs, C.x + 1.0, C.z - 2.4, 2.4, 0.4);
-    this._putFit(this.kit.cutTrees, C.x - 2.0, C.z + 2.4, 3.2, 2.0);
-    this._putFit(this.kit.trap, C.x + 2.6, C.z + 0.6, 0.7, 0.8);
+    // all of it solid: he walks round their things, not through them
+    this._solidProp(this._putFit(this.kit.crates, C.x + 1.2, C.z + 1.7, 1.4, 0.3));
+    this._solidProp(this._putFit(this.kit.barrel, C.x + 2.0, C.z - 0.3, 0.95, 1.1), 0.05);
+    this._solidProp(this._putFit(this.kit.logs, C.x + 1.0, C.z - 2.4, 2.4, 0.4), 0.25);
+    this._solidProp(this._putFit(this.kit.cutTrees, C.x - 2.0, C.z + 2.4, 3.2, 2.0), 0.35);
+    this._solidProp(this._putFit(this.kit.trap, C.x + 2.6, C.z + 0.6, 0.7, 0.8), 0.05);
 
     // the tent, half fallen in
     const tent = new THREE.Mesh(
@@ -1650,6 +1693,7 @@ export class Prologue extends Level {
     tent.castShadow = true;
     tent.receiveShadow = true;
     this.root.add(tent);
+    this._addTree(tent.position.x, tent.position.z, 0.95);
 
     // their fire: a ring of stones round two black logs, cold
     const fx = C.x + 0.6, fz = C.z + 0.2;
@@ -1762,6 +1806,7 @@ export class Prologue extends Level {
       q.setFromEuler(e.set(0, i * 2.1, 0));
       m.compose(p.set(x, y + 0.06, z), q, sc.set(0.11, 0.09, 0.11));
       caps.setMatrixAt(i, m);
+      this._addTree(x, z, 0.28); // knee-high stone: walked round, not through
     });
     stones.castShadow = true;
     this.root.add(stones, caps);
@@ -1771,16 +1816,28 @@ export class Prologue extends Level {
     const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3());
     const across = Math.max(size.x, size.z) || 1;
     const spanAlongX = size.x >= size.z;   // which way the model's opening faces
+    const mid = new THREE.Box3().setFromObject(proto).getCenter(new THREE.Vector3());
+    const post = new THREE.Vector3();
     for (const [x, z, yaw, width] of [
       // each gate stands across the path where it is, turned to face along it
       ...GATE_ZS.map((z) => { const p = this._pathAtZ(z); return [p.x, z, p.yaw, PATH_HW * 2 + 2.4]; }),
       [9, RUN_Z, Math.PI / 2, RUN_HW * 2 + 2.6],
     ]) {
       const gate = cloneProp(proto);
-      gate.scale.setScalar(width / across);
+      const k = width / across;
+      gate.scale.setScalar(k);
       gate.position.set(x, -0.05, z);
       gate.rotation.y = yaw + (spanAlongX ? 0 : Math.PI / 2);
       this.root.add(gate);
+      // its two posts are solid, at the ends of the span (the opening stays clear)
+      gate.updateMatrixWorld(true);
+      const half = across / 2 - 0.32 / k;
+      for (const side of [-1, 1]) {
+        post.copy(mid);
+        if (spanAlongX) post.x += side * half; else post.z += side * half;
+        gate.localToWorld(post);
+        this._addTree(post.x, post.z, 0.32);
+      }
     }
   }
 
@@ -1983,6 +2040,7 @@ export class Prologue extends Level {
     log.castShadow = true;
     log.receiveShadow = true;
     this.root.add(log);
+    this._solidProp(log, 0.05); // he gets up off it, and can't walk back through it
     this._buildBlockers();
   }
 
@@ -2186,7 +2244,6 @@ export class Prologue extends Level {
       this.hud.subHint.style.opacity = '0';
       this.phase = 'leave';
       this.t = 0;
-      this._leaveTold = false;
       this._whistled = false;
       return;
     }
@@ -2524,9 +2581,16 @@ export class Prologue extends Level {
         SHOT_POS.z,
       );
       this._look3.copy(SHOT_LOOK);
-      if (this.phase === 'leave' && this.t > 1.4) {
-        // let the camera follow Baba Zwane a little way into the trees
-        this._look3.lerp(this.zwane.position, 0.25);
+      const going = this._zwaneGoing;
+      if (going?.look > 0) {
+        // let the camera follow Baba Zwane a little way toward the trees, no
+        // further than the tree line (he walks on out of the frame), and ease
+        // back to the two of them as Kai gets up
+        const zp = this.zwane.position;
+        const d = Math.hypot(zp.x - ZWANE_AT.x, zp.z - ZWANE_AT.z);
+        const k = d > ZWANE_FOLLOW ? ZWANE_FOLLOW / d : 1;
+        _follow.set(ZWANE_AT.x + (zp.x - ZWANE_AT.x) * k, zp.y, ZWANE_AT.z + (zp.z - ZWANE_AT.z) * k);
+        this._look3.lerp(_follow, 0.25 * going.look);
       }
       cam.lookAt(this._look3);
       want = 46;
@@ -2593,6 +2657,7 @@ export class Prologue extends Level {
 
     this.kaiF.update(dt);
     this.zwaneF.update(dt);
+    this._tickZwaneLeaving(dt);
 
     // heartbeat, from the first touch of the horn
     if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
@@ -2639,26 +2704,11 @@ export class Prologue extends Level {
       // He whistles two notes and walks off into the dark.
       case 'leave': {
         if (!this._whistled && this.t > 0.6) { this._whistled = true; this.sfx.whistle(); }
-        if (this.t > 1.4) {
-          // out along the west tree line, unhurried — a man with nowhere to be
-          const k = Math.min(1, (this.t - 1.4) / 4.6);
-          this.zwaneF.play(k < 1 ? 'walk' : 'idle', { fade: 0.4, speed: 1.3 });
-          const ease = k * k * (3 - 2 * k);
-          this.zwane.position.set(
-            THREE.MathUtils.lerp(ZWANE_AT.x, WALKOFF.x, ease),
-            0,
-            THREE.MathUtils.lerp(ZWANE_AT.z, WALKOFF.z, ease),
-          );
-          this.zwane.rotation.y = Math.atan2(
-            -(WALKOFF.x - ZWANE_AT.x), -(WALKOFF.z - ZWANE_AT.z),
-          );
-          // the lamp's glow goes with him and thins into the dark
-          this.zwaneLampLight.intensity = 2.2 * (1 - ease * 0.55);
-          if (k >= 1 && !this._leaveTold) {
-            this._leaveTold = true;
-            this.zwane.visible = false;
-            this.zwaneLampLight.intensity = 0;
-          }
+        // out past the west tree line, unhurried (_tickZwaneLeaving walks him)
+        if (this.t > 1.4 && !this._zwaneGoing) {
+          this._zwaneGoing = { ang: Math.atan2(WALKOFF.x - ZWANE_AT.x, WALKOFF.z - ZWANE_AT.z), v: 0 };
+          this._zwaneGoing.want = this._zwaneGoing.ang;
+          this.zwaneF.play('walk', { fade: 0.4, speed: 1.2 });
         }
         if (this.t > 7.4) {
           this.phase = 'rise';
@@ -3018,6 +3068,42 @@ export class Prologue extends Level {
       if (s > until) { b[key] = true; continue; }   // walked past it
       if (s > from) { b[key] = true; this._say(line, secs); }
       return;                       // strictly in order
+    }
+  }
+
+  /**
+   * Baba Zwane, gone from the fire: he keeps walking at an old man's steady
+   * pace, out past the west tree line and on into the forest, round any trunk
+   * in his way, his lamp thinning as he goes. Nothing stops him or snaps him
+   * out of the scene: he is only taken away once he is well off and out of
+   * the camera's view (or lost in the dark at the valley's edge).
+   */
+  _tickZwaneLeaving(dt) {
+    const g = this._zwaneGoing;
+    if (!g || g.gone || !this.zwane) return;
+    g.look = Math.min(1, Math.max(0, (g.look || 0) + (this.phase === 'leave' ? dt : -dt) * 0.8));
+    const z = this.zwane.position;
+    g.v = Math.min(ZWANE_WALK, g.v + ZWANE_WALK * 1.4 * dt); // into his stride over the first steps
+    // the way he means to go; a trunk just ahead turns him aside until he's past it
+    let want = g.want;
+    for (const turn of [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4]) {
+      const a = g.want + turn;
+      if (!this._treeAt(z.x + Math.sin(a) * 1.3, z.z + Math.cos(a) * 1.3, 0.35)) { want = a; break; }
+    }
+    g.ang += wrapAngle(want - g.ang) * (1 - Math.exp(-5 * dt));
+    z.x += Math.sin(g.ang) * g.v * dt;
+    z.z += Math.cos(g.ang) * g.v * dt;
+    this.zwane.rotation.y = Math.atan2(-Math.sin(g.ang), -Math.cos(g.ang));
+    const far = Math.hypot(z.x - ZWANE_AT.x, z.z - ZWANE_AT.z);
+    this.zwaneLampLight.intensity = 2.2 * Math.max(0.35, 1 - far / 28);
+    if (far < 12) return;
+    const cam = this.game.camera;
+    _frustum.setFromProjectionMatrix(_viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    _zSphere.center.set(z.x, 1, z.z);
+    if (!_frustum.intersectsSphere(_zSphere) || far > 42 || z.x < VALLEY.x0 + 3) {
+      g.gone = true;
+      this.zwane.visible = false;
+      this.zwaneLampLight.intensity = 0;
     }
   }
 
