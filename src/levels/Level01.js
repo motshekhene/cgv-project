@@ -106,7 +106,7 @@ const TUNNEL_END_Z = TUNNEL_START_Z - TUNNEL_LENGTH;
 const SHELL_CENTER_Z = TUNNEL_START_Z - TUNNEL_LENGTH / 2;
 const MAP_REPEAT_Z = TUNNEL_LENGTH / 4; // one texture repeat per 4 m, same as the materials
 
-const SPEED_BASE = 11;
+const SPEED_BASE = 12; // every gear ~8% up on the first tuning (11 / 16 / 22 / 30): a quicker run, the chase as balanced
 
 /**
  * Four gears, not one long creep.
@@ -120,10 +120,10 @@ const SPEED_BASE = 11;
  * tunnel settles into a cruise, then surges into the next one. Four distinct
  * sensations instead of one slow drift:
  *
- *   0–300 m     11 m/s    slow    — flat, and long enough to find the controls
- *   300–700      → 16       medium  — first surge; obstacles start mattering
- *   700–1500     → 22       fast    — the old ceiling is now only third gear
- *   1500–2500    → 30       super   — tops out ~650 m before the seal
+ *   0–300 m     12 m/s    slow    — flat, and long enough to find the controls
+ *   300–700      → 17.5     medium  — first surge; obstacles start mattering
+ *   700–1500     → 24       fast    — the old ceiling is now only third gear
+ *   1500–2500    → 32       super   — tops out ~650 m before the seal
  *
  * The knots are deliberately front-loaded. A first draft put them at 900 /
  * 1800 / 2900 and the whole run only came out 7 s quicker, because holding
@@ -138,9 +138,9 @@ const SPEED_BASE = 11;
 const SPEED_GEARS = [
   { at: 0, speed: SPEED_BASE },
   { at: 300, speed: SPEED_BASE },
-  { at: 700, speed: 16 },
-  { at: 1500, speed: 22 },
-  { at: 2500, speed: 30 },
+  { at: 700, speed: 17.5 },
+  { at: 1500, speed: 24 },
+  { at: 2500, speed: 32 },
 ];
 const SPEED_TOP = SPEED_GEARS[SPEED_GEARS.length - 1].speed;
 const BOOST_TOP = 10; // m/s boost adds on top of whatever gear he is in
