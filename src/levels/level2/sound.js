@@ -11,7 +11,9 @@
  *   music        the game's theme — the recorded loop, with the synthesised
  *                'drive' arrangement as the fallback — on the same music
  *                bus, so N and ducking work unchanged
- *   continuous   smooth engine hum (RPM through 5 gears, soft turbo on boost)
+ *   continuous   a four-cylinder engine (firing pulses through an exhaust, revving
+ *                through 5 gears, shifts, overrun pops, misfires when damaged,
+ *                turbo on boost), the flames' roar when it burns
  *                with a strained, rattling layer as the car takes damage,
  *                Handler siren (wail when chasing, fast yelp while attacking)
  *                over his own diesel engine — deeper and lumpier than the
@@ -100,6 +102,7 @@ export class Level2Sound {
     const mudDepth = ctx.createGain(); mudDepth.gain.value = 0.45;
     mudLfo.connect(mudDepth).connect(this.mud.gain.gain); mudLfo.start();
     this.rattle = this._noiseLoop('bandpass', 900, 2.5);
+    this.flame = this._noiseLoop('bandpass', 480, 0.55);   // a burning engine's roar (fire())
     this._buildHandlerEngine();
 
     // the recorded traffic wreck (Pixabay, ~5 s of swerve and crunch) —
@@ -130,35 +133,82 @@ export class Level2Sound {
     return { src, filter, gain };
   }
 
+  /**
+   * The car's engine: a four-cylinder, written sample by sample once
+   * (_engineCycle) and looped, played faster for higher revs. Through a soft
+   * clip (grit when the throttle is down), an exhaust resonance and a low-pass
+   * that opens with load, with the intake's hiss on top, a low rumble under
+   * it, a gear whine, and the turbo's whistle on boost. update() drives the
+   * revs through a 5-speed box, dips it on each shift, crackles on the
+   * overrun, and makes a damaged engine misfire.
+   */
   _buildEngine() {
-    // a smooth, deep hum instead of the old buzzy saw/square + distortion:
-    // a sine fundamental, a soft triangle an octave up, and a little filtered
-    // rumble, all through a gentle low-pass. A slow "firing" wobble keeps it
-    // from sounding like a test tone.
     const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this._engineCycle();
+    src.loop = true;
+    src.playbackRate.value = 0.9;
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = this._clipCurve(2.2);
+    shaper.oversample = '2x';
+    const exhaust = ctx.createBiquadFilter(); exhaust.type = 'peaking'; exhaust.frequency.value = 150; exhaust.Q.value = 1.1; exhaust.gain.value = 6;
+    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 900; filter.Q.value = 0.6;
+    const shift = ctx.createGain(); shift.gain.value = 1;     // dips: gear changes and misfires
     const out = ctx.createGain(); out.gain.value = 0;
-    const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 500; filter.Q.value = 0.5;
-    const mk = (type, gain) => {
-      const o = ctx.createOscillator(); o.type = type; o.frequency.value = 50;
-      const g = ctx.createGain(); g.gain.value = gain;
-      o.connect(g).connect(filter); o.start();
-      return o;
-    };
-    const oscs = [mk('sine', 0.9), mk('triangle', 0.22)];
-    oscs[1].detune.value = 1200 + 4;            // an octave up, a hair sharp: warmth
-    // firing wobble: tremolo on the engine at a rate tied to rpm
-    const wobble = ctx.createOscillator(); wobble.frequency.value = 18;
-    const wobbleDepth = ctx.createGain(); wobbleDepth.gain.value = 0.18;
-    const body = ctx.createGain(); body.gain.value = 0.82;
-    wobble.connect(wobbleDepth).connect(body.gain); wobble.start();
-    filter.connect(body).connect(out).connect(this.master);
-    // rumble: brown-ish noise, very low
-    const rumble = this._noiseLoop('lowpass', 140, 0.7);
-    // soft turbo whistle for boost
+    src.connect(shaper).connect(exhaust).connect(filter).connect(shift).connect(out).connect(this.master);
+    src.start();
+    const intake = this._noiseLoop('bandpass', 1100, 0.9);      // air rushing in, with the throttle
+    const rumble = this._noiseLoop('lowpass', 120, 0.7);        // the body of it, under everything
+    const whine = ctx.createOscillator(); whine.type = 'sine'; whine.frequency.value = 600;
+    const whineGain = ctx.createGain(); whineGain.gain.value = 0;
+    whine.connect(whineGain).connect(this.master); whine.start();
     const turbo = ctx.createOscillator(); turbo.type = 'sine'; turbo.frequency.value = 1400;
     const turboGain = ctx.createGain(); turboGain.gain.value = 0;
     turbo.connect(turboGain).connect(this.master); turbo.start();
-    this.engine = { oscs, filter, out, turbo, turboGain, wobble, rumble };
+    this.engine = { src, shaper, filter, shift, out, intake, rumble, whine, whineGain, turbo, turboGain, gear: 0, lastThrottle: false };
+  }
+
+  /**
+   * One second of a four-cylinder engine at 1000 rpm: a firing every 30 ms
+   * (four to two turns of the crank), each a sharp crack that rings down
+   * through the exhaust's few resonances, every cylinder a little different
+   * and every cycle a little off the last, so looped it rumbles, not buzzes.
+   */
+  _engineCycle() {
+    const ctx = this.ctx, sr = ctx.sampleRate;
+    const cycle = 0.12, cycles = 8;
+    const buf = ctx.createBuffer(1, Math.round(sr * cycle * cycles), sr);
+    const d = buf.getChannelData(0);
+    const cyl = [1, 0.84, 0.95, 0.78];
+    const modes = [[92, 0.032, 1], [186, 0.018, 0.55], [415, 0.008, 0.3], [1240, 0.0028, 0.14]]; // Hz, decay s, level
+    const ring = Math.floor(0.07 * sr);
+    for (let c = 0; c < cycles; c++) {
+      for (let k = 0; k < 4; k++) {
+        const t0 = c * cycle + k * (cycle / 4) + (Math.random() - 0.5) * 0.0016;
+        const amp = cyl[k] * (0.82 + Math.random() * 0.36);
+        const start = Math.floor(t0 * sr);
+        for (let i = 0; i < ring; i++) {
+          const t = i / sr;
+          let v = (Math.random() * 2 - 1) * 0.3 * Math.exp(-t / 0.0035); // the crack of the firing
+          for (const [f, dec, lvl] of modes) v += lvl * Math.sin(2 * Math.PI * f * t) * Math.exp(-t / dec);
+          d[(start + i) % d.length] += v * amp; // wraps, so the loop has no seam
+        }
+      }
+    }
+    let peak = 0;
+    for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    for (let i = 0; i < d.length; i++) d[i] *= 0.8 / (peak || 1);
+    return buf;
+  }
+
+  /** A soft-clipping curve: more `drive`, more grit. */
+  _clipCurve(drive) {
+    const n = 1024, curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
+    }
+    return curve;
   }
 
   _buildSiren() {
@@ -260,7 +310,7 @@ export class Level2Sound {
     const t = this.ctx.currentTime;
     const smooth = (param, value, tc = 0.06) => param.setTargetAtTime(value, t, tc);
 
-    // ---- engine: fake 5-speed gearbox, so you hear it shift ----
+    // ---- engine: a 5-speed box, so you hear it rev, shift and come off the throttle ----
     const v = Math.max(0, Math.abs(s.speed) / Math.max(1, s.maxSpeed));
     // 0..1 how wrecked the car is (s.health is 0..1)
     const dmg = s.health == null ? 0 : Math.max(0, Math.min(1, 1 - s.health));
@@ -269,14 +319,38 @@ export class Level2Sound {
     while (g < gears.length - 2 && v > gears[g + 1]) g++;
     const inGear = Math.min(1, (v - gears[g]) / (gears[g + 1] - gears[g]));
     const rpm = 0.25 + inGear * 0.75;
-    const base = 42 + rpm * 55 + g * 5 + (s.boosting ? 10 : 0);
-    for (const o of this.engine.oscs) smooth(o.frequency, base, 0.08);
-    smooth(this.engine.wobble.frequency, base / 3 + dmg * 9, 0.1);   // strain: the firing goes lumpy
-    smooth(this.engine.filter.frequency, 260 + rpm * 520 + (s.throttle ? 180 : 0), 0.1);
-    smooth(this.engine.out.gain, 0.05 + (s.throttle ? 0.06 : 0.025) + v * 0.03, 0.12);
-    smooth(this.engine.rumble.gain.gain, 0.02 + v * 0.03 + dmg * 0.045, 0.2);
-    smooth(this.engine.turbo.frequency, 1300 + v * 700, 0.15);
-    smooth(this.engine.turboGain.gain, s.boosting ? 0.012 : 0, 0.12);
+    const E = this.engine;
+    if (!this._engineOff) {
+      const revs = v < 0.02 ? 850 + (s.throttle ? 900 : 0) : 1500 + rpm * 5000 + (s.boosting ? 600 : 0);
+      smooth(E.src.playbackRate, revs / 1000, 0.07);
+      smooth(E.filter.frequency, 500 + rpm * 1400 + (s.throttle ? 1500 : 0), 0.08);
+      smooth(E.out.gain, 0.06 + (s.throttle ? 0.07 : 0.03) + v * 0.04, 0.1);
+      smooth(E.intake.gain.gain, s.throttle ? 0.012 + rpm * 0.03 : 0.004, 0.08);
+      smooth(E.intake.filter.frequency, 700 + rpm * 1800, 0.1);
+      smooth(E.rumble.gain.gain, 0.025 + v * 0.03 + dmg * 0.04, 0.2);
+      smooth(E.whine.frequency, 300 + v * 1500, 0.1);
+      smooth(E.whineGain.gain, 0.004 + v * 0.01, 0.2);
+      smooth(E.turbo.frequency, 1300 + v * 700, 0.15);
+      smooth(E.turboGain.gain, s.boosting ? 0.012 : 0, 0.12);
+      if (g > E.gear && s.throttle) {
+        // up a gear: the drive cuts for a beat (and on boost the turbo dumps)
+        E.shift.gain.cancelScheduledValues(t);
+        E.shift.gain.setTargetAtTime(0.3, t, 0.012);
+        E.shift.gain.setTargetAtTime(1, t + 0.09, 0.03);
+        if (s.boosting) this._burst({ type: 'highpass', freq: 2600, peak: 0.05, attack: 0.005, decay: 0.28 });
+      }
+      E.gear = g;
+      if (E.lastThrottle && !s.throttle && rpm > 0.55 && v > 0.2) this._overrun();
+      E.lastThrottle = !!s.throttle;
+      // a damaged engine misfires: the odd firing goes missing, more often the worse it is
+      if (dmg > 0.35 && Math.random() < dt * (dmg - 0.3) * 6) {
+        E.shift.gain.setTargetAtTime(0.15, t, 0.005);
+        E.shift.gain.setTargetAtTime(1, t + 0.04 + Math.random() * 0.05, 0.02);
+      }
+    }
+    // the flames: a roar while it burns, fading once it stops being told it's burning
+    this._burnHold = Math.max(0, (this._burnHold || 0) - dt);
+    if (this.flame) smooth(this.flame.gain.gain, this._burnHold > 0 ? 0.07 : 0, this._burnHold > 0 ? 0.3 : 0.8);
 
     // ---- mud squelch riding the speed; the rattle with the damage ----
     smooth(this.mud.gain.gain, v > 0.03 ? 0.02 + v * 0.1 : 0, 0.25);
@@ -384,13 +458,43 @@ export class Level2Sound {
     src.start();
   }
 
-  /** Car-on-car or car-on-traffic hit, 0..1. */
+  /**
+   * Car-on-car or car-on-traffic hit, 0..1: the thud of the bodies meeting,
+   * the panels crumpling (noise rung through a few metal resonances, in quick
+   * fits), the glass on a hard one, and bits of trim pinging off after.
+   */
   crash(impact = 0.6, pan = 0) {
+    if (!this.ready) return;
     const k = Math.max(0.2, Math.min(1, impact));
-    this._burst({ freq: 1400, peak: 0.25 + 0.35 * k, decay: 0.25 + 0.25 * k, sweepTo: 300, pan });
-    this._tone({ freq: 90, to: 38, peak: 0.35 * k + 0.1, decay: 0.3 });
-    this._tone({ type: 'square', freq: 180 + Math.random() * 120, to: 90, peak: 0.06 * k, decay: 0.12 });   // panel clank
-    if (k > 0.55) this._cue('glass', { volume: 0.22 * k + 0.08, rate: 0.96 + Math.random() * 0.08 });   // the glass goes
+    this._tone({ freq: 120, to: 34, peak: 0.42 * k + 0.1, attack: 0.002, decay: 0.38, pan });       // the bodies meeting
+    this._burst({ freq: 420, peak: 0.3 * k + 0.08, attack: 0.002, decay: 0.22, pan });               // ...and the air in them
+    for (let i = 0; i < 3 + Math.round(k * 3); i++) {
+      const f = [520, 980, 1650, 2900][i % 4] * (0.9 + Math.random() * 0.2);
+      this._burstAt(i * 0.028 + Math.random() * 0.02, { type: 'bandpass', freq: f, q: 7, peak: 0.12 * k + 0.03, attack: 0.002, decay: 0.09 + Math.random() * 0.08, pan });
+    }
+    this._burst({ type: 'highpass', freq: 2200, peak: 0.08 * k, attack: 0.01, decay: 0.35 + 0.3 * k, sweepTo: 900, pan }); // the scrape
+    if (k > 0.55) this._cue('glass', { volume: 0.24 * k + 0.08, rate: 0.96 + Math.random() * 0.08 });
+    for (let i = 0; i < Math.round(k * 4); i++) {                                                    // trim pinging off
+      const f = 2200 + Math.random() * 2600;
+      this._tone({ type: 'triangle', freq: f, to: f * 0.96, peak: 0.025 * k, attack: 0.001, decay: 0.05, delay: 0.12 + i * 0.09 + Math.random() * 0.12, pan });
+    }
+    if (k > 0.7) this._duck(0.3, 0.4);
+  }
+
+  /** _burst, `delay` s from now. */
+  _burstAt(delay, opts) {
+    if (delay <= 0) return this._burst(opts);
+    setTimeout(() => this._burst(opts), delay * 1000);
+  }
+
+  /** Off the throttle at high revs: the exhaust pops and crackles for a moment. */
+  _overrun() {
+    const n = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const at = 0.05 + i * (0.07 + Math.random() * 0.1);
+      this._burstAt(at, { type: 'lowpass', freq: 1500 + Math.random() * 900, q: 0.8, peak: 0.07 + Math.random() * 0.05, attack: 0.001, decay: 0.04 });
+      this._tone({ freq: 95 + Math.random() * 30, to: 50, peak: 0.06, attack: 0.001, decay: 0.07, delay: at });
+    }
   }
 
   /**
@@ -452,20 +556,44 @@ export class Level2Sound {
     this._burst({ type: 'bandpass', freq: 4200, q: 1.5, peak: 0.12, attack: 0.02, decay: 0.9, sweepTo: 1500 });   // hiss
   }
 
+  /**
+   * An explosion `dist` m away: the crack, a deep boom that falls away (noise
+   * swept down through a low-pass, a sub-bass drop under it), the fireball's
+   * roar after, and wreckage coming down for a second or two.
+   */
   explosion(dist = 5) {
+    if (!this.ready) return;
     const k = 1 / (1 + dist / 18);
-    this._burst({ freq: 3200, peak: 0.6 * k, attack: 0.004, decay: 1.1, sweepTo: 140 });
-    this._tone({ freq: 60, to: 28, peak: 0.5 * k, decay: 0.9 });
-    this._duck(0.45, 0.5);
+    this._burst({ type: 'highpass', freq: 1800, peak: 0.5 * k, attack: 0.001, decay: 0.05 });               // the crack
+    this._burst({ freq: 2600, q: 0.8, peak: 0.75 * k, attack: 0.004, decay: 1.5, sweepTo: 70 });            // the boom
+    this._tone({ freq: 70, to: 24, peak: 0.6 * k, attack: 0.005, decay: 1.4 });                             // felt more than heard
+    this._tone({ type: 'triangle', freq: 45, to: 30, peak: 0.25 * k, attack: 0.02, decay: 1.0, delay: 0.05 });
+    this._burstAt(0.15, { type: 'bandpass', freq: 380, q: 0.6, peak: 0.28 * k, attack: 0.15, decay: 2.2, sweepTo: 160 }); // the fireball
+    for (let i = 0; i < Math.round(3 + k * 6); i++) {                                                       // wreckage coming down
+      const at = 0.35 + Math.random() * 1.6;
+      const f = 300 + Math.random() * 1400;
+      this._tone({ type: 'square', freq: f, to: f * 0.7, peak: 0.04 * k, attack: 0.001, decay: 0.08 + Math.random() * 0.1, delay: at });
+      this._burstAt(at, { type: 'bandpass', freq: 900 + Math.random() * 1600, q: 3, peak: 0.05 * k, attack: 0.001, decay: 0.06 });
+    }
+    this._duck(0.6, 1.2);
   }
 
-  /** A car on fire: called every frame while it burns, it crackles and pops now and then. */
+  /**
+   * A car on fire: called every frame while it burns. The flames roar (a
+   * loop that update() fades in and out), crackle, and now and then the fuel
+   * catches with a whump, or a small blast.
+   */
   fire(dt) {
+    this._burnHold = 0.3;
     this._fireT = (this._fireT || 0) - dt;
     if (this._fireT > 0) return;
     this._fireT = 0.04 + Math.random() * 0.16;
     this._burst({ type: 'bandpass', freq: 1800 + Math.random() * 2600, q: 1.4, peak: 0.035 + Math.random() * 0.05, attack: 0.002, decay: 0.03 + Math.random() * 0.05 });
-    if (Math.random() < 0.12) this._tone({ freq: 70 + Math.random() * 40, to: 40, peak: 0.05, decay: 0.18 }); // a whump
+    if (Math.random() < 0.12) this._tone({ freq: 70 + Math.random() * 40, to: 40, peak: 0.07, decay: 0.2 }); // a whump
+    if (Math.random() < 0.025) {                                                                              // a fuel pop
+      this._burst({ freq: 1400, peak: 0.16, attack: 0.002, decay: 0.35, sweepTo: 120 });
+      this._tone({ freq: 60, to: 30, peak: 0.14, attack: 0.003, decay: 0.4 });
+    }
   }
 
   /** Spike strip hitting the tarmac. */
@@ -541,10 +669,13 @@ export class Level2Sound {
   /** Fades the engine out (game over). */
   silenceEngine() {
     if (!this.ready) return;
+    this._engineOff = true; // update() stops driving it, so it stays quiet
     const t = this.ctx.currentTime;
     this.engine.out.gain.setTargetAtTime(0, t, 0.3);
     this.engine.turboGain.gain.setTargetAtTime(0, t, 0.1);
     this.engine.rumble.gain.gain.setTargetAtTime(0, t, 0.3);
+    this.engine.intake.gain.gain.setTargetAtTime(0, t, 0.2);
+    this.engine.whineGain.gain.setTargetAtTime(0, t, 0.2);
     this.screech.gain.gain.setTargetAtTime(0, t, 0.1);
     if (this.mud) this.mud.gain.gain.setTargetAtTime(0, t, 0.2);
     if (this.rattle) this.rattle.gain.gain.setTargetAtTime(0, t, 0.2);

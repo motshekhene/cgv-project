@@ -592,7 +592,7 @@ export class Level02 extends Level {
     if (this.damage.stage > stageWas && this.damage.stage < 4) {
       this._flash(['', 'ENGINE SMOKING', 'ENGINE DAMAGED', 'ENGINE ON FIRE!'][this.damage.stage], this.damage.stage === 3 ? '#ff6a3a' : '#e3bb62');
     }
-    if (this.damage.stage === 3) this.sound.fire?.(dt);
+    if (this.damage.stage >= 3) this.sound.fire?.(dt); // on fire, and the wreck burning
     // Mud splash from wheels — always when moving, not just when skidding
     this.mudSplash.update(dt, this.car, this.car.speed);
 
