@@ -1,6 +1,12 @@
 import * as THREE from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { Particles } from "../fx/Particles.js";
+import { renderChaseScore } from "../audio/chaseScore.js";
+import { CardPickups } from "../cards/CardPickups.js";
+import { createTornPage } from "../fx/tornPage.js";
+import { CURRENCY, balance as lightsToSpend, earn as earnLights } from "../core/wallet.js";
+import { submit as submitRecord } from "../core/records.js";
+import { clueFor } from "../cards/cards.js";
+import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
@@ -8,11 +14,11 @@ import { CARS, HANDLER_MODEL, loadSavedCar, loadSavedPaint } from "./level2/carS
 import { attachModel } from "./level2/attachModel.js";
 import { CarLights } from "./level2/carLights.js";
 import { CarDoor } from "./level1/carDoor.js";
+import { BodyIK } from "./level3/BodyIK.js";
 import {
   createJungleCueBuffers,
   createJungleMusicBuffer,
   loadAudioFileBuffer,
-  loadJungleTheme,
   JungleBed,
 } from "../audio/jungleAudio.js";
 import { showEndCard, showLoseCard } from "../ui/EndCard.js";
@@ -101,7 +107,7 @@ const TUNNEL_END_Z = TUNNEL_START_Z - TUNNEL_LENGTH;
 const SHELL_CENTER_Z = TUNNEL_START_Z - TUNNEL_LENGTH / 2;
 const MAP_REPEAT_Z = TUNNEL_LENGTH / 4; // one texture repeat per 4 m, same as the materials
 
-const SPEED_BASE = 11;
+const SPEED_BASE = 12; // every gear ~8% up on the first tuning (11 / 16 / 22 / 30): a quicker run, the chase as balanced
 
 /**
  * Four gears, not one long creep.
@@ -115,10 +121,10 @@ const SPEED_BASE = 11;
  * tunnel settles into a cruise, then surges into the next one. Four distinct
  * sensations instead of one slow drift:
  *
- *   0–300 m     11 m/s    slow    — flat, and long enough to find the controls
- *   300–700      → 16       medium  — first surge; obstacles start mattering
- *   700–1500     → 22       fast    — the old ceiling is now only third gear
- *   1500–2500    → 30       super   — tops out ~650 m before the seal
+ *   0–300 m     12 m/s    slow    — flat, and long enough to find the controls
+ *   300–700      → 17.5     medium  — first surge; obstacles start mattering
+ *   700–1500     → 24       fast    — the old ceiling is now only third gear
+ *   1500–2500    → 32       super   — tops out ~650 m before the seal
  *
  * The knots are deliberately front-loaded. A first draft put them at 900 /
  * 1800 / 2900 and the whole run only came out 7 s quicker, because holding
@@ -133,9 +139,9 @@ const SPEED_BASE = 11;
 const SPEED_GEARS = [
   { at: 0, speed: SPEED_BASE },
   { at: 300, speed: SPEED_BASE },
-  { at: 700, speed: 16 },
-  { at: 1500, speed: 22 },
-  { at: 2500, speed: 30 },
+  { at: 700, speed: 17.5 },
+  { at: 1500, speed: 24 },
+  { at: 2500, speed: 32 },
 ];
 const SPEED_TOP = SPEED_GEARS[SPEED_GEARS.length - 1].speed;
 const BOOST_TOP = 10; // m/s boost adds on top of whatever gear he is in
@@ -316,11 +322,11 @@ const OBSTACLE_BEHIND = 30; // metres behind Kai a mesh stays drawn
 const OBSTACLE_AHEAD = 210; // ...and ahead, past the fog wall
 
 // --- the horn call (level1/hornCall.js) ---
-// The tokens fill the horn; full, Kai blows it on the run and the forest
+// The forest's lights (the glowing wisps on the trail) fill the horn; full, Kai blows it on the run and the forest
 // answers: everything on the trail HORN_REACH m ahead of him shatters, and
 // roots hold the Marshal where he stands for HORN_HOLD s (about 10-15 m of
 // ground, at his speed), then he breaks free and comes on again.
-const HORN_TOKENS = 20;
+const HORN_TOKENS = 40;
 const HORN_REACH = 45;
 const HORN_HOLD = 0.7;
 const HORN_BLOW = 1.3; // s: hand up, the call, hand down
@@ -459,6 +465,11 @@ const REWARD_PICKUP_Z = 1.05;
 const REWARD_VISIBLE_AHEAD = 230;
 const REWARD_VISIBLE_BEHIND = 24;
 
+// --- torn pages: the heads-up as one comes into range ---
+const PAGE_CUE_AHEAD = 60; // m before a page that its heads-up shows
+const PAGE_SIDE = ["LEFT", "MIDDLE", "RIGHT"]; // by lane
+const PAGE_ARROW = ["←", "↑", "→"];
+
 const JETPACK_PICKUPS = [
   { z: -1668, lane: 1 },
   { z: -2635, lane: 0 },
@@ -574,40 +585,39 @@ const LEVEL1_HUD_CSS = `
 .l1h-handler.attack { border-color:rgba(242,147,79,.85); box-shadow:0 0 18px rgba(201,68,43,.45); }
 .l1h-handler.attack .l1h-state { color:#ff7a5c; }
 .l1h-handler.calm .l1h-state { color:var(--moss-hi); }
+.l1h-chase { position:relative; height:8px; margin:4px 0 3px; border-radius:4px; background:rgba(0,0,0,.45); box-shadow:inset 0 0 0 1px rgba(227,187,98,.25); }
+.l1h-chase-fill { position:absolute; left:0; top:0; bottom:0; width:0; border-radius:4px; background:linear-gradient(90deg, rgba(158,211,106,.15), rgba(242,147,79,.55) 60%, rgba(255,70,40,.9)); transition:width .2s linear; }
+.l1h-chase-m, .l1h-chase-k { position:absolute; top:50%; width:11px; height:11px; margin:-5.5px 0 0 -5.5px; border-radius:50%; }
+.l1h-chase-m { left:0; background:#ff5a3a; box-shadow:0 0 8px #ff5a3a; transition:left .2s linear; }
+.l1h-chase-k { left:96%; background:#9ed36a; box-shadow:0 0 6px #9ed36a; }
+.l1h-handler.close { animation:l1h-throb .5s ease-in-out infinite alternate; }
+@keyframes l1h-throb { from { box-shadow:0 0 10px rgba(201,68,43,.4); } to { box-shadow:0 0 26px rgba(255,70,40,.9); } }
 @media (max-width: 760px) {
   .l1h-top { grid-template-columns:1fr 1fr; row-gap:8px; }
   .l1h-route { grid-column:1 / span 2; grid-row:2; }
   .l1h-handler { grid-column:2; margin-right:0; }
 }
 @keyframes l1hLow { 50% { filter:brightness(1.6); } }
+/* this run's Forest Lights: a glowing count under Kai's plaque that pops with every catch (from 0 every run) */
+.l1h-lights { position:absolute; left:0; top:calc(100% + 8px); display:flex; align-items:center; gap:9px; padding:5px 14px 5px 7px; border-radius:999px;
+  background:linear-gradient(90deg, rgba(10,34,38,.88), rgba(8,16,14,.78)); border:1px solid rgba(79,214,224,.5);
+  box-shadow:0 0 16px rgba(79,214,224,.22), 0 4px 12px rgba(0,0,0,.45); }
+.l1h-lights i { width:16px; height:16px; border-radius:50%; background:radial-gradient(circle, #fff 0 18%, #8ff0f6 40%, rgba(79,214,224,0) 72%);
+  box-shadow:0 0 12px #4fd6e0; animation:l1hOrb 2.2s ease-in-out infinite; }
+.l1h-lights b { font:700 20px/1 var(--serif); color:#e8fdff; text-shadow:0 0 10px rgba(79,214,224,.8); min-width:2ch; }
+.l1h-lights small { font:700 9px var(--sans); letter-spacing:.24em; color:#8ff0f6; }
+.l1h-lights.pop b { animation:l1hPop .35s cubic-bezier(.3,1.6,.5,1); }
+.l1h-lights.pop { animation:l1hGlow .5s ease-out; }
+@keyframes l1hOrb { 50% { transform:scale(.8); filter:brightness(1.4); } }
+@keyframes l1hPop { from { transform:scale(1.45); } to { transform:none; } }
+@keyframes l1hGlow { from { box-shadow:0 0 30px rgba(143,240,246,.75), 0 4px 12px rgba(0,0,0,.45); } }
+@media (max-width: 760px) { .l1h-lights { position:static; margin-top:6px; width:max-content; } }
 `;
 
-/**
- * The horn stamped on the coins: its curl as a flat shape, extruded a few
- * millimetres proud of the field on both faces (the coin's faces sit at z
- * +-0.026), so it catches the light as the coin turns.
- */
-function coinEmblemGeometry() {
-  const k = 0.0011; // the shape is drawn on a 260-wide grid
-  const sh = new THREE.Shape();
-  sh.moveTo(38, 168);
-  sh.bezierCurveTo(30, 104, 76, 42, 146, 40);
-  sh.bezierCurveTo(196, 39, 226, 72, 224, 112);
-  sh.bezierCurveTo(223, 138, 204, 154, 186, 150);
-  sh.bezierCurveTo(204, 138, 206, 112, 192, 94);
-  sh.bezierCurveTo(174, 72, 142, 66, 114, 78);
-  sh.bezierCurveTo(84, 92, 70, 124, 76, 168);
-  sh.closePath();
-  const front = new THREE.ExtrudeGeometry(sh, { depth: 8, bevelEnabled: true, bevelThickness: 2, bevelSize: 2, bevelSegments: 1, curveSegments: 10 });
-  front.translate(-131, -104, 0);
-  front.scale(k, -k, k);
-  front.translate(0, 0, 0.024);
-  const back = front.clone();
-  back.rotateY(Math.PI);
-  const merged = mergeGeometries([front, back]);
-  front.dispose();
-  back.dispose();
-  return merged;
+/** A run's time as the end cards show it: 2:41.3 */
+function runClock(seconds = 0) {
+  const t = Math.max(0, seconds);
+  return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.floor((t * 10) % 10)}`;
 }
 
 const _flyQ = new THREE.Quaternion();
@@ -869,11 +879,12 @@ export class Level01 extends Level {
     this._animalModels = await loadAnimalModels(assets).catch(() => ({})); // the trail's animals (TRAIL_LIFE)
     this._buildAdventureHazards(mats);
     this._buildGuardianTeases();
-    this._buildStoryLetters();
+    this._buildCards();
     this._buildHandlerPressureProps();
     this._trainEvents = [];
     this._trainActive = false;
     this._buildObstacles(mats);
+    this._buildStoryLetters(); // after the obstacles: the pages keep clear of them
     this._buildTempleRewards();
     this._buildJetpackPickups();
     this._buildHealthPacks();
@@ -936,14 +947,11 @@ export class Level01 extends Level {
 
     // Every glow on the course shares a fixed set of real lights (see
     // level1/lightPool.js), so showing or hiding one never recompiles the
-    // scene's shaders. Then all of them are compiled now, behind the loading
-    // screen, instead of each the first time it comes into view mid-run.
+    // scene's shaders. Game compiles all of them once init() is done, behind
+    // the loading screen (Game.precompile), instead of each the first time it
+    // comes into view mid-run.
     this._lightPool = new LightPool(this.root); // 8 real point lights handed to the nearest glows each frame (no shader recompiles)
     this._poolFocus = new THREE.Vector3();
-    const renderer = this.game?.renderer;
-    if (renderer?.compileAsync && this.game.camera) {
-      await renderer.compileAsync(scene, this.game.camera).catch((err) => console.warn("[level01] shader precompile failed", err));
-    }
 
     // The shared readout, so the chase shows its numbers like every other
     // level. Level 1 has no damage model — the comment in GameState holds:
@@ -999,6 +1007,24 @@ export class Level01 extends Level {
 
     this._pollen = createPollen(500);
     this.root.add(this._pollen);
+
+    // kicked-up trail dust (footsteps, landings, slides) and debris off impacts (fx/Particles.js)
+    this._dust = new Particles({ max: 500 });
+    this._debris = new Particles({ max: 200, soft: 0.6 });
+    this.root.add(this._dust.points, this._debris.points);
+  }
+
+  /** A puff of trail dust at Kai's feet; `big` for a landing or a slide start. */
+  _kickDust(big = 0) {
+    if (!this._dust || this._flightLift > 0.2) return;
+    const p = this.player.position;
+    this._dustAt = (this._dustAt || new THREE.Vector3()).set(p.x, this._floorY + 0.05, p.z + 0.25);
+    this._dustPush = (this._dustPush || new THREE.Vector3()).set(0, 0, Math.min(this.speed, 20) * 0.12);
+    this._dust.emit(this._dustAt, {
+      count: big ? 14 + big * 10 : 3, speed: 0.6 + big * 1.6, up: 0.35 + big * 0.4, dir: this._dustPush,
+      color: 0xb48c63, colorEnd: 0x8f7a64, size: 0.22 + big * 0.12, sizeEnd: 0.9 + big * 0.6,
+      life: 0.7 + big * 0.4, alpha: 0.42, gravity: -0.4, drag: 2.6,
+    });
   }
 
   _updateTunnelDetail(pulse) {
@@ -1978,43 +2004,83 @@ export class Level01 extends Level {
     }
   }
 
-  _buildStoryLetters() {
-    const branchLetterOffset = this._routeOffsetMagnitude(-780);
-    const defs = [
-      // Same dead drop on BOTH fork routes: equal difficulty and equal reward.
-      { id: "level01-1", lane: 1, x: -branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
-      { id: "level01-1", lane: 1, x: branchLetterOffset, z: -780, text: "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since." },
-      { id: "level01-2", lane: 0, z: -1115, text: "Company memo: The men will not cross the ridge while the horn sits on that stone. Find someone the forest trusts." },
-      { id: "level01-3", lane: 2, z: -1260, text: "Company memo: Our man at the fire has agreed. His fee is paid when the horn is in our hands \u2014 not before." },
-    ];
+  /** The spirit cards hidden on the trail (cards/cards.js), and today's spirit if it's here. */
+  _buildCards() {
+    this._cards = new CardPickups(this.root, "level01", (spot) =>
+      new THREE.Vector3(LANE_X[spot.lane] + this._routeOffsetAt(spot.z, 0), jungleCourseHeight(spot.z) + 1.3, spot.z));
+    // on some days the clue is painted on a board at the side of the trail
+    const sign = clueFor("sign:level01");
+    if (sign) {
+      const board = createClueBoard(sign, { width: 3.6, height: 1.7 });
+      const z = -300;
+      board.position.set(LANE_X[0] - 4.2 + this._routeOffsetAt(z, 0), jungleCourseHeight(z), z);
+      board.rotation.y = 0.35; // turned to face the runner coming down the trail
+      this.root.add(board);
+    }
+    this._clueThought = clueFor("think:level01"); // or Kai remembers it, a while into the run
+  }
 
-    for (const def of defs) {
+  /**
+   * The three torn pages on the trail, somewhere new every run: one in each
+   * third of the way down, in a random lane, never inside a set piece (the
+   * fork, the bridge's gaps, the guardian, the trail's life, the boulder and
+   * the high ruins' traps) and never within a few metres of an obstacle or a
+   * booster in its lane, so one can always be run through. They come in
+   * story order down the trail; one already found this session isn't put
+   * out again. Each is a page of the company's papers (fx/tornPage.js).
+   */
+  _buildStoryLetters() {
+    const pages = [
+      ["level01-1", "Crew log, day 3: We went past the stone. The birds stopped. Nobody has spoken since."],
+      ["level01-2", "Company memo: The men will not cross the ridge while the horn sits on that stone. Find someone the forest trusts."],
+      ["level01-3", "Company memo: Our man at the fire has agreed. His fee is paid when the horn is in our hands — not before."],
+    ];
+    const near = (z, at, m) => Math.abs(z - at) < m;
+    const hazards = [BOULDER_Z, SWING_LOG_Z, FALLING_BLOCK_Z, CLOSING_DOOR_Z, ROTATING_BEAM_Z, ...HIGH_RUINS_HAZARDS.map((h) => h.z)];
+    const clear = (z, lane) =>
+      !(z <= ROUTE_SPLIT_START_Z + 25 && z >= ROUTE_SPLIT_END_Z - 25) && // the fork: two routes
+      !(z <= BRIDGE_START_Z + 30 && z >= BRIDGE_END_Z - 15) && // the falling bridge's gaps
+      !(z <= GUARDIAN_CLEAR_NEAR_Z && z >= GUARDIAN_CLEAR_FAR_Z) &&
+      !TRAIL_LIFE.some((t) => near(z, t.z, 36)) &&
+      !hazards.some((h) => near(z, h, 26)) &&
+      !FALLING_TREE_EVENTS.some((e) => near(z, e.z, 16)) &&
+      !JETPACK_PICKUPS.some((j) => j.lane === lane && near(z, j.z, 14)) &&
+      !this.obstacles.some((o) => near(z, o.z, 10) && (o.lane === lane || o.kind === "duct"));
+    // thirds of the run, nearest first
+    const thirds = [[-220, -1300], [-1300, -2900], [-2900, OBSTACLE_LAST_Z + 40]];
+    const defs = thirds.map(([from, to], i) => {
+      for (let tries = 0; tries < 400; tries++) {
+        const z = from + (to - from) * Math.random();
+        const lane = Math.floor(Math.random() * 3);
+        if (clear(z, lane)) return { id: pages[i][0], text: pages[i][1], lane, z };
+      }
+      return { id: pages[i][0], text: pages[i][1], lane: 1, z: (from + to) / 2 }; // never needed in practice
+    });
+
+    defs.forEach((def, i) => {
       const group = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xd6fff2,
-        emissive: new THREE.Color(0x4fffd0),
-        emissiveIntensity: 2.8,
-        roughness: 0.3,
-        metalness: 0.15,
-      });
-      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), mat);
-      shard.rotation.z = Math.PI * 0.25;
-      group.add(shard);
-      const halo = new THREE.PointLight(0x53ffd2, 2.2, 9, 2);
-      group.add(halo);
-      group.position.set(def.x ?? LANE_X[def.lane], jungleCourseHeight(def.z) + 1.2, def.z);
+      const page = createTornPage(i);
+      page.scale.setScalar(1.35); // big enough to read as a page at a run
+      group.add(page);
+      const glow = new THREE.PointLight(0xffd9a0, 1.8, 8, 2); // warm, like lamplight on paper
+      glow.position.y = 0.2;
+      group.add(glow);
+      def.x = LANE_X[def.lane] + this._routeOffsetAt(def.z, 0);
+      group.position.set(def.x, jungleCourseHeight(def.z) + 1.25, def.z);
       group.visible = !this.state?.letters?.includes(def.id);
       this.root.add(group);
-      this._storyLetters.push({ ...def, group, collected: !group.visible, spin: Math.random() * Math.PI * 2 });
-    }
+      this._storyLetters.push({ ...def, group, page, collected: !group.visible, spin: Math.random() * Math.PI * 2 });
+    });
   }
 
   _updateStoryLetters(dt, state, x, prevZ) {
     for (const letter of this._storyLetters) {
       if (letter.collected) continue;
-      letter.spin += dt * 2.4;
-      letter.group.rotation.y = letter.spin;
-      letter.group.position.y = jungleCourseHeight(letter.z) + 1.2 + Math.sin(letter.spin * 1.7) * 0.12;
+      // turning slowly, so it shows both sides, and fluttering like paper in moving air
+      letter.spin += dt * 1.1;
+      letter.group.rotation.y = Math.sin(letter.spin) * 0.9;
+      letter.group.position.y = jungleCourseHeight(letter.z) + 1.25 + Math.sin(letter.spin * 2.6) * 0.1;
+      letter.page?.userData.flutter(letter.spin * 2.2);
 
       const crossed = prevZ >= letter.z - 0.7 && this.z <= letter.z + 0.7;
       const targetX = letter.x ?? LANE_X[letter.lane];
@@ -2030,6 +2096,52 @@ export class Level01 extends Level {
         if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.46 });
       }
     }
+    this._updatePageCue();
+  }
+
+  /**
+   * A torn page coming up: PAGE_CUE_AHEAD m out, a soft chime and a small
+   * parchment tag say which side of the trail it's on and count the metres
+   * down, so a runner has time to change lanes for it. Its own tag, not the
+   * shared banner, so it never covers a hazard warning.
+   */
+  _updatePageCue() {
+    if (typeof document === "undefined") return;
+    let next = null;
+    let ahead = Infinity;
+    for (const letter of this._storyLetters) {
+      if (letter.collected) continue;
+      const d = this.z - letter.z; // metres still to go (the trail runs toward -z)
+      if (d >= -1 && d <= PAGE_CUE_AHEAD && d < ahead) {
+        next = letter;
+        ahead = d;
+      }
+    }
+    if (!next) {
+      if (this._pageCue) this._pageCue.style.opacity = "0";
+      return;
+    }
+    this._pageCued ??= new Set();
+    if (!this._pageCued.has(next.id)) {
+      this._pageCued.add(next.id);
+      if (this._audio) this._audio.playOneShot("shrinePulse", { volume: 0.24, rate: 1.6 });
+    }
+    if (!this._pageCue) {
+      const el = document.createElement("div");
+      Object.assign(el.style, {
+        position: "fixed", left: "50%", top: "19%", transform: "translateX(-50%) rotate(-1deg)",
+        zIndex: "8998", padding: "7px 16px 8px", color: "#2b2219", background: "#efe6d2",
+        borderRadius: "2px", fontFamily: DIALOGUE_FONT, fontWeight: "600", fontSize: "15px", letterSpacing: ".14em",
+        whiteSpace: "nowrap", pointerEvents: "none", boxShadow: "0 6px 18px #0008, 0 0 18px rgba(79,255,208,.35)",
+        transition: "opacity .25s ease", opacity: "0",
+      });
+      document.body.append(el);
+      this._pageCue = el;
+    }
+    // both fork copies of the first page sit in the middle of their route
+    const lane = next.lane ?? 1;
+    this._pageCue.textContent = `${PAGE_ARROW[lane]}  TORN PAGE AHEAD · ${PAGE_SIDE[lane]} · ${Math.max(0, Math.round(ahead))} M`;
+    this._pageCue.style.opacity = "1";
   }
 
   _updateCollapsingBridge(dt, x, prevZ, state) {
@@ -2174,35 +2286,66 @@ export class Level01 extends Level {
       }
     }
 
-    // The coins: struck gold, the horn on both faces. A lathe-turned body (a
-    // raised rim, a recessed field, a domed centre) and the horn in relief on
-    // each face, as two instanced meshes driven by the same matrices; a
-    // reflection map so the gold reads as metal and not as yellow plastic.
-    // Each instance's colour tints it: gold, or the rare high coins' teal.
-    const body = new THREE.LatheGeometry([
-      [0, 0.034], [0.085, 0.034], [0.095, 0.026], [0.19, 0.026], [0.205, 0.038], [0.25, 0.038],
-      [0.27, 0.026], [0.27, -0.026], [0.25, -0.038], [0.205, -0.038], [0.19, -0.026], [0.095, -0.026],
-      [0.085, -0.034], [0, -0.034],
-    ].map(([r, y]) => new THREE.Vector2(r, y)), 44);
-    body.rotateX(Math.PI / 2); // stood on edge, facing down the trail
-    const emblem = coinEmblemGeometry();
-    const metal = new THREE.MeshStandardMaterial({
-      color: 0xffffff, roughness: 0.26, metalness: 0.9,
-      emissive: new THREE.Color(0x4a3000), emissiveIntensity: 0.45,
-      envMap: this._coinEnvMap(), envMapIntensity: 1.25,
+    // The forest's light: what the horn drinks. Each is a small glowing
+    // wisp, cyan like the horn (the only cyan in the game), so the player
+    // reads at once what feeds it: a bright core and a soft halo round it,
+    // two instanced meshes moved by the same matrices. The halo is our own
+    // shader: brightest at its middle, falling off toward its rim (the view
+    // direction against the sphere's normal), breathing with time. Its
+    // colour is over 1.0, so PostFX's bloom makes it glow. The rare high
+    // ones are paler, nearly white.
+    const body = new THREE.IcosahedronGeometry(0.075, 1);
+    const core = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const halo = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec3 vN;
+        varying vec3 vV;
+        varying vec3 vColor;
+        void main() {
+          mat4 m = modelMatrix;
+          #ifdef USE_INSTANCING
+            m = modelMatrix * instanceMatrix;
+          #endif
+          vColor = vec3(1.0);
+          #ifdef USE_INSTANCING_COLOR
+            vColor = instanceColor;
+          #endif
+          vec4 wp = m * vec4(position, 1.0);
+          vN = normalize(mat3(m) * normal);
+          vV = normalize(cameraPosition - wp.xyz);
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec3 vN;
+        varying vec3 vV;
+        varying vec3 vColor;
+        void main() {
+          float facing = abs(dot(normalize(vN), normalize(vV))); // 1 at the middle of the halo, 0 at its rim
+          float glow = pow(facing, 2.6) * (0.85 + 0.15 * sin(uTime * 5.0 + vColor.r * 9.0));
+          gl_FragColor = vec4(vColor * glow * 2.4, glow);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
-    const mesh = new THREE.InstancedMesh(body, metal, rewards.length);
+    this._spiritHalo = halo;
+    const emblem = new THREE.SphereGeometry(0.3, 18, 12);
+    const mesh = new THREE.InstancedMesh(body, core, rewards.length);
     mesh.name = "temple-run-rewards";
-    const discMesh = new THREE.InstancedMesh(emblem, metal, rewards.length);
-    discMesh.name = "temple-run-rewards-emblem";
+    const discMesh = new THREE.InstancedMesh(emblem, halo, rewards.length);
+    discMesh.name = "temple-run-rewards-halo";
     for (const m of [mesh, discMesh]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled = false;
-      m.castShadow = true;
     }
     for (let i = 0; i < rewards.length; i++) {
-      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0xffc23a : rewards[i].color);
-      mesh.setColorAt(i, c);
+      // ordinary lights the horn's cyan; the rare high ones paler, nearly white
+      const c = new THREE.Color(rewards[i].color === 0xffd76b ? 0x4fd6e0 : 0xc8fbff);
+      mesh.setColorAt(i, c.clone().multiplyScalar(3)); // over 1.0: it blooms
       discMesh.setColorAt(i, c);
     }
     mesh.instanceColor.needsUpdate = true;
@@ -2214,17 +2357,6 @@ export class Level01 extends Level {
     this.root.add(mesh);
     this.root.add(discMesh);
     this._updateRewardInstances(0);
-  }
-
-  /** A soft studio reflection for the coins' gold, made once from three's RoomEnvironment. */
-  _coinEnvMap() {
-    if (this._coinEnv) return this._coinEnv;
-    const renderer = this.game?.renderer;
-    if (!renderer) return null;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    this._coinEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    return this._coinEnv;
   }
 
   _updateRewardInstances(dt) {
@@ -2244,8 +2376,8 @@ export class Level01 extends Level {
         dummy.scale.setScalar(0.001);
         dummy.rotation.set(0, 0, 0);
       } else {
-        // upright, bobbing, spinning on the spot like every runner's coins
-        const bob = Math.sin(this._rewardTime * 3.6 + r.phase) * 0.11;
+        // drifting: a slow bob and a turn, like a firefly that has stopped to hover
+        const bob = Math.sin(this._rewardTime * 2.2 + r.phase) * 0.14;
         dummy.position.set(r.x, jungleCourseHeight(r.z) + r.yOffset + bob, r.z);
         dummy.rotation.set(0, this._rewardTime * 3.2 + r.phase, 0);
         dummy.scale.setScalar(1.05);
@@ -2256,6 +2388,7 @@ export class Level01 extends Level {
     }
     this._rewardMesh.instanceMatrix.needsUpdate = true;
     this._rewardDiscMesh.instanceMatrix.needsUpdate = true;
+    if (this._spiritHalo) this._spiritHalo.uniforms.uTime.value = this._rewardTime;
   }
 
   _updateTempleRewards(dt, x, prevZ, state) {
@@ -2274,9 +2407,10 @@ export class Level01 extends Level {
       r.collected = true;
       this.rewardCount++;
       this.rewardScore += r.value;
+      earnLights(1); // kept, to spend on cars in Level 2 (core/wallet.js)
       state.templeRewards = this.rewardCount;
       state.templeScore = this.rewardScore;
-      // every token feeds the horn
+      // every light feeds the horn
       if (this._hornCharge < 1) {
         this._hornCharge = Math.min(1, this._hornCharge + 1 / HORN_TOKENS);
         if (this._hornCharge >= 1) this._hornFull();
@@ -2425,7 +2559,7 @@ export class Level01 extends Level {
       p.group.visible = false;
       this._health = Math.min(MAX_HEALTH, this._health + p.healAmount);
       this._showTransientBanner(`+${p.healAmount} HP RESTORED`, 1.2);
-      if (this._audio) this._audio.playOneShot("rewardChime", { volume: 0.42 });
+      if (this._audio) this._audio.playOneShot("pickupHeart", { volume: 0.42 }); // the heart Level 2's health pickup plays
     }
   }
 
@@ -2556,16 +2690,20 @@ export class Level01 extends Level {
     const stat = document.createElement("div");
     stat.className = "l1h-player plaque";
     stat.innerHTML = `
-      <div class="l1h-name">${say("{NAME}")} <em><span data-reward-count>0</span> TOKENS · <span data-reward-score>0</span></em></div>
+      <div class="l1h-name">${say("{NAME}")}</div>
       <div class="l1h-bar"><div class="l1h-hp" data-health-fill></div><div class="l1h-flash" data-health-flash></div></div>
       <div class="l1h-row"><span data-jetpack-status class="l1h-jet">JETPACK — FIND A BOOSTER</span><span data-health-text>100 / 100</span></div>
       <div class="l1h-row l1h-hornrow"><span class="l1h-horn" data-horn-label>THE HORN</span><div class="l1h-hornbar"><div data-horn-fill></div></div></div>
+      <div class="l1h-lights"><i></i><b data-reward-count>0</b><small>${CURRENCY}</small></div>
     `;
 
     const handlerPanel = document.createElement("div");
     handlerPanel.className = "l1h-handler plaque";
     handlerPanel.innerHTML = `
       <div class="l1h-name"><span>THE MARSHAL</span><em data-handler-dist>— m</em></div>
+      <div class="l1h-chase" title="How close the Marshal is: when his mark reaches Kai's, he has you">
+        <div class="l1h-chase-fill" data-chase-fill></div><i class="l1h-chase-m" data-chase-m></i><i class="l1h-chase-k"></i>
+      </div>
       <div class="l1h-state" data-handler-state>APPROACH</div>
     `;
 
@@ -2596,7 +2734,7 @@ export class Level01 extends Level {
     Object.assign(actionControls.style, {
       position: "absolute",
       right: "27px",
-      bottom: "48px", // clear of the H · CONTROLS pill in the corner
+      bottom: "48px", // clear of the ESC · PAUSE pill in the corner
       width: "220px",
       display: "flex",
       justifyContent: "center",
@@ -2676,7 +2814,7 @@ export class Level01 extends Level {
 
     this._templeHud = root;
     this._hudRewardCount = stat.querySelector("[data-reward-count]");
-    this._hudRewardScore = stat.querySelector("[data-reward-score]");
+    this._hudLights = stat.querySelector(".l1h-lights");
     this._hudJetpack = stat.querySelector("[data-jetpack-status]");
     this._hudHornLabel = stat.querySelector("[data-horn-label]");
     this._hudHornFill = stat.querySelector("[data-horn-fill]");
@@ -2687,6 +2825,8 @@ export class Level01 extends Level {
     this._hudHandlerDist = handlerPanel.querySelector("[data-handler-dist]");
     this._hudHandlerState = handlerPanel.querySelector("[data-handler-state]");
     this._hudHandlerPanel = handlerPanel;
+    this._hudChaseM = handlerPanel.querySelector("[data-chase-m]");
+    this._hudChaseFill = handlerPanel.querySelector("[data-chase-fill]");
     this._hudProgressFill = progress.querySelector("[data-progress-fill]");
     this._hudProgressDot = progress.querySelector("[data-progress-dot]");
     this._hudDistanceLeft = progress.querySelector("[data-distance-left]");
@@ -2858,8 +2998,17 @@ export class Level01 extends Level {
     const progress = THREE.MathUtils.clamp((-this.z) / FINISH_DISTANCE, 0, 1);
     const left = Math.max(0, FINISH_DISTANCE + this.z);
 
-    if (this._hudRewardCount) this._hudRewardCount.textContent = String(this.rewardCount);
-    if (this._hudRewardScore) this._hudRewardScore.textContent = String(this.rewardScore);
+    if (this._hudRewardCount && this._hudShownLights !== this.rewardCount) {
+      // a catch: the count pops (restart the animation by taking the class off and back on)
+      const caught = this._hudShownLights !== undefined && this.rewardCount > this._hudShownLights;
+      this._hudShownLights = this.rewardCount;
+      this._hudRewardCount.textContent = String(this.rewardCount);
+      if (caught && this._hudLights) {
+        this._hudLights.classList.remove("pop");
+        void this._hudLights.offsetWidth;
+        this._hudLights.classList.add("pop");
+      }
+    }
     if (this._hudHornFill) {
       const full = this._hornCharge >= 1;
       this._hudHornFill.style.width = `${(this._hornCharge * 100).toFixed(1)}%`;
@@ -2886,6 +3035,12 @@ export class Level01 extends Level {
     if (this._hudHandlerDist) {
       const gap = this.state?.handlerGap ?? this.gap;
       this._hudHandlerDist.textContent = `${Math.round(gap)} m`;
+      // the chase meter: Kai's mark at the right, the Marshal's sliding in from
+      // the left as he gains; at the left end at the furthest he can fall behind
+      const near = 1 - Math.min(1, Math.max(0, gap / HANDLER_MAX_GAP));
+      if (this._hudChaseM) this._hudChaseM.style.left = `${(near * 92).toFixed(1)}%`;
+      if (this._hudChaseFill) this._hudChaseFill.style.width = `${(near * 92).toFixed(1)}%`;
+      this._hudHandlerPanel?.classList.toggle("close", gap < 8 && !this.caught);
     }
     if (this._hudHandlerState) {
       const hs = this.state?.handlerState || "APPROACH";
@@ -3013,13 +3168,19 @@ export class Level01 extends Level {
 
   _showCaughtOverlay(title = "THE MARSHAL CAUGHT YOU") {
     if (this._caughtOverlay || typeof document === "undefined") return;
+    if (this._pageCue) this._pageCue.style.opacity = "0"; // nothing ahead now
 
     // the losing card every level shows (ui/EndCard.js). No checkpoints:
     // caught anywhere, TRY AGAIN starts the run again from the stone
     this._caughtOverlay = showLoseCard(this.game, {
       title: "CAUGHT",
       sub: title,
-      lines: [{ text: `${Math.round(this.state?.distance ?? 0)} M RUN` }],
+      // what he caught is his whatever happens: it's still there to spend on a car (and a run's lights are a record)
+      lines: [{ stats: [
+        { label: "TIME", value: runClock(this._runTime) },
+        { label: CURRENCY, value: this.rewardCount, note: `kept · ${lightsToSpend()} to spend on cars`, kind: "lights", best: submitRecord("l1.lights", this.rewardCount) },
+        { label: "HORN CALLS", value: this._hornCalls },
+      ] }],
     });
   }
 
@@ -3031,13 +3192,18 @@ export class Level01 extends Level {
       this._audio.playOneShot("win", { volume: 0.8 });
       this._duckMusic(0.55);
     }
-    const distance = Math.round(this.state?.distance ?? 0);
     const closest = Number.isFinite(this._closest) ? this._closest : this.gap;
     this._escapedCard = showEndCard({
       kind: "win",
       title: "ESCAPED",
       sub: "You got the horn off the mountain. The Marshal is still coming.",
-      lines: [{ text: `${distance} M  ·  CLOSEST CALL ${Number(closest).toFixed(1)} M  ·  ${this.rewardCount} TOKENS  ·  HORN CALLS ${this._hornCalls}` }],
+      // each against its record (core/records.js): NEW BEST on the ones that beat it
+      lines: [{ stats: [
+        { label: "TIME", value: runClock(this._runTime), best: submitRecord("l1.time", this._runTime || 0) },
+        { label: "CLOSEST CALL", value: Number(closest).toFixed(1), unit: "M", best: submitRecord("l1.closest", Math.round(Number(closest) * 10) / 10) },
+        { label: CURRENCY, value: this.rewardCount, note: `${lightsToSpend()} to spend on cars`, kind: "lights", best: submitRecord("l1.lights", this.rewardCount) },
+        { label: "HORN CALLS", value: this._hornCalls },
+      ] }],
       action: {
         label: "CONTINUE",
         key: "SPACE",
@@ -3351,7 +3517,7 @@ export class Level01 extends Level {
       if (this._bayDoor.cabin) this._bayDoor.cabin.visible = false;
     }
     this._fitBaySeat();
-    renderer?.compileAsync?.(vehicle, this.game.camera, this.scene).catch(() => {});
+    this.game?.precompile?.(vehicle).catch(() => {});
   }
 
   /**
@@ -3363,7 +3529,7 @@ export class Level01 extends Level {
     const door = this._bayDoor;
     if (!door || door.seat || !this.kai) return;
     const sit = this._sitting();
-    door.fit(sit.hips, sit.head);
+    door.fit(sit.hips, sit.head, sit.hipsAt);
   }
 
   /** How Kai sits: his hips' height and the top of his head, seated, from his feet. */
@@ -3728,7 +3894,7 @@ export class Level01 extends Level {
     const carDoor = def ? this._bayDoor || new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
     this._bayDoor = null;
     const sit = this._sitting();
-    if (carDoor && !carDoor.seat) carDoor.fit(sit.hips, sit.head); // not fitted ahead of time (_fitBaySeat)
+    if (carDoor && !carDoor.seat) carDoor.fit(sit.hips, sit.head, sit.hipsAt); // not fitted ahead of time (_fitBaySeat)
     if (carDoor?.cabin) carDoor.cabin.visible = true;
     const [z0, z1] = carDoor ? carDoor.spec.z : [midZ - 0.2, midZ + 0.9];
     // in the car's frame: where he stands to open it (just behind its rear
@@ -3743,7 +3909,9 @@ export class Level01 extends Level {
         ? carDoor.seat.clone()
         : new THREE.Vector3(min.x * 0.35, Math.min(0.45 + 0.09 - sit.hips, max.y - 0.06 - sit.head.y), midZ + 0.35),
     };
-    local.entry = new THREE.Vector3(min.x - 0.02, 0, local.seat.z);
+    // where he stands to sit: his back to the gap, his heels clear of the sill (not in it)
+    const sillX = carDoor ? carDoor.sideAt(carDoor.spec.y[0] - 0.05, local.seat.z) : min.x;
+    local.entry = new THREE.Vector3(Math.min(min.x - 0.02, sillX - 0.24), 0, local.seat.z);
     const door = vehicle.localToWorld(local.stand.clone());
     const centre = vehicle.localToWorld(new THREE.Vector3(0, 0, midZ));
     const start = new THREE.Vector3(x, 0, this.z);
@@ -3774,6 +3942,7 @@ export class Level01 extends Level {
       bangs: 0,
       stride: 0,
     };
+    this._finaleIK(this._finale, carDoor, sit, sillX);
     // Kai's own rig is posed by hand from here; undo any slide/jump lean
     this.airborne = false;
     this.sliding = false;
@@ -3789,7 +3958,6 @@ export class Level01 extends Level {
       this._templeHud.style.opacity = "0";
       this._templeHud.style.pointerEvents = "none";
     }
-    this._showLetterbox(true);
   }
 
   /** Bent forward at the waist by `a` radians, spread down his spine, on top of whatever clip is playing. */
@@ -3802,34 +3970,196 @@ export class Level01 extends Level {
     }
   }
 
-  /** Cinema bars, so the scene reads as the game taking the camera. */
-  _showLetterbox(on) {
-    if (typeof document === "undefined") return;
-    if (!this._letterbox) {
-      if (!on) return;
-      this._letterbox = [0, 1].map((i) => {
-        const bar = document.createElement("div");
-        Object.assign(bar.style, {
-          position: "fixed", left: "0", right: "0", height: "11vh", background: "#000",
-          zIndex: "40", pointerEvents: "none", transition: "transform .7s cubic-bezier(.2,.7,.2,1)",
-          transform: `translateY(${i ? "100%" : "-100%"})`,
-          [i ? "bottom" : "top"]: "0",
-        });
-        document.body.append(bar);
-        return bar;
-      });
-      // let the closed position land before sliding in
-      requestAnimationFrame(() => requestAnimationFrame(() => this._showLetterbox(true)));
-      return;
-    }
-    this._letterbox.forEach((bar, i) => {
-      bar.style.transform = on ? "translateY(0)" : `translateY(${i ? "100%" : "-100%"})`;
+  /**
+   * Getting in without going through the car, worked out once at the door
+   * (every car, and every player, is shaped differently, so it all comes off
+   * the car, with rays, and off him): his wrist's place at the handle, a
+   * hand's length off the door's skin; how far he bends for it; his feet's
+   * places outside while he sits and over the sill; the floor along in front
+   * of the seat, for his feet sat; the roof over and behind the seat, for how
+   * far he leans back under it; where the wheel is. _carIK lays it all over
+   * the clips.
+   */
+  _finaleIK(F, D, sit, sillX) {
+    F.ik = this.kai && D ? BodyIK.for(this.kai) : null;
+    if (!F.ik) return;
+    const ik = F.ik;
+    const s = THREE.MathUtils.clamp(sit.head.y / SIT_HEAD, 0.6, 1.3); // his size, against Kai's
+    const [y0, y1] = D.spec.y;
+    const [z0] = D.spec.z;
+    const seat = D.seat; // his feet's place, sat (CarDoor.fit)
+    const hipsY = seat.y + sit.hips;
+    F.ikSize = s;
+    F.openTop = y1;
+    F.sideX = sillX;
+    F.seatY = seat.y;
+    // a leg's length, hip to ankle, off his own bones
+    const leg = ik.legs[1];
+    const [a, b, c] = [leg.up, leg.lo, leg.end].map((x) => x.getWorldPosition(new THREE.Vector3()));
+    F.legLen = a.distanceTo(b) + b.distanceTo(c);
+    // the handle: in the door's own frame, so it goes with it as it opens
+    const hy = y0 + (y1 - y0) * 0.62, hz = z0 + 0.12;
+    F.handle = new THREE.Vector3(D.sideAt(hy, hz) - 0.16 * s, hy, hz);
+    // over for it only if it's low: a handle at his chest, or above it, he just reaches up to
+    F.reachBend = THREE.MathUtils.clamp((1.3 * s - hy) / 0.35, 0, 1);
+    // his ankles: outside on the ground while he sits, then over the sill
+    F.ankle = 0.11 * s;
+    F.feetX = [seat.x + 0.11 * s, seat.x - 0.11 * s];
+    F.feetOut = F.feetX.map((x) => new THREE.Vector3(F.sideX - 0.5 * s, F.ankle, seat.z + (x - seat.x)));
+    F.feetOver = F.feetX.map((x) => new THREE.Vector3(F.sideX + 0.06, y0 + F.ankle + 0.1, seat.z + 0.25 * s + (x - seat.x)));
+    // the floor down each foot's line in front of the seat (the model's own, or the stand-in
+    // cabin's; null where there's none), and the roof down the seat's middle, over and behind it
+    // (cast from his hips' height, so a footwell that climbs at the front is seen)
+    F.floorZ0 = seat.z - 0.6;
+    F.floor = F.feetX.map((x) => Array.from({ length: 20 }, (_, i) => D.floorUnder(x, F.floorZ0 + i * 0.1, hipsY)));
+    F.floorBase = D.floorY ?? null; // the floor found under the seat: where a foot's line has none
+    F.modelCabin = !!D.spec.interior;
+    // ...and where the footwell ends: the first place ahead of his hips that the floor climbs (the
+    // front of the footwell, or the bulkhead), so his toes stop short of it
+    const hipsZ = seat.z + (sit.hipsAt?.z ?? 0);
+    F.toesMax = F.floor.map((line) => {
+      const at = (z) => line[THREE.MathUtils.clamp(Math.round((z - F.floorZ0) / 0.1), 0, line.length - 1)];
+      const base = at(hipsZ + 0.25) ?? seat.y;
+      for (let z = hipsZ + 0.35; z < F.floorZ0 + line.length * 0.1; z += 0.1) {
+        const y = at(z);
+        if (y !== null && y > base + 0.12) return z - 0.1 - 0.15 * s;
+      }
+      return Infinity;
     });
+    F.roofZ0 = seat.z - 1.0;
+    F.roof = Array.from({ length: 17 }, (_, i) => D.roofOver(seat.x, F.roofZ0 + i * 0.1, hipsY));
+    // the wheel: the stand-in cabin's own, or in front of where his hips go
+    const wheel = D._seatParts?.[2];
+    F.wheel = wheel ? wheel.position.clone() : null;
+    F.feetSat = [new THREE.Vector3(), new THREE.Vector3()];
+    F.duck = 0;
+    F.ikT = new THREE.Vector3();
+    F.ikP = new THREE.Vector3();
+    F.ikH = new THREE.Vector3();
+    F.ikV = new THREE.Vector3();
+    F.ikL = new THREE.Vector3();
+    F.ikF = new THREE.Vector3();
+    F.toCar = new THREE.Matrix4();
   }
 
-  _removeLetterbox() {
-    for (const bar of this._letterbox || []) bar.remove();
-    this._letterbox = null;
+  /** The roof over the seat's line at z, in the car's frame: the lowest of the samples round z (Infinity: open sky). */
+  _finaleRoof(F, z) {
+    const i = Math.round((z - F.roofZ0) / 0.1);
+    let y = Infinity;
+    for (let k = i - 1; k <= i + 1; k++) if (k >= 0 && k < F.roof.length) y = Math.min(y, F.roof[k]);
+    return y;
+  }
+
+  /** The floor under foot `n` at z, in the car's frame: where the clip puts his feet if there's none there, or it's lower. */
+  _finaleFloor(F, n, z) {
+    const i = THREE.MathUtils.clamp(Math.round((z - F.floorZ0) / 0.1), 0, F.floor[n].length - 1);
+    const y = F.floor[n][i] ?? F.floorBase;
+    return y === null ? F.seatY : Math.max(F.seatY, y);
+  }
+
+  /**
+   * The getting-in, laid over the clips each frame (after _bendKai): his right
+   * hand to the handle and with the door for the first of its swing, his left
+   * down at his side; from sitting, his head kept under the top of the opening
+   * and then the roof, leaning back into the seat as far as that takes (the
+   * way anyone gets into a low car); his feet planted outside while he sits,
+   * lifted over the sill as he swings round, and out along the floor in front
+   * of him; his hands on the wheel.
+   */
+  _carIK(F, f, dt) {
+    const ik = F.ik;
+    if (!ik) return;
+    const kai = this.kai;
+    const D = F.carDoor;
+    const vehicle = this.serviceVehicle;
+    const smooth = (a, b, v) => THREE.MathUtils.smoothstep(v, a, b);
+    const up = this._ikUp || (this._ikUp = new THREE.Vector3(0, 1, 0));
+    vehicle.updateWorldMatrix(true, false);
+    kai.root.updateMatrixWorld(true);
+    const h = kai.root.rotation.y;
+    const left = F.ikV.set(Math.cos(h), 0, -Math.sin(h)); // his left, facing (sin h, cos h)
+    const out = this._ikOut || (this._ikOut = new THREE.Vector3());
+    out.set(-1, 0, 0).transformDirection(vehicle.matrixWorld); // away from the car's door side
+    const fwd = this._ikFwd || (this._ikFwd = new THREE.Vector3());
+    fwd.set(0, 0, 1).transformDirection(vehicle.matrixWorld); // the car's forward
+
+    // the handle: on it, and with the door for the first of its swing; then his hand back down to his
+    // side, out of the way of the door still coming round (not back out straight where it's going)
+    const wArms = smooth(FINALE_REACH - 0.3, FINALE_REACH, f) * (1 - smooth(FINALE_STEP, FINALE_STEP + 0.25, f));
+    const onHandle = 1 - smooth(FINALE_OPEN + 0.25, FINALE_OPEN + 0.45, f);
+    if (wArms > 0.002 && D) {
+      const H = ik.hips.getWorldPosition(F.ikH);
+      const side = (s) => F.ikT.copy(H).addScaledVector(left, s * 0.22 * F.ikSize).addScaledVector(up, -0.3 * F.ikSize);
+      const T = side(-1);
+      if (onHandle > 0.002) T.lerp(D.piece.localToWorld(F.ikL.copy(F.handle)), onHandle);
+      ik.reach(ik.arms[1], T, F.ikP.copy(up).multiplyScalar(-0.7).addScaledVector(out, 0.6), wArms);
+      // his other hand down by his left thigh, out of the car's way
+      ik.reach(ik.arms[0], side(1).addScaledVector(out, 0.06), F.ikP.copy(up).multiplyScalar(-0.3).addScaledVector(out, 0.5).addScaledVector(left, 0.4), wArms);
+    }
+    if (!F.sits || f < FINALE_SIT) return;
+
+    // ---- his head, first (his hands then go to the wheel from where his shoulders end up):
+    // past the car's side, the top of it under what's over it there, leaning back till it is
+    const hipsW = ik.hips.getWorldPosition(F.ikH);
+    const headW = (kai.bone("HeadTop_End") || ik.head).getWorldPosition(F.ikT);
+    const facing = F.ikF.set(Math.sin(h), 0, Math.cos(h));
+    const dF = F.ikP.copy(headW).sub(hipsW).dot(facing), dY = headW.y - hipsW.y;
+    const r = Math.hypot(dF, dY), lean = Math.atan2(dF, dY); // forward of upright, +
+    const hipsL = vehicle.worldToLocal(F.ikL.copy(hipsW));
+    const headL = vehicle.worldToLocal(F.ikP.copy(headW));
+    const fl = F.ikT.copy(facing).transformDirection(F.toCar.copy(vehicle.matrixWorld).invert()); // his facing, in the car's frame
+    let want = 0;
+    if (headL.x > F.sideX - 0.12) {
+      const fits = (t) => {
+        const z = hipsL.z + fl.z * r * Math.sin(t), x = hipsL.x + fl.x * r * Math.sin(t), y = hipsL.y + r * Math.cos(t);
+        const over = Math.min(this._finaleRoof(F, z), f < FINALE_SWING && x < F.sideX + 0.3 ? F.openTop : Infinity);
+        return y <= over - 0.06;
+      };
+      // (only what the seat couldn't do: CarDoor.fit has already sat him as low as the car lets him)
+      let t = lean;
+      while (t > lean - 0.75 && !fits(t)) t -= 0.03;
+      want = lean - t;
+    }
+    // straight down to what's needed, back up only slowly
+    F.duck = want > F.duck ? want : F.duck + (want - F.duck) * (1 - Math.exp(-4 * dt));
+    if (F.duck > 0.002) this._bendKai(kai, -F.duck);
+    left.set(Math.cos(h), 0, -Math.sin(h));
+
+    // ---- his feet: planted outside while he sits, then up over the sill as he swings round, and
+    // out along the floor in front of him, his knees a little bent (straighter, the lower he sits)
+    const wFeet = smooth(FINALE_SIT, FINALE_SIT + 0.2, f);
+    const u = smooth(FINALE_SWING - 0.2, FINALE_SHUT + 0.05, f);
+    for (let n = 0; n < 2; n++) {
+      const sat = F.feetSat[n];
+      let z = hipsL.z + 0.5 * F.ikSize;
+      for (let k = 0; k < 2; k++) {
+        const ankle = this._finaleFloor(F, n, z) + F.ankle;
+        const dy = Math.max(0, hipsL.y - ankle);
+        const bent = 0.93 - 0.15 * THREE.MathUtils.clamp(dy / 0.35, 0, 1);
+        z = Math.min(F.toesMax[n], hipsL.z + Math.sqrt(Math.max(0.04, (bent * F.legLen) ** 2 - dy * dy)));
+        sat.set(F.feetX[n], ankle, z);
+      }
+    }
+    const knees = F.ikP.copy(up).addScaledVector(fwd, 0.7 * smooth(FINALE_SWING - 0.2, FINALE_SHUT, f)).addScaledVector(out, 0.5 * (1 - u));
+    for (let n = 0; n < 2; n++) {
+      const p = F.ikT;
+      if (u < 0.5) p.lerpVectors(F.feetOut[n], F.feetOver[n], smooth(0, 0.5, u));
+      else p.lerpVectors(F.feetOver[n], F.feetSat[n], smooth(0.5, 1, u));
+      ik.reach(ik.legs[n], vehicle.localToWorld(p), knees, wFeet);
+    }
+
+    // ---- his hands to the wheel, once he's round
+    const wWheel = smooth(FINALE_SWING, FINALE_SHUT + 0.15, f);
+    if (wWheel > 0.002) {
+      const s = F.ikSize;
+      for (let n = 0; n < 2; n++) {
+        // (a modelled cabin's own wheel is closer in and lower than a stand-in's: under its dash, not in it)
+        const T = F.wheel
+          ? F.ikT.set(F.wheel.x + (n ? -0.15 : 0.15), F.wheel.y, F.wheel.z)
+          : F.ikT.set(hipsL.x + (n ? -0.17 : 0.17) * s, hipsL.y + (F.modelCabin ? 0.24 : 0.32) * s, hipsL.z + (F.modelCabin ? 0.36 : 0.5) * s);
+        ik.reach(ik.arms[n], vehicle.localToWorld(T), F.ikP.copy(up).multiplyScalar(-0.8).addScaledVector(left, n ? -0.6 : 0.6), wWheel);
+      }
+    }
   }
 
   /**
@@ -3890,7 +4220,7 @@ export class Level01 extends Level {
       pos.set(door.x, groundY(door.z), door.z);
       if (f > FINALE_REACH - 0.25) {
         anim = "reach";
-        bend = 0.24 * smooth(FINALE_REACH - 0.25, FINALE_REACH, f);
+        bend = 0.24 * (F.reachBend ?? 1) * smooth(FINALE_REACH - 0.25, FINALE_REACH, f);
       }
     } else if (f < FINALE_STEP) {
       // the latch goes and he pulls: the door swings out past him as he steps back from it
@@ -3899,7 +4229,7 @@ export class Level01 extends Level {
       heading = F.faceHandle;
       if (f < FINALE_OPEN + 0.2) {
         anim = "reach";
-        bend = 0.24;
+        bend = 0.24 * (F.reachBend ?? 1);
       } else if (k < 0.97) {
         anim = "walkback";
         speed = 0.7;
@@ -3916,8 +4246,11 @@ export class Level01 extends Level {
       }
     } else if (F.sits) {
       // backside first onto the seat, his head ducked under the roof line, then
-      // round on it to face the wheel with his legs swung in after him
-      at(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SWING, f));
+      // round on it to face the wheel with his legs swung in after him. Up (or
+      // down) to the seat's height ahead of across to it, so his hips clear the sill
+      this._finaleV.lerpVectors(L.entry, L.seat, smooth(FINALE_SIT, FINALE_SWING, f));
+      this._finaleV.y = THREE.MathUtils.lerp(L.entry.y, L.seat.y, smooth(FINALE_SIT, FINALE_SIT + 0.6 * (FINALE_SWING - FINALE_SIT), f));
+      F.toWorld(this._finaleV, pos);
       pos.y += vehicle.position.y; // the car ticking over, him in it
       heading = turn(F.faceOut, F.faceWheel, smooth(FINALE_SWING - 0.15, FINALE_SHUT + 0.1, f));
       anim = "sitting";
@@ -3935,6 +4268,7 @@ export class Level01 extends Level {
       kai.play(anim, { fade, speed });
       kai.update(dt);
       if (bend > 0.001) this._bendKai(kai, bend);
+      this._carIK(F, f, dt);
     } else {
       this.body.visible = f < FINALE_SIT;
     }
@@ -4069,7 +4403,6 @@ export class Level01 extends Level {
 
     if (!this._handedOff && f >= FINALE_CARD) {
       this._handedOff = true;
-      this._showLetterbox(false);
       this._showEscapedCard();
     }
   }
@@ -4132,9 +4465,10 @@ export class Level01 extends Level {
     this._musicTrack.setVolume(0.3);
     this._musicTrack.play();
 
-    // The recorded theme, on every level of the game. If it fails to load
-    // the pursuit loop simply keeps playing.
-    loadJungleTheme(this._audio.listener.context).then((buf) => {
+    // Level 1's own chase score (audio/chaseScore.js): hand drums and the
+    // prologue's mbira, rendered once and swapped in for the pursuit loop
+    // when it's ready. (The menu's stock track used to play here.)
+    renderChaseScore(this._audio.listener.context.sampleRate).then((buf) => {
       if (!buf || !this._musicTrack) return;
       this._musicTrack.stop();
       this._musicTrack.setBuffer(buf);
@@ -4161,6 +4495,15 @@ export class Level01 extends Level {
    */
   _storyBeats(dt, state) {
     this._storyT = (this._storyT || 0) + dt;
+    // the rules are in the PLAYBOOK (ui/Playbook.js); here, only where to find it
+    if (!this._toldGoal && this._storyT > 0.6) {
+      this._toldGoal = true;
+      this._showTransientBanner("RUN · ESC · PLAYBOOK FOR THE RULES", 2.6);
+    }
+    if (this._clueThought && this._storyT > 70) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
+    }
     if (!this._saidStart && this._storyT > 1.4) {
       this._saidStart = true;
       kaiThinks("Every sound in the forest stopped when I took it.");
@@ -4181,7 +4524,23 @@ export class Level01 extends Level {
   }
 
   update(dt, state) {
+    const shakeBefore = this._shake;
     this._updateRun(dt, state);
+    // an impact (the shake jumped): a burst of earth and splinters at Kai
+    if (this._debris && this._shake - shakeBefore > 0.25 && this.player) {
+      const p = this.player.position;
+      this._debrisAt = (this._debrisAt || new THREE.Vector3()).set(p.x, p.y + 0.6, p.z - 0.4);
+      this._debris.emit(this._debrisAt, {
+        count: 26, speed: 5, up: 3, color: 0x7a5a3a, colorEnd: 0x4a3a2a, size: 0.12, sizeEnd: 0.08,
+        life: 0.9, alpha: 0.95, gravity: -14, drag: 1.2,
+      });
+      this._kickDust(1.5);
+    }
+    // slides drag a trail of dust
+    if (this.sliding && this._dust && Math.random() < 0.6) this._kickDust(0.15);
+    this._dust?.update(dt);
+    this._debris?.update(dt);
+    if (this._cards && this.player) this._cards.update(dt, this.player.position, 1.05);
     if (this._finale || this.caught) state.timeScale = 1; // never stuck in a horn call's slow beat
     const cam = this.game?.camera;
     if (!cam) return;
@@ -4307,6 +4666,7 @@ export class Level01 extends Level {
         this.vy = 0;
         this.airborne = false;
         this._audio?.playOneShot("land", { volume: 0.48, rate: 0.9 + Math.random() * 0.2 });
+        this._kickDust(1);
       }
     }
 
@@ -4453,6 +4813,8 @@ export class Level01 extends Level {
       this._showCaughtOverlay(say("{name} was hit by the oncoming hazard."));
     }
 
+    // the run's clock, for the end cards: only while he is running for it
+    if (!this.caught && !this.escaped && !this._finale) this._runTime = (this._runTime || 0) + dt;
     state.distance = -this.z;
     state.phase = state.distance < 700 ? 1 : state.distance < 1230 ? 2 : 3;
     this.player.position.set(x, this._floorY + this.y + this._flightLift, this.z);
@@ -4633,6 +4995,7 @@ export class Level01 extends Level {
       if (this._strideDistance >= this._strideInterval) {
         this._strideDistance = 0;
         this._audio.playFootstep({ volume: 0.52, pitchVariance: 0.08, minInterval: 0, dt });
+        this._kickDust();
       }
     }
 
@@ -4691,7 +5054,7 @@ export class Level01 extends Level {
     // how he sits, off his own 'sitting' clip at its tallest, for his seat in the bay car (_fitBaySeat)
     const head = this.kai.highest("sitting", "HeadTop_End");
     const hips = this.kai.highest("sitting", "Hips");
-    if (head && hips) this._kaiSit = { hips: hips.y, head };
+    if (head && hips) this._kaiSit = { hips: hips.y, hipsAt: hips, head };
     this._fitBaySeat();
     if (this._jetpackFx) this._buildKaiJetpack(); // otherwise _buildJetpackFx() calls it once the stand-in exists
   }
@@ -4986,7 +5349,7 @@ export class Level01 extends Level {
         this._hornCharge = 0;
         this._hornCalls++;
       } else {
-        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} TOKENS`, 1.2);
+        this._showTransientBanner(`THE HORN \u00b7 ${Math.round(this._hornCharge * HORN_TOKENS)} / ${HORN_TOKENS} ${CURRENCY}`, 1.2);
       }
     }
     if (this._hornT >= 0) {
@@ -5204,14 +5567,15 @@ export class Level01 extends Level {
     }
     this._removeCaughtOverlay();
     this._removeEscapedCard();
-    this._removeLetterbox();
     this._removeTempleRunHUD();
     if (this._bannerTimer) clearTimeout(this._bannerTimer);
     if (this._storyTimer) clearTimeout(this._storyTimer);
     if (this._transientBanner?.parentNode) this._transientBanner.parentNode.removeChild(this._transientBanner);
     if (this._storyCard?.parentNode) this._storyCard.parentNode.removeChild(this._storyCard);
+    this._pageCue?.remove();
     this._transientBanner = null;
     this._storyCard = null;
+    this._pageCue = null;
     if (this._musicTrack) {
       if (this._musicTrack.isPlaying) this._musicTrack.stop();
       this._musicTrack = null;

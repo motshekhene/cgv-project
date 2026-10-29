@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { loadCast, makeKai, makeHandler, hornGeometry, hornMaterial, poseHorn, HORN_HAND, HORN_SLING } from '../intros/cast.js';
 import { SPEAKERS, CREAM as DIALOGUE_CREAM, ensureDialogueFont } from '../ui/dialogue.js';
-import { say } from '../player/roster.js';
+import { TrailMap } from '../ui/TrailMap.js';
+import { keyPill } from '../ui/ControlsOverlay.js';
+import { VALLEY, LANDMARKS, WALK_PTS, PATH_END_Z } from './prologue/places.js';
+import { CardPickups } from '../cards/CardPickups.js';
+import { clueFor } from '../cards/cards.js';
+import { createWaterMaterial } from '../shaders/water.js';
+import { BodyIK } from './level3/BodyIK.js';
+import { showEndCard } from '../ui/EndCard.js';
+import { musicVolumeNode } from '../audio/masterMute.js';
+import { say, currentPlayer, loadPlayer, PLAYERS } from '../player/roster.js';
 import { GAME_TITLE } from '../ui/brand.js';
 import { lookScale } from '../core/settings.js';
 import {
@@ -51,8 +60,8 @@ import {
  *   leave    Baba Zwane whistles two notes and walks off into the dark.
  *   rise     Kai gets up; control returns — third person from here on, the
  *            camera behind him, so his whole body is always on screen.
- *   walk     round the fire, then one long straight path up to the stone,
- *            the stone lit at the far end of it the whole way: cairns both
+ *   walk     round the fire, then the old path winding up to the stone,
+ *            the glade only showing round the last bend: cairns both
  *            sides, three gates, the stag, the last crew's abandoned camp —
  *            and something in the trees that growls, and follows him. The
  *            forest is as loud as it will ever be — the walk is what the
@@ -102,26 +111,31 @@ import {
  */
 
 // The geography: the camp at the south, a short bend round the fire, then
-// one long straight path north up through the trees to the glade where the
+// the old path winding north up through the trees to the glade where the
 // stone stands; and from the glade one straight trail east, down the
 // mountain — the way out, and where level 01 starts.
-// Everywhere Kai can stand is a circle or a strip of path (_clampWalk).
+// The valley is open (VALLEY, places.js): Kai can wander anywhere in it, off
+// the path and round its landmarks; the trees, the rocks, the relics, the
+// camps and the landmarks stop him like the fire and the stone do. The run,
+// once he has the horn, is the trail east and nothing else.
 const SEAT = { x: 0, z: 10.8 };            // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
 const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
-const WALKOFF = { x: -9.6, z: 3.2 };       // where Baba Zwane leaves the fire
+const WALKOFF = { x: -9.6, z: 3.2 };       // the way Baba Zwane leaves the fire: past here, into the forest
+const ZWANE_WALK = 1.5;                    // m/s, his pace as he goes
+const ZWANE_FOLLOW = 8;                    // m: the two-shot follows him this far, then lets him walk out of it
+const _follow = new THREE.Vector3();
+const _frustum = new THREE.Frustum();
+const _viewProj = new THREE.Matrix4();
+const _zSphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
-// the old path to the stone: round the fire on the left, then dead straight
-// for ~50 m, so from the first step the stone is at the end of it
-const PATH_END_Z = -48;
-const WALK_PTS = [[-1.6, 10.0], [-2.5, 7.6], [-1.3, 4.6], [0, 1.2], [0, -4], [0, PATH_END_Z + 4], [0, PATH_END_Z]];
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
 const STONE = { x: 0, z: GLADE.z - 2.0 };  // the low stone, horn on it
 const STONE_CLEAR = 1.15;                  // how close his feet may come to its middle (it is ~1.5 x 1.05 m)
-const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, halfway up
-const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it
-const GATE_ZS = [-1.5, -24, PATH_END_Z];   // the three gates on the way up
+const STAG_AT = { x: 4.6, z: -27 };        // the stag statue, at the hard left (x set beside the path in _buildRoute)
+const CREW_CAMP = { x: -6.2, z: -18.6, r: 3.2 };  // the last crew's camp, left as they left it (x set off the path in _buildRoute)
+const GATE_ZS = [-1.5, -40, -66, PATH_END_Z];   // the gates on the way up
 // the way out: dead straight, east from the glade. Lined with cairns both
 // sides and a gate near the start, so there is never a question where to run.
 const RUN_Z = GLADE.z + 0.8;
@@ -228,6 +242,19 @@ const SPEAK_COLOR = { 'BABA ZWANE': ZWANE_AMBER, PLAYER: KAI_GREEN };
    the forest silent (startSilent) and, when the horn is back on its stone,
    wake() brings it all back.
    ========================================================================== */
+// the fire's music (Sfx.startScore): D minor pentatonic, D3 up to D5
+const SCALE = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 523.25, 587.33];
+const PULSE = 0.36; // seconds per beat: slow, a story being told
+const SCORE_LEVEL = 0.22;
+// [lead, answering line, bass root] per beat, 24 beats round: four phrases over
+// D, F, C and A in the bass, a falling tune with the second part weaving under it
+const MBIRA = [
+  [7, 4, 0], [5, -1], [6, 3], [5, 2], [4, -1], [5, 3],
+  [8, 5, 1], [6, -1], [5, 4], [6, 3], [4, -1], [3, 1],
+  [7, 4, 4], [6, -1], [4, 2], [5, 4], [3, -1], [4, 2],
+  [6, 3, 3], [5, -1], [3, 1], [4, 2], [2, -1], [3, 0],
+];
+
 export class Sfx {
   constructor() {
     this.ctx = null;
@@ -561,6 +588,91 @@ export class Sfx {
     this.doveT = 2.2;
   }
 
+  /* ------------------------------------------------------------- the score */
+  /**
+   * The fire's music: a slow mbira over a low, warm drone, made here like
+   * every other sound (no files). It starts with Baba Zwane's story, dips
+   * under each line he or Kai says, and cuts out with everything else at the
+   * silence. It goes through the OPTIONS music volume.
+   *
+   * The mbira is two interlocking parts on a D pentatonic: a lead line and a
+   * second line answering it half a beat later, the way two mbira players
+   * do. Each tine is a struck sine with a short, slightly out-of-tune upper
+   * partial and a touch of buzz, ringing out over ~2 s.
+   */
+  startScore() {
+    if (!this.ctx || this.score || !this.alive) return;
+    const ctx = this.ctx, t = this.t;
+    this.score = ctx.createGain();
+    this.score.gain.setValueAtTime(0, t);
+    this.score.gain.linearRampToValueAtTime(SCORE_LEVEL, t + 4);
+    this.score.connect(musicVolumeNode(ctx)).connect(this.master);
+    // the drone: two low triangles a fifth apart through a slowly breathing lowpass
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 0.7;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.07;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 140;
+    lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    const droneG = ctx.createGain(); droneG.gain.value = 0.32;
+    lp.connect(droneG); droneG.connect(this.score);
+    this._drone = [lfo];
+    for (const f of [73.42, 110.0]) {   // D2 and A2
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      o.detune.value = f > 100 ? 4 : -3;
+      o.connect(lp); o.start(t);
+      this._drone.push(o);
+    }
+    lfo.start(t);
+    this._scoreAt = t + 1.2; // the first tine, once the drone has come up
+    this._pulse = 0;
+  }
+
+  /** One mbira tine: f Hz, `at` in context time. */
+  _tine(f, at, amp) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(amp, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(amp * 0.25, at + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 2.2);
+    g.connect(this.score);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    o.connect(g); o.start(at); o.stop(at + 2.3);
+    // the metal's upper partial: bright and gone almost at once
+    const p = ctx.createOscillator(); p.type = 'sine'; p.frequency.value = f * 4.07;
+    const pg = ctx.createGain();
+    pg.gain.setValueAtTime(amp * 0.35, at);
+    pg.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+    p.connect(pg); pg.connect(this.score); p.start(at); p.stop(at + 0.15);
+  }
+
+  /** Called every frame: keeps a little of the mbira scheduled ahead. */
+  tickScore() {
+    if (!this.score || !this.alive) return;
+    const ahead = this.t + 0.4;
+    while (this._scoreAt < ahead) {
+      const i = this._pulse % MBIRA.length;
+      const step = MBIRA[i];
+      // lead on the beat, the answering line between, the bass every half bar
+      if (step[0] >= 0) this._tine(SCALE[step[0]], this._scoreAt, 0.16);
+      if (step[1] >= 0) this._tine(SCALE[step[1]], this._scoreAt + PULSE * 0.5, 0.1);
+      if (i % 6 === 0) this._tine(SCALE[step[2] ?? 0] / 2, this._scoreAt, 0.13);
+      this._scoreAt += PULSE * (1 + (Math.random() - 0.5) * 0.04); // played by hand, not a clock
+      this._pulse++;
+    }
+  }
+
+  /** A line is being spoken: the music steps back under it for a few seconds. */
+  duckScore(secs = 3) {
+    if (!this.score || !this.alive) return;
+    const g = this.score.gain, t = this.t;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(SCORE_LEVEL * 0.4, t + 0.3);
+    g.setValueAtTime(SCORE_LEVEL * 0.4, t + secs);
+    g.linearRampToValueAtTime(SCORE_LEVEL, t + secs + 1.5);
+  }
+
   /** THE SILENCE. Everything cuts at once — the wind, the birds, the fire. */
   silence() {
     if (!this.ctx) return;
@@ -569,6 +681,12 @@ export class Sfx {
     if (this.tone) this.tone.gain.cancelScheduledValues(t);
     if (this.tone) this.tone.gain.setValueAtTime(this.tone.gain.value, t);
     if (this.tone) this.tone.gain.linearRampToValueAtTime(0, t + 0.06);
+    // the music goes with it, mid-note
+    if (this.score) {
+      this.score.gain.cancelScheduledValues(t);
+      this.score.gain.setValueAtTime(this.score.gain.value, t);
+      this.score.gain.linearRampToValueAtTime(0, t + 0.06);
+    }
     // the bottom falling out of the morning — one soft sub swell into
     // nothing, so the cut is something you feel and not just notice
     const o = ctx.createOscillator();
@@ -660,10 +778,11 @@ export class Sfx {
       for (const src of this._loops || []) src.stop();
       if (this.alarmOsc) this.alarmOsc.stop();
       if (this.alarmLfo) this.alarmLfo.stop();
+      for (const o of this._drone || []) o.stop();
       this.ctx.close();
     } catch (e) { /* already closed */ }
     this.ctx = null; this.master = null;
-    this.tone = this.alarmGain = null;
+    this.tone = this.alarmGain = this.score = null;
   }
 }
 
@@ -776,6 +895,12 @@ export class Prologue extends Level {
 
     // the take: where the horn leaves, and where it lands in his hand
     this._takeFromPos = new THREE.Vector3();
+    // the take's arms (_armsTo): where the horn lay, and scratch for the reach
+    this._hornLay = new THREE.Vector3();
+    this._hornAt = new THREE.Vector3();
+    this._holdLook = 0;
+    this._ikUp = new THREE.Vector3(0, 1, 0);
+    for (const k of ['_ikRoot', '_ikF', '_ikR', '_ikN', '_ikHold', '_ikT', '_ikP', '_ikS']) this[k] = new THREE.Vector3();
     this._reachQ = new THREE.Quaternion();
     this._reachX = new THREE.Vector3(1, 0, 0);
     this._palmAt = new THREE.Vector3();
@@ -801,9 +926,12 @@ export class Prologue extends Level {
     const curve = new THREE.CatmullRomCurve3(
       WALK_PTS.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal',
     );
-    const N = 80;
     this.walkLen = curve.getLength();
-    this.walkPath = curve.getSpacedPoints(N).map((p, i) => ({ x: p.x, z: p.z, s: (i / N) * this.walkLen }));
+    this.walkPath = curve.getSpacedPoints(Math.round(this.walkLen / 1.5)).map((p, i, all) => ({ x: p.x, z: p.z, s: (i / (all.length - 1)) * this.walkLen }));
+    // what stands beside the path goes where the path is
+    STAG_AT.x = this._pathAtZ(STAG_AT.z).x + 4.6;
+    CREW_CAMP.x = this._pathAtZ(CREW_CAMP.z).x - 7.4;
+    this._campS = this._pathS(CREW_CAMP.x + 7.4, CREW_CAMP.z); // how far up the walk the camp comes
     const strips = [];
     for (let i = 1; i < this.walkPath.length; i++) {
       const a = this.walkPath[i - 1], b = this.walkPath[i];
@@ -818,12 +946,32 @@ export class Prologue extends Level {
     // line to the stone
     this.clearShapes = [
       ...this.walkShapes,
+      ...LANDMARKS.map((l) => ring(l)),
       strip(RUN_FROM.x, RUN_FROM.z, RUN_TO.x + 40, RUN_TO.z, RUN_HW),
       strip(ZWANE_AT.x, ZWANE_AT.z, WALKOFF.x * 1.4, WALKOFF.z * 0.6, 1.1),
       strip(SEAT.x, SEAT.z, SEAT.x + 2, SEAT.z + 5, 1.8),
       strip(WIDE_POS.x, WIDE_POS.z, GLADE.x, GLADE.z + 0.6, 1.9),
       ring(CREW_CAMP),
     ];
+  }
+
+  /** Is he on (or right beside) the old path? Off it, the keys and camera are his own. */
+  _nearPath() {
+    if (this.phase === 'flee') return true;
+    return outside(this.walkShapes, this.px, this.pz) < 1.5;
+  }
+
+  /** The walk path where it crosses `z`: its x there, and the yaw that faces up it. */
+  _pathAtZ(z) {
+    const P = this.walkPath;
+    for (let i = 1; i < P.length; i++) {
+      const a = P[i - 1], b = P[i];
+      if ((a.z - z) * (b.z - z) <= 0 && a.z !== b.z) {
+        const k = (z - a.z) / (b.z - a.z);
+        return { x: a.x + (b.x - a.x) * k, yaw: Math.atan2(b.x - a.x, b.z - a.z) };
+      }
+    }
+    return { x: 0, yaw: Math.PI };
   }
 
   /** Where he is along the walk path: the nearest sample's distance, metres. */
@@ -852,8 +1000,17 @@ export class Prologue extends Level {
 
     this._ensureSerif();
     this._buildSky();
-    const [kit, cast] = await Promise.all([loadJungleKit(assets), loadCast(assets)]);
+    const [kit, cast, hut, truck, kaiOwn] = await Promise.all([
+      loadJungleKit(assets), loadCast(assets),
+      // two landmarks are real models (credits.js): the hut, and the crew's pickup (Level 2's traffic pickup)
+      assets.model('prologue/hut.glb').catch(() => null),
+      assets.model('level2/traffic/pickup.glb').catch(() => null),
+      // Kai's own build, when someone else is playing: Baba Zwane borrows his moves (_buildFigures)
+      currentPlayer().id === 'kai' ? null : loadPlayer(assets, PLAYERS.find((p) => p.id === 'kai')).catch(() => null),
+    ]);
     if (!this.scene) return; // torn down while loading
+    this._hutModel = hut?.scene || null;
+    this._truckModel = truck?.scene || null;
     const mats = await createJungleMaterials(assets, 60);
     if (!this.scene) return;
     this.kit = kit;
@@ -864,8 +1021,30 @@ export class Prologue extends Level {
     this._buildJungle();
     this._buildMarkers();
     this._buildCreatures();
-    this._buildFigures(cast);
+    this._buildFigures(cast, kaiOwn);
     this._buildHud();
+    // the conversation; on some days Baba Zwane adds the old saying, and with it today's clue
+    this.script = [...SCRIPT];
+    const said = clueFor('zwane');
+    if (said) this.script.splice(this.script.length - 1, 0, { who: 'BABA ZWANE', text: said });
+    // today's spirit card, if it sleeps somewhere in this valley (cards/cards.js)
+    this._cards = new CardPickups(this.root, 'prologue', (spot) => new THREE.Vector3(spot.x, 1.3, spot.z));
+    this._cardAt = new THREE.Vector3();
+    // the old map of the way up, in the corner while he walks it (N: bigger)
+    this.map = new TrailMap({
+      path: this.walkPath,
+      marks: [
+        { x: FIRE.x, z: FIRE.z, kind: 'fire', label: 'THE CAMP' },
+        { x: CREW_CAMP.x, z: CREW_CAMP.z, kind: 'camp', label: 'LAST CREW' },
+        { x: STAG_AT.x, z: STAG_AT.z, kind: 'stag', label: 'STAG STATUE' },
+        ...GATE_ZS.map((z) => ({ x: this._pathAtZ(z).x, z, kind: 'gate' })),
+        { x: STONE.x, z: STONE.z, kind: 'stone', label: 'THE STONE' },
+        ...LANDMARKS.map((l) => ({ x: l.x, z: l.z, kind: 'landmark', label: l.name })),
+      ],
+      bounds: VALLEY,
+      bottom: 58, // over the X · SKIP INTRO pill in that corner
+    });
+    this._mapHeading = Math.PI;
 
     this._onClick = () => {
       this.sfx.start();                       // audio needs a gesture
@@ -913,15 +1092,11 @@ export class Prologue extends Level {
   /** One line from Google Fonts; Georgia carries it if the network is gone. */
   _ensureSerif() {
     ensureDialogueFont();
-    // the click-hint pulse and the skip plaque's glow are one tiny
-    // stylesheet, shared by every visit
+    // the click-hint pulse is one tiny stylesheet, shared by every visit
     if (!document.getElementById('prologue-pulse')) {
       const st = document.createElement('style');
       st.id = 'prologue-pulse';
-      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}' +
-        '@keyframes prologueSkipGlow{0%,100%{box-shadow:0 4px 16px rgba(0,0,0,.5)}' +
-        '50%{box-shadow:0 4px 16px rgba(0,0,0,.5),0 0 24px rgba(227,187,98,.6);border-color:rgba(255,226,150,.95)}}' +
-        '.prologue-skip:hover{border-color:#ffe29a!important;background:rgba(40,34,14,.8)!important}';
+      st.textContent = '@keyframes prologuePulse{0%,100%{opacity:1}50%{opacity:.4}}';
       document.head.appendChild(st);
     }
   }
@@ -1241,33 +1416,51 @@ export class Prologue extends Level {
       plant.get(proto).push([x, y, z, s, ry]);
     };
 
+    // the whole valley is forest, thinner away from the path so it can be
+    // walked through; every trunk is solid (this.trees, for _blocked and the camera)
     let n = 0;
-    for (let gx = -24; gx <= 72; gx += 4.8) {
-      for (let gz = -72; gz <= 28; gz += 4.8) {
+    this.trees = [];
+    this._treeGrid = new Map();
+    for (let gx = VALLEY.x0 - 10; gx <= 72; gx += 4.8) {
+      for (let gz = VALLEY.z0 - 12; gz <= VALLEY.z1 + 6; gz += 4.8) {
         const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
         const out = outside(clear, x, z);
-        if (out < 1.5 || out > 9.5) continue;
-        put(trees[n++ % trees.length], x, -0.05, z, 0.021 + rnd() * 0.014, rnd() * Math.PI * 2);
+        if (out < 1.5) continue;
+        if (out > 9.5 && rnd() < 0.35) continue; // room to walk between them out in the forest
+        const proto = trees[n++ % trees.length], s = 0.021 + rnd() * 0.014;
+        put(proto, x, -0.05, z, s, rnd() * Math.PI * 2);
+        // as wide as this tree really is where Kai would meet it (its trunk,
+        // and any low limb), at this tree's size
+        this._addTree(x, z, Math.min(1.6, Math.max(0.45, this._reach(proto, s))));
       }
     }
 
     // undergrowth right along the edges, so the line of the path is drawn
-    // in leaves as well as in mud
+    // in leaves as well as in mud (and round the landmarks' clearings)
     let b = 0;
     for (let gx = -16; gx <= 64; gx += 2.7) {
-      for (let gz = -64; gz <= 20; gz += 2.7) {
+      for (let gz = GLADE.z - 12; gz <= 20; gz += 2.7) {
         const x = gx + (rnd() - 0.5) * 2, z = gz + (rnd() - 0.5) * 2;
         const out = outside(clear, x, z);
         if (out < 0.3 || out > 2.4 || rnd() < 0.3) continue;
         const set = b++ % 3 === 0 ? grasses : bushes;
-        put(set[b % set.length], x, 0, z, 0.01 + rnd() * 0.006, rnd() * Math.PI * 2);
+        const proto = set[b % set.length], s = 0.01 + rnd() * 0.006;
+        put(proto, x, 0, z, s, rnd() * Math.PI * 2);
+        // a bush is shoulder-high and thick: solid at its heart (he brushes its edge, not through it)
+        if (set === bushes) {
+          const r = this._reach(proto, s, 0.3, 1.5) * 0.65;
+          if (r > 0.2) this._addTree(x, z, r);
+        }
       }
     }
     for (let i = 0, tries = 0; i < 30 && tries < 500; tries++) {
-      const x = -14 + rnd() * 76, z = -62 + rnd() * 78;
+      const x = -14 + rnd() * 76, z = GLADE.z - 10 + rnd() * (26 - GLADE.z);
       const out = outside(clear, x, z);
       if (out < 0.6 || out > 4) continue;
-      put(this.kit['rock' + (1 + (i % 3))], x, -0.15, z, 0.011 + rnd() * 0.007, rnd() * Math.PI * 2);
+      const rock = this.kit['rock' + (1 + (i % 3))], s = 0.011 + rnd() * 0.007;
+      put(rock, x, -0.15, z, s, rnd() * Math.PI * 2);
+      const r = this._footprint(rock) * s * 0.75; // round enough: a rock is as solid as a trunk
+      if (r > 0.15) this._addTree(x, z, r);
       i++;
     }
     for (const [proto, list] of plant) this._scatter(proto, list);
@@ -1276,15 +1469,251 @@ export class Prologue extends Level {
     // anyone cut a line through it: a pair of columns either side of the
     // way, a dead tree, the stag watching the halfway gate, a second pair
     // of columns, and the fox watching the stone
-    placeProp(this.root, cloneProp(this.kit.column), -4.2, 0, -9, { s: 0.014, ry: 0.2 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), 4.2, 0, -11.5, { s: 0.012, ry: 1.4 });
-    placeProp(this.root, cloneProp(this.kit.deadTree), 4.6, 0, -17, { s: 0.02, ry: 1.1 });
-    placeProp(this.root, cloneProp(this.kit.stag), STAG_AT.x, 0, STAG_AT.z, { s: 0.0105, ry: -1.3 });
-    placeProp(this.root, cloneProp(this.kit.column), -4.2, 0, -36, { s: 0.014, ry: 2.3 });
-    placeProp(this.root, cloneProp(this.kit.columnShort), 4.2, 0, -38.5, { s: 0.012, ry: 0.6 });
-    placeProp(this.root, cloneProp(this.kit.fox), -4.6, 0, GLADE.z - 2.6, { s: 0.0105, ry: 0.9 });
+    // (all of them solid: _solidProp for the columns and statues, a trunk for the dead trees)
+    const px = (z) => this._pathAtZ(z).x; // the relics stand beside the path, wherever it bends
+    const relic = (proto, x, z, s, ry) => this._solidProp(placeProp(this.root, cloneProp(proto), x, 0, z, { s, ry }));
+    const deadTree = (x, z, s, ry) => {
+      placeProp(this.root, cloneProp(this.kit.deadTree), x, 0, z, { s, ry });
+      this._addTree(x, z, 0.45);
+    };
+    relic(this.kit.column, px(-9) - 4.2, -9, 0.014, 0.2);
+    relic(this.kit.columnShort, px(-11.5) + 4.2, -11.5, 0.012, 1.4);
+    deadTree(px(-17) + 4.6, -17, 0.02, 1.1);
+    relic(this.kit.stag, STAG_AT.x, STAG_AT.z, 0.0105, -1.3);
+    relic(this.kit.column, px(-36) - 4.2, -36, 0.014, 2.3);
+    relic(this.kit.columnShort, px(-38.5) + 4.2, -38.5, 0.012, 0.6);
+    deadTree(px(-60) - 4.4, -60, 0.022, 2.6);
+    relic(this.kit.column, px(-75) + 4.2, -75, 0.014, 1.0);
+    relic(this.kit.columnShort, px(-78) - 4.2, -78, 0.012, 2.2);
+    relic(this.kit.fox, -4.6, GLADE.z - 2.6, 0.0105, 0.9);
 
     this._buildCrewCamp();
+    this._buildLandmarks();
+  }
+
+  /**
+   * A placed prop made as solid as it looks: its footprint on the ground (the
+   * world box round it, pulled in by `shrink` so brushing past isn't a wall)
+   * blocks Kai the way the fire and the stone do. For compact things: a
+   * column, a statue, a crate, a barrel. Returns the prop.
+   */
+  _solidProp(obj, shrink = 0.12) {
+    if (!obj) return obj;
+    obj.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(obj);
+    if (b.isEmpty()) return obj;
+    const x0 = b.min.x + shrink, x1 = b.max.x - shrink, z0 = b.min.z + shrink, z1 = b.max.z - shrink;
+    if (x1 - x0 > 0.1 && z1 - z0 > 0.1) this.blockers.push({ x0, x1, z0, z1 });
+    return obj;
+  }
+
+  /**
+   * How far a model reaches out from its middle between `from` and `to`
+   * metres off the ground when it stands at scale `s`: for a tree, its trunk
+   * and any limb low enough to walk into. Its points are read once per model.
+   */
+  _reach(proto, s, from = 0.15, to = 1.9) {
+    if (!proto) return 0;
+    let pts = proto.userData.reach;
+    if (!pts) {
+      pts = [];
+      proto.updateMatrixWorld(true);
+      const toProto = new THREE.Matrix4().copy(proto.matrixWorld).invert(); // as _scatter places it
+      const rel = new THREE.Matrix4(), v = new THREE.Vector3();
+      proto.traverse((o) => {
+        if (!o.isMesh) return;
+        rel.multiplyMatrices(toProto, o.matrixWorld);
+        const p = o.geometry.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          v.fromBufferAttribute(p, i).applyMatrix4(rel);
+          pts.push(v.y, Math.hypot(v.x, v.z));
+        }
+      });
+      proto.userData.reach = pts;
+    }
+    const lo = from / s, hi = to / s;
+    let r = 0;
+    for (let i = 0; i < pts.length; i += 2) if (pts[i] > lo && pts[i] < hi && pts[i + 1] > r) r = pts[i + 1];
+    return r * s;
+  }
+
+  /** Half a model's widest side on the ground, at scale 1 (measured once per model). */
+  _footprint(proto) {
+    if (!proto) return 0;
+    if (proto.userData.footprint === undefined) {
+      const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3());
+      proto.userData.footprint = Math.max(size.x, size.z) * 0.5;
+    }
+    return proto.userData.footprint;
+  }
+
+  /** A solid trunk at (x, z), in a coarse grid so a step only checks its neighbours. */
+  _addTree(x, z, r) {
+    const t = { x, z, r };
+    this.trees.push(t);
+    const k = `${Math.floor(x / 6)},${Math.floor(z / 6)}`;
+    if (!this._treeGrid.has(k)) this._treeGrid.set(k, []);
+    this._treeGrid.get(k).push(t);
+  }
+
+  /** The trunk (x, z) is inside, padded by `pad`, or null. */
+  _treeAt(x, z, pad = 0.4) {
+    if (!this._treeGrid) return null;
+    const cx = Math.floor(x / 6), cz = Math.floor(z / 6);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        for (const t of this._treeGrid.get(`${cx + i},${cz + j}`) || []) {
+          if (Math.hypot(x - t.x, z - t.z) < t.r + pad) return t;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The valley's landmarks off the path (prologue/places.js): somewhere to
+   * wander to, names for the MAP, and places for the spirit cards to hide.
+   */
+  _buildLandmarks() {
+    const k = this.kit;
+    const at = (id) => LANDMARKS.find((l) => l.id === id);
+    const solid = (x, z, r) => this._addTree(x, z, r); // round, and as solid as a trunk
+    // THE OLD FIG: one huge tree, roots spreading over the clearing
+    {
+      const L = at('fig');
+      placeProp(this.root, cloneProp(k.tree3 || k.tree1), L.x, -0.05, L.z, { s: 0.085, ry: 0.4 });
+      solid(L.x, L.z, 1.6);
+      const rootMat = new THREE.MeshStandardMaterial({ color: 0x4d3523, roughness: 1 });
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const root = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.3, 4.2, 6), rootMat);
+        root.position.set(L.x + Math.cos(a) * 2.2, 0.15, L.z + Math.sin(a) * 2.2);
+        root.rotation.set(Math.PI / 2 - 0.15, 0, -a + Math.PI / 2);
+        root.castShadow = true;
+        this.root.add(root);
+      }
+    }
+    // THE CREW'S TRUCK: the company's pickup, left where it died, nose down in the mud
+    if (this._truckModel) {
+      const L = at('truck');
+      const g = this._putFit(this._truckModel, L.x, L.z, 5.6, 0.7);
+      // years in the rain: its own colours, darkened and rusted (copies, so Level 2's traffic keeps its paint)
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = o.receiveShadow = true;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+        for (const m of [].concat(o.material)) {
+          if (m.color) m.color.multiplyScalar(0.62).lerp(new THREE.Color(0x6b3a1c), 0.25);
+          if ('roughness' in m) m.roughness = Math.max(m.roughness, 0.85);
+        }
+      });
+      g.rotation.z = 0.06;
+      g.rotation.x = 0.05;
+      solid(L.x + 0.6, L.z + 0.6, 1.6);
+      solid(L.x - 0.6, L.z - 0.6, 1.6);
+      solid(L.x - 1.4, L.z - 1.7, 1.4);
+    } else {
+      const L = at('truck');
+      const paint = new THREE.MeshStandardMaterial({ color: 0xd06a1e, roughness: 0.65, metalness: 0.25 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x1e2022, roughness: 0.9 });
+      const rust = new THREE.MeshStandardMaterial({ color: 0x6b3a1c, roughness: 1 });
+      const g = new THREE.Group();
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.7, 1.8), paint);
+      cab.position.set(0, 1.35, 1.9);
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 3.8), rust);
+      bed.position.set(0, 0.85, -0.9);
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 6.2), dark);
+      chassis.position.set(0, 0.55, 0.2);
+      g.add(cab, bed, chassis);
+      for (const [x, z] of [[-1.1, 2], [1.1, 2], [-1.1, -1.8], [1.1, -1.8]]) {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.35, 14), dark);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(x, 0.42, z);
+        g.add(w);
+      }
+      g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.position.set(L.x, 0, L.z);
+      g.rotation.set(0, 0.7, 0.06); // nose down in the mud, slewed off the old track
+      this.root.add(g);
+      solid(L.x + 0.6, L.z + 0.6, 1.6);
+      solid(L.x - 0.6, L.z - 0.6, 1.6);
+      solid(L.x - 1.4, L.z - 1.7, 1.4);
+    }
+    // THE FOREST POOL: still water in a ring of rocks (the water shader, standing still)
+    {
+      const L = at('pool');
+      const mat = createWaterMaterial({ foamAt: new THREE.Vector3(L.x, L.z, 0.001), flow: new THREE.Vector2(0.02, 0.01) });
+      this._poolMat = mat;
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(5.2, 40), mat);
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(L.x, 0.04, L.z);
+      this.root.add(pool);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + 0.2;
+        this._solidProp(placeProp(this.root, cloneProp(k['rock' + (1 + (i % 3))]), L.x + Math.cos(a) * 5.8, -0.1, L.z + Math.sin(a) * 5.8, { s: 0.012 + (i % 2) * 0.004, ry: a }), 0.2);
+      }
+      solid(L.x, L.z, 5.0); // nobody walks on water
+    }
+    // LOOKOUT ROCK: a heap of big boulders with a broken column on top, over the valley
+    {
+      const L = at('lookout');
+      for (const [dx, dz, sc, ry] of [[0, 0, 0.032, 0.3], [2.4, 1.2, 0.024, 1.9], [-2.2, 1.6, 0.022, 3.1], [0.8, -2.2, 0.02, 4.4]]) {
+        placeProp(this.root, cloneProp(k['rock' + (1 + Math.round(ry) % 3)]), L.x + dx, -0.2, L.z + dz, { s: sc, ry });
+      }
+      placeProp(this.root, cloneProp(k.columnShort), L.x + 0.3, 2.2, L.z - 0.2, { s: 0.014, ry: 1.2 });
+      solid(L.x, L.z, 3.2);
+      solid(L.x + 2.4, L.z + 1.2, 1.6);
+      solid(L.x - 2.2, L.z + 1.6, 1.5);
+    }
+    // THE FALLEN GIANT: a great trunk down across the forest floor, its roots in the air
+    {
+      const L = at('fallen');
+      const bark = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 1, map: this.mats?.trail?.map || null });
+      const g = new THREE.Group();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 1.05, 14, 14), bark);
+      trunk.rotation.z = Math.PI / 2;
+      trunk.position.y = 0.9;
+      g.add(trunk);
+      // the root plate, torn up on its end
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.1, 0.6, 16), new THREE.MeshStandardMaterial({ color: 0x3d2a1c, roughness: 1 }));
+      plate.rotation.z = Math.PI / 2;
+      plate.position.set(7.2, 1.6, 0);
+      g.add(plate);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const root = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.2, 2.6, 5), bark);
+        root.position.set(7.6, 1.6 + Math.sin(a) * 2.2, Math.cos(a) * 2.2);
+        root.rotation.set(a, 0, Math.PI / 2 - 0.4);
+        g.add(root);
+      }
+      g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      g.position.set(L.x, 0, L.z);
+      g.rotation.y = 0.5;
+      this.root.add(g);
+      for (let i = -4; i <= 4; i++) solid(L.x + Math.cos(0.5) * i * 1.6, L.z - Math.sin(0.5) * i * 1.6, 1.0);
+      solid(L.x + Math.cos(0.5) * 7.2, L.z - Math.sin(0.5) * 7.2, 2.2);
+    }
+    // THE RUINED HUT: a round thatched hut, long empty, where someone lived once
+    if (this._hutModel) {
+      const L = at('hut');
+      const g = this._putFit(this._hutModel, L.x, L.z, 5.2, 0.9);
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = o.receiveShadow = true;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+        for (const m of [].concat(o.material)) if (m.color) m.color.multiplyScalar(0.8); // weathered
+      });
+      g.rotation.z = 0.03; // settling, a little
+      solid(L.x, L.z, 2.8);
+    } else {
+      const L = at('hut');
+      for (const [dx, dz, ry] of [[0, -2.4, 0], [0, 2.4, Math.PI], [-2.4, 0, Math.PI / 2], [2.4, 0.8, -Math.PI / 2]]) {
+        this._putFit(k.wall, L.x + dx, L.z + dz, 4.6, ry);
+      }
+      for (const [dx, dz] of [[0, -2.4], [0, 2.4], [-2.4, 0], [2.4, 0.8]]) {
+        for (let i = -1; i <= 1; i++) solid(L.x + dx + (dz ? i * 1.4 : 0), L.z + dz + (dx ? i * 1.4 : 0), 0.7);
+      }
+    }
   }
 
   /**
@@ -1295,11 +1724,12 @@ export class Prologue extends Level {
    */
   _buildCrewCamp() {
     const C = CREW_CAMP;
-    this._putFit(this.kit.crates, C.x + 1.2, C.z + 1.7, 1.4, 0.3);
-    this._putFit(this.kit.barrel, C.x + 2.0, C.z - 0.3, 0.95, 1.1);
-    this._putFit(this.kit.logs, C.x + 1.0, C.z - 2.4, 2.4, 0.4);
-    this._putFit(this.kit.cutTrees, C.x - 2.0, C.z + 2.4, 3.2, 2.0);
-    this._putFit(this.kit.trap, C.x + 2.6, C.z + 0.6, 0.7, 0.8);
+    // all of it solid: he walks round their things, not through them
+    this._solidProp(this._putFit(this.kit.crates, C.x + 1.2, C.z + 1.7, 1.4, 0.3));
+    this._solidProp(this._putFit(this.kit.barrel, C.x + 2.0, C.z - 0.3, 0.95, 1.1), 0.05);
+    this._solidProp(this._putFit(this.kit.logs, C.x + 1.0, C.z - 2.4, 2.4, 0.4), 0.25);
+    this._solidProp(this._putFit(this.kit.cutTrees, C.x - 2.0, C.z + 2.4, 3.2, 2.0), 0.35);
+    this._solidProp(this._putFit(this.kit.trap, C.x + 2.6, C.z + 0.6, 0.7, 0.8), 0.05);
 
     // the tent, half fallen in
     const tent = new THREE.Mesh(
@@ -1311,6 +1741,7 @@ export class Prologue extends Level {
     tent.castShadow = true;
     tent.receiveShadow = true;
     this.root.add(tent);
+    this._addTree(tent.position.x, tent.position.z, 0.95);
 
     // their fire: a ring of stones round two black logs, cold
     const fx = C.x + 0.6, fz = C.z + 0.2;
@@ -1423,6 +1854,7 @@ export class Prologue extends Level {
       q.setFromEuler(e.set(0, i * 2.1, 0));
       m.compose(p.set(x, y + 0.06, z), q, sc.set(0.11, 0.09, 0.11));
       caps.setMatrixAt(i, m);
+      this._addTree(x, z, 0.28); // knee-high stone: walked round, not through
     });
     stones.castShadow = true;
     this.root.add(stones, caps);
@@ -1432,15 +1864,28 @@ export class Prologue extends Level {
     const size = new THREE.Box3().setFromObject(proto).getSize(new THREE.Vector3());
     const across = Math.max(size.x, size.z) || 1;
     const spanAlongX = size.x >= size.z;   // which way the model's opening faces
+    const mid = new THREE.Box3().setFromObject(proto).getCenter(new THREE.Vector3());
+    const post = new THREE.Vector3();
     for (const [x, z, yaw, width] of [
-      ...GATE_ZS.map((z) => [0, z, Math.PI, PATH_HW * 2 + 2.4]),
+      // each gate stands across the path where it is, turned to face along it
+      ...GATE_ZS.map((z) => { const p = this._pathAtZ(z); return [p.x, z, p.yaw, PATH_HW * 2 + 2.4]; }),
       [9, RUN_Z, Math.PI / 2, RUN_HW * 2 + 2.6],
     ]) {
       const gate = cloneProp(proto);
-      gate.scale.setScalar(width / across);
+      const k = width / across;
+      gate.scale.setScalar(k);
       gate.position.set(x, -0.05, z);
       gate.rotation.y = yaw + (spanAlongX ? 0 : Math.PI / 2);
       this.root.add(gate);
+      // its two posts are solid, at the ends of the span (the opening stays clear)
+      gate.updateMatrixWorld(true);
+      const half = across / 2 - 0.32 / k;
+      for (const side of [-1, 1]) {
+        post.copy(mid);
+        if (spanAlongX) post.x += side * half; else post.z += side * half;
+        gate.localToWorld(post);
+        this._addTree(post.x, post.z, 0.32);
+      }
     }
   }
 
@@ -1513,7 +1958,8 @@ export class Prologue extends Level {
     f.group.visible = true;
     for (const b of f.birds) {
       const side = Math.random() < 0.5 ? -1 : 1;
-      b.mesh.position.set(side * (3.5 + Math.random() * 3), 4.5 + Math.random() * 3, this.pz - 12 + (Math.random() - 0.5) * 4);
+      const fz = this.pz - 12 + (Math.random() - 0.5) * 4;
+      b.mesh.position.set(this._pathAtZ(fz).x + side * (3.5 + Math.random() * 3), 4.5 + Math.random() * 3, fz);
       b.vel.set(-side * (1 + Math.random() * 3), 2.5 + Math.random() * 2.5, Math.random() * 7 - 2);
       b.mesh.rotation.y = Math.atan2(b.vel.x, b.vel.z);
       b.ph = Math.random() * Math.PI * 2;
@@ -1576,7 +2022,7 @@ export class Prologue extends Level {
    * player sees him. Each stands in an outer group that the scene moves and
    * turns with the same yaw convention as the camera (0 = facing -Z).
    */
-  _buildFigures(cast) {
+  _buildFigures(cast, kaiOwn = null) {
     // ---- Baba Zwane, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
     this.zwane = new THREE.Group();
@@ -1614,9 +2060,14 @@ export class Prologue extends Level {
     }
     kai.pose('reach', 'cross', 1.133); // his arm straight out at full stretch: the reach, with a bend at the waist
     // the monk build has only a fighter's guard for an idle — a man talking
-    // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk
-    this._lend(kai, ing, 'walk');
-    this._lend(kai, ing, 'idle', true);
+    // at a fire stands easy, so he borrows Kai's relaxed stance, and his walk.
+    // Always Kai's, whoever is playing: the other players' bones sit
+    // differently at rest, and their rotations fold his legs up under him, so
+    // he hangs in the air. With someone else chosen, Kai is built off screen
+    // just to lend them.
+    const lender = kaiOwn ? makeKai(new THREE.Group(), kaiOwn) : kai;
+    this._lend(lender, ing, 'walk');
+    this._lend(lender, ing, 'idle', true);
     ing.play('idle', { fade: 0 });
 
     // He sits to the fire, and the log goes where he sits: measured off his
@@ -1642,6 +2093,7 @@ export class Prologue extends Level {
     log.castShadow = true;
     log.receiveShadow = true;
     this.root.add(log);
+    this._solidProp(log, 0.05); // he gets up off it, and can't walk back through it
     this._buildBlockers();
   }
 
@@ -1666,7 +2118,7 @@ export class Prologue extends Level {
   }
 
   /**
-   * Baba Zwane borrows clips from Kai. Both are on the same Mixamo skeleton,
+   * Baba Zwane borrows clips from Kai (Kai's own build: see _buildFigures). Both are on the same Mixamo skeleton,
    * so he takes the rotations (not the hip travel — the two builds are not
    * the same size): the walk the monk build lacks, and with `replace` the
    * relaxed idle in place of his fighting guard.
@@ -1762,28 +2214,22 @@ export class Prologue extends Level {
       'CLICK TO LOOK AROUND',
     );
 
-    // X skips the whole prologue. It sits top right, clear of the subtitles
-    // and of the H · CONTROLS pill in the bottom corner: a lit plaque with
-    // the key drawn as a key, glowing three times as the scene opens so it
-    // is seen, and it can be clicked as well as pressed.
-    const KEYCAP = 'display:inline-block;min-width:24px;padding:2px 7px;margin-right:10px;border:1px solid rgba(227,187,98,.85);' +
-      "border-radius:3px;background:rgba(0,0,0,.5);color:#e3bb62;font:700 13px 'Segoe UI',system-ui,sans-serif;" +
-      'letter-spacing:0;text-align:center;box-shadow:0 2px 0 rgba(0,0,0,.6)';
-    this.hud.skip = mk(
-      'position:absolute;top:18px;right:18px;padding:9px 16px 9px 12px;pointer-events:auto;cursor:pointer;user-select:none;' +
-      'background:rgba(8,11,7,.66);border:1px solid rgba(227,187,98,.6);border-radius:4px;backdrop-filter:blur(3px);' +
-      `color:${CREAM};font-size:16px;font-weight:600;letter-spacing:.22em;${SERIF};text-shadow:0 1px 6px rgba(0,0,0,.9);` +
-      'animation:prologueSkipGlow 2.4s ease-in-out .8s 3;transition:opacity .4s',
-      `<span style="${KEYCAP}">X</span>SKIP INTRO`,
-    );
-    this.hud.skip.className = 'prologue-skip';
+    // X skips the whole prologue: a pill like ESC · PAUSE (ui/ControlsOverlay.js),
+    // in the other bottom corner, opening out to PRESS X TO SKIP INTRO as the
+    // scene starts so it is seen, then X · SKIP INTRO. It can be clicked as well
+    // as pressed.
+    this.hud.skip = keyPill('X', 'SKIP INTRO', 'PRESS X TO');
+    Object.assign(this.hud.skip.style, { left: '14px', bottom: '8px' });
+    this.hud.skip.classList.add('big');
+    this._skipBigFor = 5; // seconds from the first frame (update), not from now: this is still behind the loading screen
+    host.appendChild(this.hud.skip);
     this.hud.skip.title = 'Skip the prologue and start Level 1';
     this.hud.skip.addEventListener('click', (e) => {
       e.stopPropagation();
       this._skipAsked = true;   // update() takes it, the same as X
     });
     this.hud.mute = mk(
-      base + ';top:62px;right:20px;color:#cfd6c4;font-size:12px;letter-spacing:.24em;opacity:.8;' +
+      base + ';top:20px;right:20px;color:#cfd6c4;font-size:12px;letter-spacing:.24em;opacity:.8;' +
       `text-shadow:0 1px 6px rgba(0,0,0,.95);${SERIF}`,
       'M — MUTE',
     );
@@ -1810,14 +2256,16 @@ export class Prologue extends Level {
     this.t = 0;
     // the click that starts Baba Zwane also starts the forest
     this.hud.title.style.opacity = '0';
+    this.sfx.startScore(); // the fire's music comes up under the story
     this._nextLine();
   }
 
   _showLine(i) {
-    const line = SCRIPT[i];
+    const line = this.script[i];
     this.hud.subName.textContent = line.who === 'PLAYER' ? say('{NAME}') : line.who;
     this.hud.subName.style.color = SPEAK_COLOR[line.who];
     this.hud.subLine.textContent = say(line.text);
+    this.sfx.duckScore(Math.max(2.5, line.text.split(/\s+/).length * 0.38));
     if (line.who === 'BABA ZWANE') {
       // his words, at his head across the fire
       this.hud.sub.style.left = '50%';
@@ -1836,14 +2284,13 @@ export class Prologue extends Level {
 
   _nextLine() {
     this.scriptIndex++;
-    if (this.scriptIndex >= SCRIPT.length) {
+    if (this.scriptIndex >= this.script.length) {
       // the conversation is over — the title has long faded, the fire is
       // lower, and Baba Zwane has one thing left to do before he goes
       this.hud.sub.style.opacity = '0';
       this.hud.subHint.style.opacity = '0';
       this.phase = 'leave';
       this.t = 0;
-      this._leaveTold = false;
       this._whistled = false;
       return;
     }
@@ -1901,6 +2348,20 @@ export class Prologue extends Level {
    */
   _blocked(x, z, fromX, fromZ) {
     const r = 0.4;
+    // a trunk (or a rock, a bush, a landmark): only blocks a step that goes
+    // further into it. Every one in reach is asked, not just the first, or
+    // stepping away from one tree would let him walk into the next
+    if (this._treeGrid) {
+      const cx = Math.floor(x / 6), cz = Math.floor(z / 6);
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          for (const t of this._treeGrid.get(`${cx + i},${cz + j}`) || []) {
+            const d = Math.hypot(x - t.x, z - t.z);
+            if (d < t.r + r && d < Math.hypot(fromX - t.x, fromZ - t.z)) return true;
+          }
+        }
+      }
+    }
     const depth = (b, px, pz) => Math.min(px + r - b.x0, b.x1 - (px - r), pz + r - b.z0, b.z1 - (pz - r));
     for (const b of this.blockers) {
       const d = depth(b, x, z);
@@ -1920,7 +2381,7 @@ export class Prologue extends Level {
     // the edge and slides along it. Turn the camera far off it and the
     // keys are camera-relative again.
     let dirYaw = this.yaw;
-    if (f > 0 && s === 0) {
+    if (f > 0 && s === 0 && this._nearPath()) {
       const way = this._wayYaw();
       if (way !== null && Math.abs(wrapAngle(way - this.yaw)) < 0.8) dirYaw = way;
     }
@@ -1941,7 +2402,13 @@ export class Prologue extends Level {
    * put back on the nearest edge, so he slides along it instead of sticking.
    */
   _clampWalk() {
-    const shapes = this.phase === 'flee' ? this.fleeShapes : this.walkShapes;
+    // walking (and at the stone): anywhere in the valley
+    if (this.phase !== 'flee') {
+      this.px = THREE.MathUtils.clamp(this.px, VALLEY.x0, VALLEY.x1);
+      this.pz = THREE.MathUtils.clamp(this.pz, VALLEY.z0, VALLEY.z1);
+      return;
+    }
+    const shapes = this.fleeShapes;
     let best = Infinity, bx = 0, bz = 0, bd = 1, br = 0;
     for (const sh of shapes) {
       const n = nearSpine(sh, this.px, this.pz);
@@ -2066,11 +2533,52 @@ export class Prologue extends Level {
       toX: this._takeFromPos.x + (dx / d) * reach, toZ: this._takeFromPos.z + (dz / d) * reach,
       walk: Math.max(0.3, Math.max(0, d - reach) / WALK),
       gripped: false,
+      bendMore: 0, // extra bend if his arm can't reach it as he stands
     };
+    this._ik ??= BodyIK.for(this.kaiF);
+    this.horn.getWorldPosition(this._hornLay);
     this.root.attach(this.hornLight);          // it will follow the horn from here
     this.matHorn.emissive.setHex(HORN_CYAN);
     this.matHorn.emissiveIntensity = 0;
     this.hornLight.intensity = 0;
+  }
+
+  /**
+   * His arms, during the take (level3/BodyIK.js's two-bone reach, over the
+   * clip): `onHorn` of the way to where the horn lay (his right hand to it,
+   * the elbow out), `holdUp` of the way to holding it up in front of his
+   * chest to look at it (both hands, the elbows down, his head bowed), all
+   * blended in by `w`. Feeds the camera too: _holdLook, how far it has
+   * turned from the stone to the horn.
+   */
+  _armsTo(onHorn, holdUp, w) {
+    const ik = this._ik;
+    this._holdLook = holdUp * w;
+    if (!ik || w < 0.002) return;
+    this.kai.updateMatrixWorld(true);
+    const h = this.kai.getWorldPosition(this._ikRoot);
+    const fwd = this._ikF.set(this._hornLay.x - h.x, 0, this._hornLay.z - h.z).normalize();
+    const right = this._ikR.set(-fwd.z, 0, fwd.x);           // his right, facing the horn
+    const neck = ik.head.parent.getWorldPosition(this._ikN);
+    // up in front of him: a hand's width below his chin and forward of it
+    const held = this._ikHold.copy(neck).addScaledVector(fwd, 0.34).addScaledVector(this._ikUp, -0.3).addScaledVector(right, 0.04);
+    const T = this._ikT.copy(this._hornLay).lerp(held, holdUp);
+    T.y += 0.03 * (1 - holdUp);                               // over it, not in it
+    const elbow = this._ikP.copy(right).multiplyScalar(0.8).addScaledVector(fwd, -0.2 * (1 - holdUp)).addScaledVector(this._ikUp, 0.3 - 1.1 * holdUp);
+    const a = onHorn + holdUp > 0 ? Math.min(1, onHorn + holdUp) * w : 0;
+    // can his arm get there? if not (the stone is in the way of his feet), he bends further over it
+    if (this._take && !this._take.gripped && onHorn > 0.3) {
+      const S = ik.arms[1].up.getWorldPosition(this._ikS);
+      const reachable = S.distanceTo(T) < 0.6;
+      this._take.bendMore = THREE.MathUtils.clamp(this._take.bendMore + (reachable ? -0.6 : 1.4) * (1 / 60), 0, 1.4);
+    }
+    ik.reach(ik.arms[1], T, elbow, a);
+    if (holdUp > 0.01) {
+      // the left hand comes up under it, cradling it
+      const L = this._ikT.copy(held).addScaledVector(right, -0.13).addScaledVector(this._ikUp, -0.04);
+      ik.reach(ik.arms[0], L, this._ikP.copy(right).multiplyScalar(-0.8).addScaledVector(this._ikUp, -0.8), holdUp * w * 0.9);
+      ik.turn(ik.head, right, 0.32 * holdUp * w);            // looking down at it
+    }
   }
 
   /** The reach: bent at the waist (on top of the held punch, his arm at full stretch); k 0..1. */
@@ -2123,7 +2631,8 @@ export class Prologue extends Level {
     // pulled in toward him rather than pushed through the trunk.
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     let back = CHASE_BACK;
-    while (back > 1.5 && outside(this.clearShapes, this.px + s * back, this.pz + c * back) > CAM_CLEAR) {
+    while (back > 1.5 && (this._treeAt(this.px + s * back, this.pz + c * back, 0.45)
+      || (this.phase === 'flee' && outside(this.clearShapes, this.px + s * back, this.pz + c * back) > CAM_CLEAR))) {
       back -= 0.3;
     }
     // in fast (never sit inside a trunk), out slowly (no lurch past it)
@@ -2143,7 +2652,9 @@ export class Prologue extends Level {
         this.pz + c * SHOULDER.back - s * SHOULDER.side,
       );
       this._fp.lerp(this._dir, k);
-      this._look3.lerp(this._dir.set(STONE.x, 0.95, STONE.z), k);
+      this._dir.set(STONE.x, 0.95, STONE.z);
+      if (this._holdLook > 0) this._dir.lerp(this.horn.getWorldPosition(this._hornAt), this._holdLook * 0.7); // onto the horn in his hands
+      this._look3.lerp(this._dir, k);
     }
 
     // Kai is always on screen: at his log in the two-shot, and from the
@@ -2171,9 +2682,16 @@ export class Prologue extends Level {
         SHOT_POS.z,
       );
       this._look3.copy(SHOT_LOOK);
-      if (this.phase === 'leave' && this.t > 1.4) {
-        // let the camera follow Baba Zwane a little way into the trees
-        this._look3.lerp(this.zwane.position, 0.25);
+      const going = this._zwaneGoing;
+      if (going?.look > 0) {
+        // let the camera follow Baba Zwane a little way toward the trees, no
+        // further than the tree line (he walks on out of the frame), and ease
+        // back to the two of them as Kai gets up
+        const zp = this.zwane.position;
+        const d = Math.hypot(zp.x - ZWANE_AT.x, zp.z - ZWANE_AT.z);
+        const k = d > ZWANE_FOLLOW ? ZWANE_FOLLOW / d : 1;
+        _follow.set(ZWANE_AT.x + (zp.x - ZWANE_AT.x) * k, zp.y, ZWANE_AT.z + (zp.z - ZWANE_AT.z) * k);
+        this._look3.lerp(_follow, 0.25 * going.look);
       }
       cam.lookAt(this._look3);
       want = 46;
@@ -2203,26 +2721,37 @@ export class Prologue extends Level {
   update(dt, state) {
     this.t += dt;
     if (this._inFireShot()) this._shotT += dt;
+    if (this._skipBigFor > 0 && (this._skipBigFor -= dt) <= 0) this.hud.skip?.classList.remove('big');
 
-    if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving) { this._exit(state); return; }
+    if ((this.input.pressed('skipScene') || this._skipAsked) && !this.leaving && this.phase !== 'refused') { this._exit(state); return; } // (not past the other ending's card)
 
     if (!this._inFireShot() && this.cine <= 0 && this.phase !== 'take') this._look();
     this._mouseIdle += dt;
     this._tickSay(dt);
     this._tickTimers(dt);
+    const mx = this.px, mz = this.pz;
     if (this.standing && this.phase !== 'done') this._move(dt);
+    if (this.map) {
+      // the arrow points the way he is going (north, -z, is up the map)
+      if (Math.hypot(this.px - mx, this.pz - mz) > 1e-3) this._mapHeading = Math.atan2(this.px - mx, -(this.pz - mz));
+      this.map.show(this.phase === 'walk' || this.phase === 'choice');
+      this.map.update(this.px, this.pz, this._mapHeading, this.walkS || 0);
+    }
     // leave the mouse alone while walking and the camera swings back in
     // behind him, onto the way ahead
-    if (this.standing && this._moving && this._mouseIdle > 0.7) {
+    if (this.standing && this._moving && this._mouseIdle > 0.7 && this._nearPath()) {
       const way = this._wayYaw();
       if (way !== null) this.yaw += wrapAngle(way - this.yaw) * (1 - Math.exp(-2.4 * dt));
     }
     this._tickCreatures(dt);
     this._shake = Math.max(0, this._shake - dt * 0.6);
+    if (this._poolMat) this._poolMat.uniforms.uTime.value = this.t; // the forest pool's ripples
+    if (this._cards && this.standing) this._cards.update(dt, this._cardAt.set(this.px, 0.6, this.pz), 1.2);
 
     // the forest is alive until the horn comes off the stone
     this.sfx.tickForest(dt);
     this.sfx.tickFire(dt);
+    this.sfx.tickScore();
 
     // fireflies pulse along the route; mist crawls
     this.fireflyMat.opacity = (0.55 + Math.sin(this.t * 1.7) * 0.25) * (1 - this.dawnK);
@@ -2230,6 +2759,7 @@ export class Prologue extends Level {
 
     this.kaiF.update(dt);
     this.zwaneF.update(dt);
+    this._tickZwaneLeaving(dt);
 
     // heartbeat, from the first touch of the horn
     if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
@@ -2276,26 +2806,11 @@ export class Prologue extends Level {
       // He whistles two notes and walks off into the dark.
       case 'leave': {
         if (!this._whistled && this.t > 0.6) { this._whistled = true; this.sfx.whistle(); }
-        if (this.t > 1.4) {
-          // out along the west tree line, unhurried — a man with nowhere to be
-          const k = Math.min(1, (this.t - 1.4) / 4.6);
-          this.zwaneF.play(k < 1 ? 'walk' : 'idle', { fade: 0.4, speed: 1.3 });
-          const ease = k * k * (3 - 2 * k);
-          this.zwane.position.set(
-            THREE.MathUtils.lerp(ZWANE_AT.x, WALKOFF.x, ease),
-            0,
-            THREE.MathUtils.lerp(ZWANE_AT.z, WALKOFF.z, ease),
-          );
-          this.zwane.rotation.y = Math.atan2(
-            -(WALKOFF.x - ZWANE_AT.x), -(WALKOFF.z - ZWANE_AT.z),
-          );
-          // the lamp's glow goes with him and thins into the dark
-          this.zwaneLampLight.intensity = 2.2 * (1 - ease * 0.55);
-          if (k >= 1 && !this._leaveTold) {
-            this._leaveTold = true;
-            this.zwane.visible = false;
-            this.zwaneLampLight.intensity = 0;
-          }
+        // out past the west tree line, unhurried (_tickZwaneLeaving walks him)
+        if (this.t > 1.4 && !this._zwaneGoing) {
+          this._zwaneGoing = { ang: Math.atan2(WALKOFF.x - ZWANE_AT.x, WALKOFF.z - ZWANE_AT.z), v: 0 };
+          this._zwaneGoing.want = this._zwaneGoing.ang;
+          this.zwaneF.play('walk', { fade: 0.4, speed: 1.2 });
         }
         if (this.t > 7.4) {
           this.phase = 'rise';
@@ -2388,10 +2903,16 @@ export class Prologue extends Level {
           this._prompt(
             '<b style="color:' + HORN_HEX + '">E</b> — TAKE THE HORN' +
             '<span style="opacity:.45"> &nbsp;&nbsp;|&nbsp;&nbsp; </span>' +
-            '<b style="color:#8f9bb0">Q</b> — LEAVE IT',
+            '<b style="color:#8f9bb0">Q</b> — ' + (this._hadDoubt ? 'WALK AWAY FOR GOOD' : 'LEAVE IT'),
           );
           if (this.input.pressed('decline')) {
-            // a moment of doubt, in his own head
+            if (this._hadDoubt) {
+              // the second time he means it: the other ending
+              this._refuse();
+              break;
+            }
+            // a moment of doubt, in his own head (a second Q means it)
+            this._hadDoubt = true;
             this.doubted = true;
             this._prompt('');
             this._say('Walk away. Tell him it wouldn\u2019t come loose.', null, true);
@@ -2419,7 +2940,10 @@ export class Prologue extends Level {
           // the reach: arm out, bending to it; his feet shuffle the last inch so the hand arrives at the horn
           const k = THREE.MathUtils.smoothstep(this.t, reachAt, gripAt);
           this.kaiF.play('reach', { fade: 0.45 });
-          this._reachBend(k);
+          this._reachBend(k * (1 + (T.bendMore || 0)));
+          // his hand goes to the horn, not near it: the arm steered onto where it lies (and if
+          // even at full stretch it can't get there, he bends further over it)
+          this._armsTo(k, 0, k);
           if (palm) {
             this.kai.updateMatrixWorld(true);
             palm.getWorldPosition(this._palmAt);
@@ -2445,9 +2969,11 @@ export class Prologue extends Level {
             state.hasKey = true;                    // what he carries through the game
             this.kaiF.play('idle', { fade: 0.9 });
           }
-          // up straight again with it, the horn settling into his fist, the glow waking in it
+          // up straight again with it, lifting it up in front of him to look at it (his other hand
+          // coming up under it, his head bowed to it), the horn settling into his fist, the glow waking
           const k = THREE.MathUtils.smoothstep(this.t, gripAt, liftEnd);
-          this._reachBend(1 - k);
+          this._reachBend((1 - k) * (1 + (T.bendMore || 0)));
+          this._armsTo(1 - k, k, 1);
           if (palm) poseHorn(this.horn, palm, HORN_HAND, 1 - Math.exp(-5 * dt));
           this.matHorn.emissiveIntensity = 0.5 * k;
           this.hornLight.intensity = 4.5 * k;
@@ -2461,6 +2987,7 @@ export class Prologue extends Level {
 
       // It is in his hand. The valley holds its breath.
       case 'taken': {
+        this._armsTo(0, 1, 1); // held up in front of him while it sinks in
         this._holdHorn(dt);
         this.matHorn.emissiveIntensity = 0.5 + Math.sin(this.t * 7) * 0.2;
         this.hornLight.intensity = 4.5 + Math.sin(this.t * 7) * 1.1;
@@ -2484,6 +3011,8 @@ export class Prologue extends Level {
       // way out in the same frame, one held breath. Nobody is shown coming;
       // whatever the silence woke is level 01's opening image.
       case 'wide': {
+        if (this.t < 0.6) this._armsTo(0, 1, 1 - this.t / 0.6); // the arms come down as he slings it
+        else this._holdLook = 0;
         this._slingHorn(dt);
         if (this.t < 1.1) this.cine = this.t / 1.1;
         else if (this.t < 4.4) this.cine = 1;
@@ -2607,6 +3136,44 @@ export class Prologue extends Level {
     poseHorn(this.horn, hips, HORN_SLING, 1 - Math.exp(-5 * dt));
   }
 
+  /**
+   * THE OTHER ENDING (Kea's): Kai leaves the horn on its stone and walks
+   * away. The forest keeps its sound tonight, but the company only needed
+   * someone, and someone else will take it. The colour drains out of the
+   * world (PostFX's silence) and the card says what became of the valley.
+   * TRY AGAIN puts him back at the stone with the choice in front of him.
+   */
+  _refuse() {
+    this.phase = 'refused';
+    this.standing = false;
+    this._prompt('');
+    this._say('No. It stays where it is.', 3, true);
+    if (this.game?.postfx) { this.game.postfx.silenceRate = 0.18; this.game.postfx.silence = 0.85; }
+    clearTimeout(this._refuseTimer);
+    this._refuseTimer = setTimeout(() => {
+      if (!this.scene || this.phase !== 'refused') return;
+      this._refusedCard = showEndCard({
+        kind: 'lose',
+        title: 'THE HORN STAYS',
+        sub: say('{name} walked back down to the camp and left the horn on its stone. By morning the company had found someone else who would take it. By winter, the valley was cleared.'),
+        lines: [{ text: 'ANOTHER ENDING · TAKE THE HORN TO CHANGE IT' }],
+        action: { label: 'TRY AGAIN', key: 'ENTER', onClick: () => this._backToStone() },
+        extra: [{ label: 'MAIN MENU', onClick: () => this.game.setLevel('title') }],
+      });
+    }, 3600);
+  }
+
+  /** TRY AGAIN, from the other ending: back at the stone, in colour, the horn still there to take. */
+  _backToStone() {
+    this._refusedCard?.destroy();
+    this._refusedCard = null;
+    if (this.game?.postfx) { this.game.postfx.silenceRate = 1.2; this.game.postfx.silence = 0; }
+    this.phase = 'choice';
+    this.t = 0;
+    this._hadDoubt = false;
+    this.doubted = false;
+    this.standing = true;
+  }
 
   /**
    * The walk. Things in the trees go off where he is, talking or not: the
@@ -2617,7 +3184,7 @@ export class Prologue extends Level {
    * rather than said out of place.
    */
   _walkBeats() {
-    const s = this.walkS, b = this.beats;
+    const s = this.walkS, b = this.beats, L = this.walkLen;
     if (s > 12 && !b.birds) {
       b.birds = true;
       this._startFlock();
@@ -2625,20 +3192,20 @@ export class Prologue extends Level {
       this._shake = 0.25;
       this._later(0.7, () => this._walkSay('Just birds.', 2.2));
     }
-    if (s > 32 && !b.growl) {
+    if (s > L * 0.45 && !b.growl) {
       b.growl = true;
-      this._eyesAt(-3.6, this.pz - 13, 2.8, -2.2);
+      this._eyesAt(this._pathAtZ(this.pz - 13).x - 3.6, this.pz - 13, 2.8, -2.2);
       this.sfx.growl(-0.6);
       this.sfx.hush(6);
       this._shake = 0.35;
       this._walkSay('Something\u2019s out there.', 2.6);
     }
-    if (s > 40 && !b.stalk) {
+    if (s > L * 0.45 + 9 && !b.stalk) {
       b.stalk = true;
       this.sfx.snap(0.5);
       this._shake = 0.2;
       this._later(0.35, () => {
-        this._eyesAt(3.4, this.pz - 10, 2.4, 2.4);
+        this._eyesAt(this._pathAtZ(this.pz - 10).x + 3.4, this.pz - 10, 2.4, 2.4);
         this.sfx.growl(0.7);
         this._shake = 0.4;
       });
@@ -2648,7 +3215,7 @@ export class Prologue extends Level {
     if (this._talking()) return;
     const list = [
       ['markers', 2, 11, 'The old markers. Stay between them.', 3.0],
-      ['camp', 21, 31, 'The last crew\u2019s camp. They left everything.', 3.4],
+      ['camp', this._campS - 9, this._campS + 3, 'The last crew\u2019s camp. They left everything.', 3.4],
     ];
     for (const [key, from, until, line, secs] of list) {
       if (b[key]) continue;
@@ -2658,14 +3225,70 @@ export class Prologue extends Level {
     }
   }
 
+  /**
+   * Baba Zwane, gone from the fire: he keeps walking at an old man's steady
+   * pace, out past the west tree line and on into the forest, round any trunk
+   * in his way, his lamp thinning as he goes. Nothing stops him or snaps him
+   * out of the scene: he is only taken away once he is well off and out of
+   * the camera's view, or the moment a trunk passes between him and the
+   * camera (he walks behind a tree and doesn't come out), or at the valley's
+   * far edge, long lost in the dark.
+   */
+  _tickZwaneLeaving(dt) {
+    const g = this._zwaneGoing;
+    if (!g || g.gone || !this.zwane) return;
+    g.look = Math.min(1, Math.max(0, (g.look || 0) + (this.phase === 'leave' ? dt : -dt) * 0.8));
+    const z = this.zwane.position;
+    g.v = Math.min(ZWANE_WALK, g.v + ZWANE_WALK * 1.4 * dt); // into his stride over the first steps
+    // the way he means to go; a trunk just ahead turns him aside until he's past it
+    let want = g.want;
+    for (const turn of [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4]) {
+      const a = g.want + turn;
+      if (!this._treeAt(z.x + Math.sin(a) * 1.3, z.z + Math.cos(a) * 1.3, 0.35)) { want = a; break; }
+    }
+    g.ang += wrapAngle(want - g.ang) * (1 - Math.exp(-5 * dt));
+    z.x += Math.sin(g.ang) * g.v * dt;
+    z.z += Math.cos(g.ang) * g.v * dt;
+    this.zwane.rotation.y = Math.atan2(-Math.sin(g.ang), -Math.cos(g.ang));
+    const far = Math.hypot(z.x - ZWANE_AT.x, z.z - ZWANE_AT.z);
+    this.zwaneLampLight.intensity = 2.2 * Math.max(0.35, 1 - far / 28);
+    if (far < 12) return;
+    const cam = this.game.camera;
+    _frustum.setFromProjectionMatrix(_viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    _zSphere.center.set(z.x, 1, z.z);
+    if (!_frustum.intersectsSphere(_zSphere) || (far > 20 && this._trunkBetween(cam.position, z)) || z.x < VALLEY.x0 + 3) {
+      g.gone = true;
+      // his lamp's light stays in the scene, out: one light fewer would rebuild every shader in view (a freeze)
+      this.zwaneLampLight.intensity = 0;
+      this.root.attach(this.zwaneLampLight);
+      this.zwane.visible = false;
+    }
+  }
+
+  /** Does a tree trunk (or a landmark as big) stand between `from` and `to`, seen from above? */
+  _trunkBetween(from, to) {
+    const dx = to.x - from.x, dz = to.z - from.z;
+    const len2 = dx * dx + dz * dz || 1;
+    for (const t of this.trees) {
+      if (t.r < 0.45) continue; // stones and posts are too low to hide a man
+      const k = ((t.x - from.x) * dx + (t.z - from.z) * dz) / len2;
+      if (k < 0.05 || k > 0.85) continue; // nearer the camera than him, so it looks wider than he is
+      if (Math.hypot(from.x + dx * k - t.x, from.z + dz * k - t.z) < t.r * 0.7) return true;
+    }
+    return false;
+  }
+
   /** A line on the walk — dropped if he has already reached the stone. */
   _walkSay(text, secs) {
-    if (this.phase === 'walk') this._say(text, secs);
+    if (this.phase === 'walk') this._say(text, secs, true); // a reaction: said now, ahead of anything waiting
   }
 
   /* ==================================================== teardown */
   teardown() {
+    clearTimeout(this._refuseTimer);
+    this._refusedCard?.destroy();
     this.sfx.stop();
+    this.map?.dispose();
     this.game.renderer.domElement.removeEventListener('click', this._onClick);
     document.removeEventListener('pointerlockchange', this._onLockChange);
     document.removeEventListener('pointerlockerror', this._onLockError);

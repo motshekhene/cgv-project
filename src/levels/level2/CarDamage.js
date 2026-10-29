@@ -162,8 +162,11 @@ export class CarDamage {
     ];
     this._kindTotal = this.kinds.reduce((a, k) => a + k[2], 0);
     this.bits = [];
+    // dealt round every material to begin with (each is given its own when it's thrown): with
+    // all of them on paint, the others' shaders were built the first time one flew off (a hitch)
+    const mats = Object.values(this.mats);
     for (let i = 0; i < 44; i++) {
-      const m = new THREE.Mesh(this.geos.panel, this.mats.paint);
+      const m = new THREE.Mesh(this.geos.panel, mats[i % mats.length]);
       m.castShadow = true;
       m.visible = false;
       parent.add(m);

@@ -12,9 +12,29 @@
  * do not accept alternatives: if a level tracks the player's condition in
  * its own `hp`, the shared bar stays at 100 while the player dies.
  */
+// the torn pages found in this story, kept in this browser so a reload or CONTINUE doesn't lose them
+const PAGES_KEY = 'silent-horn.pages';
+function loadPages() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PAGES_KEY) || '[]');
+    return Array.isArray(p) ? p.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export class GameState {
   constructor() {
     this.reset();
+    this.letters = loadPages();
+  }
+
+  _savePages() {
+    try {
+      localStorage.setItem(PAGES_KEY, JSON.stringify(this.letters));
+    } catch {
+      // storage blocked: they count for this session
+    }
   }
 
   reset() {
@@ -73,8 +93,16 @@ export class GameState {
     this.bossMaxHealth = 300;
   }
 
-  /** Called by Game when a new level starts. Keeps letters and awards, resets the rest. */
+  /**
+   * Called by Game when a new level starts. Keeps letters and awards, resets
+   * the rest. The prologue is a story starting over (NEW GAME, PLAY AGAIN):
+   * its pages are found all over again.
+   */
   resetForLevel(levelName) {
+    if (levelName === 'prologue' && this.letters.length) {
+      this.letters = [];
+      this._savePages();
+    }
     this.level = levelName;
     this.phase = 1;
     this.timeScale = 1;
@@ -117,6 +145,7 @@ export class GameState {
   collectLetter(id) {
     if (this.letters.includes(id)) return false;
     this.letters.push(id);
+    this._savePages();
     return true;
   }
 

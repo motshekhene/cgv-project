@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { createTornPage } from '../../fx/tornPage.js';
 
 /**
  * Level 3's three torn pages (ids l3-1..l3-3): the company's own papers,
  * the last of the six (Level 1's trail has the first three).
- * Each one is a floating envelope in a soft beam of light; Kai picks it up by
+ * Each one is a torn page of the company's papers (fx/tornPage.js, the same
+ * as the trail's), fluttering in a soft beam of light; Kai picks it up by
  * walking through it. Letters live in state.letters, which survives restarts,
  * so a letter that's already been read never spawns again.
  *
@@ -40,12 +42,8 @@ export class LetterDrops {
     this.onCollect = onCollect;
     this.active = [];
 
-    this.envGeo = new THREE.BoxGeometry(0.42, 0.28, 0.025);
-    this.sealGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.03, 12);
     this.beamGeo = new THREE.CylinderGeometry(0.2, 0.26, 2.6, 16, 1, true);
     this.beamGeo.translate(0, 1.3, 0);
-    this.paperMat = new THREE.MeshStandardMaterial({ color: 0xf1e7d0, emissive: 0x8a7650, emissiveIntensity: 0.6, roughness: 0.9 });
-    this.sealMat = new THREE.MeshStandardMaterial({ color: 0x9a1d16, roughness: 0.5 });
     this.beamMat = new THREE.MeshBasicMaterial({
       map: beamTexture(), color: 0xffc46a, transparent: true, opacity: 0.3,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
@@ -59,12 +57,7 @@ export class LetterDrops {
   spawn(id, at, { from = null } = {}) {
     if (this.has(id) || this.active.some((l) => l.id === id)) return;
     const group = new THREE.Group();
-    const env = new THREE.Mesh(this.envGeo, this.paperMat);
-    const seal = new THREE.Mesh(this.sealGeo, this.sealMat);
-    seal.rotation.x = Math.PI / 2;
-    seal.position.z = 0.016;
-    env.add(seal);
-    env.castShadow = true;
+    const env = createTornPage(['l3-1', 'l3-2', 'l3-3'].indexOf(id) + 3);
     const beam = new THREE.Mesh(this.beamGeo, this.beamMat);
     group.add(env, beam);
     group.position.set(at.x, 0, at.z);
@@ -95,8 +88,8 @@ export class LetterDrops {
         }
       }
       l.env.position.y = y;
-      l.env.rotation.y = time * 1.6 + l.phase;
-      l.env.rotation.z = Math.sin(time * 1.3 + l.phase) * 0.15;
+      l.env.rotation.y = time * 1.1 + l.phase; // turning slowly in the beam, both sides in turn
+      l.env.userData.flutter(time * 2.2 + l.phase);
       l.beam.material.opacity = 0.26 + Math.sin(time * 3 + l.phase) * 0.06;
 
       if (!l.fall && kaiPos) {
@@ -110,15 +103,11 @@ export class LetterDrops {
     }
   }
 
-  /** Shared geometry/materials outlive any one envelope, so they're freed here. */
+  /** The shared beam outlives any one page, so it is freed here (the pages go with the level). */
   dispose() {
     for (const l of this.active) this.parent.remove(l.group);
     this.active.length = 0;
-    this.envGeo.dispose();
-    this.sealGeo.dispose();
     this.beamGeo.dispose();
-    this.paperMat.dispose();
-    this.sealMat.dispose();
     this.beamMat.map.dispose();
     this.beamMat.dispose();
   }

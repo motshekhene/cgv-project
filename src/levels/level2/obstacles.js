@@ -571,6 +571,31 @@ export class Obstacles {
     return this._animal(real || makeKudu(), slot, { speed: 9, damage: 12, slow: 0.55, halfW: 1.05, halfL: 0.45, trigger: 85, scale: real ? 1 : 1.15 });
   }
 
+  /**
+   * The horn's answer in Level 2: a herd of kudu and warthog bursts out of
+   * the trees across the road at `z`, from both sides at once. They're already
+   * out on the road when they're seen, spread across it round `aroundX` (the
+   * Marshal's line), each running on across: solid like any animal on the
+   * road, so whoever is behind them has to stop. `friendly`: the horn's own,
+   * they never hurt Kai's car (_collide).
+   */
+  herd(z, aroundX = 0, count = 5) {
+    for (let i = 0; i < count; i++) {
+      const slot = { z: z + (i - (count - 1) / 2) * 1.6, side: i % 2 ? 1 : -1 };
+      const it = i % 2 ? this._makeBoar(slot) : this._makeKudu(slot);
+      it.kind = i % 2 ? 'BOAR' : 'KUDU';
+      it.label = OBSTACLE_LABELS[it.kind];
+      it.trigger = Infinity; // already running
+      it.state = 'cross';
+      it.friendly = true;
+      it.x = it.holder.position.x = THREE.MathUtils.clamp(aroundX + (i - (count - 1) / 2) * 2.6, -RAIL + 1, RAIL - 1);
+      it.walk *= 1.25;
+      this.group.add(it.holder);
+      this.items.push(it);
+      this.pool.push(it);
+    }
+  }
+
   /* ---------------- debris ---------------- */
 
   _makeDebris(n) {
@@ -729,12 +754,14 @@ export class Obstacles {
 
     if (it.walk) {
       // an animal: it's bowled out of the way, the car loses a lot of speed
+      // (the horn's herd only scatters: it's on Kai's side)
       const side = Math.sign(dx) || (Math.random() < 0.5 ? -1 : 1);
       it.state = 'knocked'; it.t = 0;
       it.vx = side * (5 + speed * 0.15);
       it.vy = 3 + speed * 0.05;
       it.spin = side * 6;
       this._burst(at, 10, car.speed);
+      if (it.friendly) return null;
       car.speed *= it.slow;
       return { kind: it.kind, label: it.label, damage: Math.round(it.damage + speed * 0.1), impact: Math.min(1, 0.35 + speed / 60), at };
     }

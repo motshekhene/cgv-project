@@ -3,7 +3,12 @@ import { Input } from "./Input.js";
 import { GameState } from "./GameState.js";
 import { AssetRegistry } from "./AssetRegistry.js";
 import { toggleMuted } from "../audio/masterMute.js";
-import { settings, onSettings } from "./settings.js";
+import { settings, onSettings, qualityChosen } from "./settings.js";
+import { PostFX } from "./PostFX.js";
+import { windTime } from "../shaders/wind.js";
+import { displayUniforms, isDisplayReferred, patchDisplayReferred } from "../shaders/display.js";
+
+const NO_CUT = []; // no clipping planes: precompile's state for everything not cut
 
 /**
  * Owns the renderer, the camera, the frame timing and the current level.
@@ -52,6 +57,19 @@ export class Game {
     this.renderer.toneMappingExposure = 1.25; // overall brightness
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; // lighting is computed in linear space, shown in sRGB
     this.parent.appendChild(this.renderer.domElement);
+    // until the player picks a GRAPHICS level, start from one that suits the GPU:
+    // integrated and software graphics (lab machines) start on MEDIUM
+    if (!qualityChosen) {
+      const gl = this.renderer.getContext();
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "";
+      if (/intel|uhd|iris|radeon\(tm\) graphics|vega|llvmpipe|swiftshader|mali|adreno|powervr/i.test(gpu)) settings.quality = "medium";
+    }
+    this._fpsWatch = { t: 0, frames: 0, slow: 0 };
+
+    // HDR bloom, colour grade, vignette, grain, the damage pulse (core/PostFX.js)
+    this.postfx = new PostFX(this.renderer);
+    this._lastHealth = null; // to see Kai get hurt, whichever level hurt him
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
@@ -71,7 +89,6 @@ export class Game {
     this.onLevelLoading = null; // (name) — a level has started building       
     this.onLoadProgress = null;
     this.onPaused = null;
-    this.onControlsToggle = null; // () — the player asked for the controls panel
 
     // secondary cameras rendered as picture-in-picture overlays each frame.
     // key: name string, value: { camera, viewport: { x, y, w, h } }
@@ -85,7 +102,7 @@ export class Game {
 
     // OPTIONS > GRAPHICS: applied now, on every level load, and once a second (lights a level adds later)
     this._qualityT = 0;
-    onSettings((s, key) => key === "quality" && this.applyQuality());
+    onSettings((s, key) => key === "quality" && this.applyQuality(true));
   }
 
   /** Render resolution for the GRAPHICS setting: full (up to 2x on sharp screens), 1x, or 70%. */
@@ -101,9 +118,18 @@ export class Game {
    * casting, so no shadow pass is drawn) and 70% resolution. MEDIUM: shadow
    * maps capped at 1024 and 1x resolution. HIGH: as each level made them.
    * Lights are put back exactly as they were when the setting goes up again.
+   *
+   * Shadows going on or off, or PostFX (off on LOW), rebuilds every shader in
+   * the scene (seconds on a laptop: the game freezes), so those only follow
+   * the setting when `settle` is set: as a level loads, when its shaders are
+   * built anyway, or from OPTIONS. The slow-frame step-down mid-level
+   * (_watchFrameRate) changes the rest at once, and those from the next level.
    */
-  applyQuality() {
+  applyQuality(settle = false) {
     const q = settings.quality;
+    if (settle || this._shadowQ === undefined) this._shadowQ = q;
+    const sq = this._shadowQ; // the quality the shaders are built for
+    this.postfx.shaderQuality = sq;
     const pr = this._pixelRatio();
     if (Math.abs(this.renderer.getPixelRatio() - pr) > 1e-3) {
       this.renderer.setPixelRatio(pr);
@@ -113,10 +139,10 @@ export class Game {
       if (!o.isLight || !o.shadow) return;
       const u = o.userData;
       // shadows off for LOW, back on above it (only the ones this switched off)
-      if (q === "low" && o.castShadow) {
+      if (sq === "low" && o.castShadow) {
         o.castShadow = false;
         u.qShadowOff = true;
-      } else if (q !== "low" && u.qShadowOff) {
+      } else if (sq !== "low" && u.qShadowOff) {
         o.castShadow = true;
         delete u.qShadowOff;
       }
@@ -152,6 +178,11 @@ export class Game {
     this.secondaryCameras.clear();
     this.overlays.clear();
     this.state.resetForLevel(name);
+    this.postfx.setProfile({}, name); // the level's look; init() can change it
+    this.postfx.danger = 0;
+    this._lastHealth = null;
+    this._lastShake = null;
+    this._pfxScan = 0; // look for display-colour shaders on the first frame
 
     const level = factory();
     level.game = this;
@@ -159,10 +190,12 @@ export class Game {
     this.levelName = name;
     try {
       await level.init(this.scene, this.assets, this.input, this.state);
+      // still behind the loading screen: the GRAPHICS level settled, then every shader the level draws built
+      this.applyQuality(true);
+      await this.precompile();
     } finally {
       this.loading = false;
     }
-    this.applyQuality();
     if (this.onLevelChanged) this.onLevelChanged(name);
     return level;
   }
@@ -213,23 +246,47 @@ export class Game {
 
     if (this.input.pressed("pause")) this.setPaused(!this.paused);
     if (this.input.pressed("mute")) toggleMuted(); // one mute for every level (audio/masterMute.js)
-    if (this.input.pressed("controls") && this.onControlsToggle) this.onControlsToggle();
     if (this.input.pressed("restart")) {
       this.restart();
       this.input.endFrame();
       return;
     }
 
-    if (!this.paused && this.level) this.level.update(dt, this.state);
+    if (!this.paused && this.level) {
+      this.level.update(dt, this.state);
+      windTime.value += dt; // every swaying plant's clock (shaders/wind.js)
+    }
     this.input.endFrame();
+    this._watchFrameRate(now);
     if ((this._qualityT += raw) > 1) {
       this._qualityT = 0;
       this.applyQuality();
     }
 
-    // a level can take over drawing (e.g. a post-processing pass); most just let Game render
+    // any drop in health, from any level, pulses the screen red
+    const hp = this.state.health;
+    if (this._lastHealth !== null && hp < this._lastHealth - 0.25 && !this.paused) {
+      this.postfx.hit(Math.min(1, 0.35 + (this._lastHealth - hp) / 30));
+    }
+    this._lastHealth = hp;
+    // every level keeps a camera-shake amount (shake or _shake); a jump in it
+    // is an impact, so the lens kicks too: colour fringes, and a flash on the big ones
+    const shake = this.level ? (this.level.shake ?? this.level._shake ?? 0) : 0;
+    const jump = shake - (this._lastShake ?? shake);
+    if (jump > 0.12 && !this.paused) {
+      this.postfx.kick(Math.min(1, jump * 1.2));
+      if (jump > 0.6) this.postfx.flash(Math.min(0.35, (jump - 0.5) * 0.4), 0xfff1dc);
+    }
+    this._lastShake = shake;
+    // a pursuer within ~14 m makes the screen's edges burn (PostFX uDanger)
+    const st = this.state;
+    const chasing = st.handlerState === "CLOSING" || st.handlerState === "LOSING_GROUND";
+    this.postfx.danger = chasing && st.handlerGap > 0 && !this.paused ? Math.min(1, Math.max(0, (14 - st.handlerGap) / 11)) : 0;
+    this.postfx.update(raw);
+
+    // a level can take over drawing (e.g. its own post-processing pass); most just let Game render
     if (this.level && this.level.render) this.level.render(this.renderer, this.scene, this.camera);
-    else this.renderer.render(this.scene, this.camera);
+    else this.renderScene(this.scene, this.camera);
 
     // secondary cameras — rendered as small overlays on top of the main view
     if (this.secondaryCameras.size > 0) {
@@ -260,6 +317,219 @@ export class Game {
       }
       this.renderer.autoClear = true;
     }
+  }
+
+  /**
+   * Optimisation: if the player hasn't chosen a GRAPHICS level and the game
+   * runs under ~35 fps for four seconds in a row, step down one level (HIGH to
+   * MEDIUM to LOW) for this session. A choice in OPTIONS always wins.
+   */
+  _watchFrameRate(now) {
+    const w = this._fpsWatch;
+    if (qualityChosen || this.paused || document.hidden) {
+      w.t = 0;
+      return;
+    }
+    if (!w.t) {
+      w.t = now;
+      w.frames = 0;
+      return;
+    }
+    w.frames++;
+    if (now - w.t < 1000) return;
+    const fps = (w.frames * 1000) / (now - w.t);
+    w.t = now;
+    w.frames = 0;
+    w.slow = fps < 35 ? w.slow + 1 : 0;
+    if (w.slow >= 4 && settings.quality !== "low") {
+      settings.quality = settings.quality === "high" ? "medium" : "low"; // not saved: the next visit measures again
+      w.slow = 0;
+      this.applyQuality();
+      console.log("[game] running slowly, graphics stepped down to", settings.quality);
+    }
+  }
+
+  /**
+   * Builds every shader `object` (the whole level, by default) is drawn with,
+   * now, behind the loading screen, instead of each the first time it comes
+   * into view: that is the game freezing mid-level, up to seconds at a time on
+   * a laptop. three's compile() needs help with three things. A shader is built
+   * for where it's drawn to, so it's compiled for PostFX's target, as every
+   * frame is drawn. It skips hidden things (Kai before he stands up, the
+   * pickups not out yet), so those are shown for it; hidden lights stay hidden,
+   * since every shader is built for the number of lights. And the shaders
+   * patched for screen colours are patched first, as the first frame would.
+   * Then one frame is drawn (the shadows' shaders) and the textures go up.
+   */
+  async precompile(object = this.scene) {
+    const r = this.renderer;
+    if (!r.compileAsync || !this.camera) return;
+    this._scanDisplayShaders(this.scene);
+    if (object !== this.scene) this._scanDisplayShaders(object, false);
+    const roots = object === this.scene ? [this.scene] : [this.scene, object];
+    const lit = new Set();
+    for (const root of roots) root.traverseVisible((o) => o.isLight && lit.add(o));
+    const shown = [];
+    object.traverse((o) => {
+      if (!o.visible && !o.isLight) {
+        o.visible = true;
+        shown.push(o);
+      }
+    });
+    const keptDark = [];
+    for (const root of roots) {
+      root.traverseVisible((o) => {
+        if (o.isLight && !lit.has(o)) {
+          o.visible = false;
+          keptDark.push(o);
+        }
+      });
+    }
+    // three's compile() builds every shader for whatever clipping planes were drawn last, not
+    // the material's own (the bay car's cut-out door has five), so the first real draw of one
+    // rebuilt it on the spot: Level 1 froze for seconds as the car came into view. The clipped
+    // ones are taken out of the main pass and done in groups of a kind, each after a tiny draw
+    // that leaves the renderer set for that kind of cut
+    const clipped = new Map();
+    object.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = [].concat(o.material).find((x) => x?.clippingPlanes?.length);
+      if (!m) return;
+      const kind = `${m.clippingPlanes.length}|${!!m.clipIntersection}`;
+      if (!clipped.has(kind)) clipped.set(kind, { planes: m.clippingPlanes, intersect: !!m.clipIntersection, meshes: [] });
+      clipped.get(kind).meshes.push(o);
+    });
+    const lifted = [];
+    for (const { meshes } of clipped.values()) {
+      for (const o of meshes) {
+        const at = o.parent?.children.indexOf(o) ?? -1;
+        if (at >= 0) { o.parent.children.splice(at, 1); lifted.push([o, at]); }
+      }
+    }
+    let ready = Promise.resolve();
+    const target = r.getRenderTarget();
+    try {
+      // and the renderer keeps the cut of whatever it drew last, Level 1's bay car's door
+      // included, across levels too: so first, no cut, for everything that has none
+      this._setClipState(NO_CUT, false);
+      r.setRenderTarget(this.postfx.enabled ? this.postfx.sceneRT : null);
+      const waits = [r.compileAsync(object, this.camera, this.scene)];
+      // a level's mirror and map (secondary cameras) and its overlays (the rain) draw straight to
+      // the screen, not through PostFX: those are shaders of their own (tone-mapped, sRGB), built
+      // the first time each thing turned up in the mirror or on the map
+      if (object === this.scene && (this.secondaryCameras.size || this.overlays.size)) {
+        r.setRenderTarget(null);
+        if (this.postfx.enabled && this.secondaryCameras.size) waits.push(r.compileAsync(object, this.camera, this.scene));
+        for (const { scene: s, camera: cam } of this.overlays.values()) waits.push(r.compileAsync(s, cam)); // always straight to the screen
+      }
+      // ...and on LOW (no PostFX, the frame straight to the screen) the other way round: a level's
+      // own render targets (Level 3's pool reflection, its slow-motion pass) still draw off-screen
+      if (!this.postfx.enabled && object === this.scene) {
+        r.setRenderTarget(this.postfx.sceneRT);
+        waits.push(r.compileAsync(object, this.camera, this.scene));
+      }
+      // scenes a level draws of its own (Level 3's slow-motion pass), where they draw to
+      if (object === this.scene) {
+        for (const x of this.level?.extraScenes?.() || []) {
+          r.setRenderTarget(x.target ?? null);
+          waits.push(r.compileAsync(x.scene, x.camera));
+        }
+      }
+      for (let i = lifted.length - 1; i >= 0; i--) lifted[i][0].parent.children.splice(lifted[i][1], 0, lifted[i][0]);
+      lifted.length = 0;
+      for (const kind of clipped.values()) {
+        this._setClipState(kind.planes, kind.intersect);
+        r.setRenderTarget(this.postfx.enabled ? this.postfx.sceneRT : null);
+        const group = new THREE.Group();
+        group.children = kind.meshes; // not their parent: just what compile() walks
+        waits.push(r.compileAsync(group, this.camera, this.scene));
+      }
+      ready = Promise.all(waits);
+      if (clipped.size) this._setClipState(NO_CUT, false); // left as it was found: no cut
+      r.setRenderTarget(target);
+      if (object === this.scene) {
+        this.postfx.warm();
+        this.renderScene(this.scene, this.camera);
+      }
+    } catch (err) {
+      console.warn("[game] shader precompile failed", err);
+    } finally {
+      for (let i = lifted.length - 1; i >= 0; i--) lifted[i][0].parent.children.splice(lifted[i][1], 0, lifted[i][0]);
+      r.setRenderTarget(target);
+      for (const o of shown) o.visible = false;
+      for (const o of keptDark) o.visible = true;
+    }
+    // the textures, each of which otherwise goes up to the GPU the first time it's drawn
+    const textures = new Set();
+    const take = (v) => v?.isTexture && !v.isRenderTargetTexture && v.image && textures.add(v);
+    object.traverse((o) => {
+      for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+        for (const k in m) take(m[k]);
+        if (m.uniforms) for (const k in m.uniforms) take(m.uniforms[k]?.value);
+      }
+    });
+    for (const t of textures) r.initTexture(t);
+    await Promise.race([ready.catch(() => {}), new Promise((done) => setTimeout(done, 10000))]);
+    // each shader's first use (the driver's link checked, its uniforms looked up) done now too,
+    // not the first time each thing is drawn: up to a fifth of a second apiece, mid-level
+    for (const p of r.info.programs || []) p.getUniforms?.();
+  }
+
+  /**
+   * Leaves the renderer's clipping state as drawing a material with `planes`
+   * (and `intersect`) does, for precompile: one tiny draw, of a single plane
+   * cut that way, into a 1x1 target nobody sees.
+   */
+  _setClipState(planes, intersect) {
+    const d = this._clipProbe || (this._clipProbe = (() => {
+      const scene = new THREE.Scene();
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.01, 0.01), new THREE.MeshBasicMaterial());
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      return { scene, mesh, rt: new THREE.WebGLRenderTarget(1, 1) };
+    })());
+    const m = d.mesh.material;
+    if (m.clippingPlanes !== planes || m.clipIntersection !== intersect) {
+      m.clippingPlanes = planes;
+      m.clipIntersection = intersect;
+      m.needsUpdate = true;
+    }
+    const r = this.renderer;
+    const was = r.localClippingEnabled;
+    r.localClippingEnabled = true;
+    r.setRenderTarget(d.rt);
+    r.render(d.scene, this.camera);
+    r.localClippingEnabled = was; // the state the draw left behind stays, for compile()
+  }
+
+  /**
+   * Shaders that write screen colours directly get the inverse of PostFX's
+   * tone curve (shaders/display.js), and (`aimRays`) the scene's sky says
+   * where the sun is, for PostFX's god rays.
+   */
+  _scanDisplayShaders(scene, aimRays = true) {
+    let sun = null;
+    scene.traverse((o) => {
+      const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of ms) {
+        if (isDisplayReferred(m)) patchDisplayReferred(m);
+        if (o.isMesh && m.side === THREE.BackSide && m.uniforms?.uSunDir) sun = m.uniforms.uSunDir.value;
+      }
+    });
+    if (aimRays) this.postfx.sunDir = sun ? (this._sunDir || (this._sunDir = new THREE.Vector3())).copy(sun).normalize() : null;
+  }
+
+  /** Draw a scene to the screen: through PostFX, or straight there on LOW graphics. */
+  renderScene(scene, camera) {
+    // checked every so often for new display-colour shaders (precompile did the level's own)
+    if ((this._pfxScan = (this._pfxScan ?? 0) - 1) <= 0) {
+      this._pfxScan = 30;
+      this._scanDisplayShaders(scene);
+    }
+    displayUniforms.uDisplayExposure.value = this.renderer.toneMappingExposure;
+    displayUniforms.uViaPostFX.value = this.postfx.enabled ? 1 : 0;
+    if (this.postfx.enabled) this.postfx.render(scene, camera);
+    else this.renderer.render(scene, camera);
   }
 
   /**
@@ -307,6 +577,7 @@ export class Game {
     }
     window.removeEventListener("resize", this._onResize);
     this.input.detach();
+    this.postfx.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode) {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);

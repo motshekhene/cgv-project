@@ -8,7 +8,8 @@ import { Level03 } from "./levels/Level03.js";
 import { Epilogue } from "./levels/Epilogue.js";
 import { DriveOutIntro } from "./intros/level2/DriveOutIntro.js";
 import { loadJungleKit, createJungleMaterials } from "./levels/level1/jungleWorld.js";
-import { mountControlsOverlay, controlRows } from "./ui/ControlsOverlay.js";
+import { mountPauseHint, controlRows } from "./ui/ControlsOverlay.js";
+import { ControlsMenu } from "./ui/ControlsMenu.js";
 import { PauseMenu } from "./ui/PauseMenu.js";
 import { CHAPTERS } from "./ui/LoadingScreen.js";
 import { ensureDialogueFont } from "./ui/dialogue.js";
@@ -17,6 +18,11 @@ import { TitleScreen } from "./ui/TitleScreen.js";
 import { TitleScene } from "./levels/TitleScene.js";
 import { OptionsMenu } from "./ui/OptionsMenu.js";
 import { CreditsMenu } from "./ui/CreditsMenu.js";
+import { CardAlbum } from "./ui/CardAlbum.js";
+import { GameMap } from "./ui/GameMap.js";
+import { Playbook } from "./ui/Playbook.js";
+import { RecordsMenu } from "./ui/RecordsMenu.js";
+import { reached } from "./core/progress.js";
 import { mountFpsCounter } from "./ui/FpsCounter.js";
 
 /**
@@ -80,53 +86,89 @@ game.registerLevel("epilogue", () => new Epilogue());
  */
 const loading = new LoadingScreen();
 
-// the "H · CONTROLS" pill — what every input does, per level, one press away
-const controlsOverlay = mountControlsOverlay(game);
+// ESC · PAUSE in the corner of every level (the pause menu lists the level's keys)
+const pauseHint = mountPauseHint(game);
+// CONTROLS, from the title menu (and H there): every chapter's controls, in a panel like CREDITS
+const controlsMenu = new ControlsMenu(game);
 // OPTIONS (volume, mouse, graphics, FPS), from the title menu and the pause menu
 const options = new OptionsMenu();
 // CREDITS, from the title menu: every asset the team didn't make, with links
 const credits = new CreditsMenu();
+// SPIRIT CARDS and MAP, from the title menu: the collection and where to look for today's spirit
+const gameMap = new GameMap();
+const cardAlbum = new CardAlbum({ onMap: () => gameMap.open() });
+// PLAYBOOK, from the title and pause menus: the rules, what everything does, and the places, with pictures
+const playbook = new Playbook({ onMap: () => gameMap.open() });
+// RECORDS, from the title menu: each level's bests (core/records.js)
+const recordsMenu = new RecordsMenu();
 mountFpsCounter();
 
-game.onLevelLoading = (name) => loading.show(name);
-game.onLoadProgress = (p) => {
-  if (game.loading) loading.progress(p);
-};
 // the title's words and menu, over the title level while it is up
 let titleScreen = null;
 let titleVisits = 0;
+// Opening the game there is no loading screen: the landing itself comes up at
+// once (the horn in the dark, the title), its gold line filling as the title
+// level loads behind it, and PRESS ANY KEY once it's ready. Every other load
+// (each chapter, and back to the menu) has the loading screen.
+game.onLevelLoading = (name) => {
+  if (name === "title" && titleVisits === 0) {
+    titleVisits++;
+    titleScreen = makeTitleScreen({ skipPress: false, loading: true });
+    return;
+  }
+  loading.show(name);
+};
+game.onLoadProgress = (p) => {
+  if (!game.loading) return;
+  if (titleScreen?.loading) titleScreen.progress(p);
+  else loading.progress(p);
+};
 game.onLevelChanged = (name) => {
   console.log("[game] level:", name);
-  controlsOverlay.setLevel(name);
+  reached(name); // where the story is up to, for CONTINUE (core/progress.js)
+  pauseHint.setLevel(name);
   loading.hide();
   if (titleScreen && name !== "title") {
     titleScreen.dispose();
     titleScreen = null;
   }
-  if (name === "title" && !titleScreen) {
-    titleScreen = new TitleScreen({
-      onStart: (next) => {
-        titleScreen = null;
-        begin(next);
-      },
-      onOptions: () => options.open(),
-      onControls: () => controlsOverlay.show(),
-      onCredits: () => credits.open(),
-      onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
-      skipPress: titleVisits++ > 0, // back from a level: straight to the menu
-    });
+  if (name === "title") {
+    if (titleScreen?.loading) titleScreen.ready(); // the opening: now PRESS ANY KEY
+    else if (!titleScreen) titleScreen = makeTitleScreen({ skipPress: titleVisits++ > 0 }); // back from a level: straight to the menu
   }
 };
+
+function makeTitleScreen({ skipPress, loading: waiting = false }) {
+  return new TitleScreen({
+    onStart: (next) => {
+      titleScreen = null;
+      begin(next);
+    },
+    onOptions: () => options.open(),
+    onControls: () => controlsMenu.open(),
+    onCredits: () => credits.open(),
+    onCards: () => cardAlbum.open(),
+    onMap: () => gameMap.open(),
+    onPlaybook: () => playbook.open(),
+    onRecords: () => recordsMenu.open(),
+    onPlayer: (id) => game.level?.showPlayer?.(id), // the PLAYER page: who you're choosing, at the stone
+    onEnter: (instant) => game.level?.wake?.(instant), // the landing's key: the horn wakes, the camera pulls back to the menu
+    skipPress,
+    loading: waiting,
+  });
+}
 // One pause menu for every level (Esc, or a level's own pause button): the
 // chapter, that level's controls, RESUME / RESTART / MAIN MENU
 const pauseMenu = new PauseMenu({
   onResume: () => game.setPaused(false),
   onRestart: () => game.restart(),
   onOptions: () => options.open(),
+  onPlaybook: () => playbook.open("how", game.levelName), // on the chapter being played
   onMenu: () => goTo("title"),
 });
 game.onPaused = (v, reason) => {
   console.log("[game]", v ? "paused" : "resumed", reason === "switch" ? "(level switch)" : "");
+  pauseHint.setPaused(v);
   const name = game.levelName;
   if (v && reason === "user" && name === "title") {
     game.setPaused(false, "switch"); // nothing to pause on the title screen: Esc is its "back"
@@ -141,9 +183,9 @@ game.onPaused = (v, reason) => {
 };
 game.onLevelLoading = ((show) => (name) => {
   pauseMenu.show(false);
+  pauseHint.loading();
   show(name);
 })(game.onLevelLoading);
-game.onControlsToggle = () => controlsOverlay.toggle();
 
 /** Start the story at `name`, preloading Level 1 behind the prologue. */
 async function begin(name) {

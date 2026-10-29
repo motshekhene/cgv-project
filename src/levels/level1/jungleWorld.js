@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { applyWind } from "../../shaders/wind.js";
 
 const MOSS_TINT = {
   Main: 0x7a7c66,
@@ -27,6 +28,7 @@ function standardisePrototype(source, {
   barkTexture = null,
   castShadow = true,
   receiveShadow = true,
+  wind = 0, // how far it sways (shaders/wind.js); 0 for stone and props
 } = {}) {
   const root = source.clone(true);
   root.traverse((o) => {
@@ -62,6 +64,8 @@ function standardisePrototype(source, {
         side: THREE.DoubleSide,
         alphaTest: map && /leaf|grass|bush/i.test(name) ? 0.42 : 0,
       });
+      // plants sway; their bark less than their leaves
+      if (wind > 0) applyWind(mat, { amp: /bark|trunk|wood/i.test(name) ? wind * 0.5 : wind });
 
       return mat;
     });
@@ -132,20 +136,20 @@ export async function loadJungleKit(assets) {
     });
 
   return {
-    tree1: p("tree1", { castShadow: false }),
-    tree2: p("tree2", { castShadow: false }),
-    tree3: p("tree3", { castShadow: false }),
-    tree4: p("tree4", { castShadow: false }),
-    bush1: p("bush1", { castShadow: false }),
-    bush2: p("bush2", { castShadow: false }),
-    bush3: p("bush3", { castShadow: false }),
-    grass1: p("grass1", { castShadow: false }),
-    grass2: p("grass2", { castShadow: false }),
-    grass3: p("grass3", { castShadow: false }),
+    tree1: p("tree1", { castShadow: false, wind: 0.35 }),
+    tree2: p("tree2", { castShadow: false, wind: 0.35 }),
+    tree3: p("tree3", { castShadow: false, wind: 0.35 }),
+    tree4: p("tree4", { castShadow: false, wind: 0.35 }),
+    bush1: p("bush1", { castShadow: false, wind: 0.9 }),
+    bush2: p("bush2", { castShadow: false, wind: 0.9 }),
+    bush3: p("bush3", { castShadow: false, wind: 0.9 }),
+    grass1: p("grass1", { castShadow: false, wind: 2.5 }),
+    grass2: p("grass2", { castShadow: false, wind: 2.5 }),
+    grass3: p("grass3", { castShadow: false, wind: 2.5 }),
     rock1: p("rock1", { tint: { Rock: 0x7d8274 } }),
     rock2: p("rock2", { tint: { Rock: 0x737a6a } }),
     rock3: p("rock3", { tint: { Rock: 0x697161 } }),
-    ruinTree: p("ruinTree", { castShadow: false }),
+    ruinTree: p("ruinTree", { castShadow: false, wind: 0.3 }),
     deadTree: p("deadTree", { castShadow: true }),
     column: p("column", { tint: MOSS_TINT }),
     columnShort: p("columnShort", { tint: MOSS_TINT }),
@@ -160,10 +164,10 @@ export async function loadJungleKit(assets) {
     logs: p("logs"),
     crates: p("crates"),
     barrel: p("barrel"),
-    cutTrees: p("cutTrees", { castShadow: false }),
-    treeSmall1: p("treeSmall1", { castShadow: false }),
-    treeSmall2: p("treeSmall2", { castShadow: false }),
-    treeCluster: p("treeCluster", { castShadow: false }),
+    cutTrees: p("cutTrees", { castShadow: false, wind: 0.3 }),
+    treeSmall1: p("treeSmall1", { castShadow: false, wind: 0.5 }),
+    treeSmall2: p("treeSmall2", { castShadow: false, wind: 0.5 }),
+    treeCluster: p("treeCluster", { castShadow: false, wind: 0.35 }),
     boulderGroup: p("boulderGroup", { castShadow: false }),
   };
 }
@@ -1055,8 +1059,11 @@ export function createJungleSky({ fog = null } = {}) {
         vec3 fogC = uFog;
         #ifdef TONE_MAPPING
           fogC = toneMapping(fogC);
+          fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
+        #else
+          // drawn into PostFX's HDR target: tone map it the way the screen will (shaders/display.js)
+          fogC = sceneToDisplay(fogC);
         #endif
-        fogC = linearToOutputTexel(vec4(fogC, 1.0)).rgb;
         float haze = uFogBand > 0.0 ? 1.0 - smoothstep(0.0, uFogBand, h) : 0.0; // fog at the horizon, none overhead
         c = mix(c, fogC, max(haze, uDark)); // so fogged scenery melts into the sky
         gl_FragColor = vec4(c, 1.0);

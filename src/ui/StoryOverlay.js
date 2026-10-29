@@ -62,8 +62,8 @@ const CSS = THEME_CSS + END_CSS + `
 `;
 
 export class StoryOverlay {
-  /** letterbox: false keeps cutscenes full-frame (no black bars top and bottom). */
-  constructor(host = document.getElementById('hud') || document.body, { letterbox = true } = {}) {
+  /** Cutscenes are full-frame: no black bars top and bottom (letterbox: true puts them back). */
+  constructor(host = document.getElementById('hud') || document.body, { letterbox = false } = {}) {
     this.style = document.createElement('style');
     this.style.textContent = CSS;
     document.head.appendChild(this.style);
@@ -206,8 +206,10 @@ export class StoryOverlay {
   }
 
   /** Final card: title, one line, credits, and a PLAY AGAIN button (R also works). */
-  showEnd({ title, sub, credits, action }) {
+  /** stats: a row of tiles, as on the other end cards ({ label, value, unit, best }: ui/theme.js). */
+  showEnd({ title, sub, credits, action, stats }) {
     const lines = credits ? [{ text: credits, cls: 'end-credits' }] : [];
+    if (stats?.length) lines.push({ stats });
     showEndScreen(this.end, { kind: 'win', title, sub, lines, action });
   }
 

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Level } from '../core/Level.js';
 import { CombatController } from './level3/CombatController.js';
 import { HandlerBoss } from './level3/HandlerBoss.js';
-import { ShrineArena, WALK_R } from './level3/ShrineArena.js';
+import { ShrineArena, WALK_R, GIFT_SPOTS, POOL } from './level3/ShrineArena.js';
 import { Nav } from './level3/Nav.js';
 import { Telegraphs } from './level3/Telegraphs.js';
 import { EnforcerSquad } from './level3/Enforcers.js';
@@ -10,6 +10,7 @@ import { ShadowStag } from './level3/ShadowStag.js';
 import { BodyIK, HIP_UP } from './level3/BodyIK.js';
 import { lookScale } from '../core/settings.js';
 import { LetterDrops } from './level3/Letters.js';
+import { createTornPage } from '../fx/tornPage.js';
 import { ShrineGifts } from './level3/Awards.js';
 import { WaterFX, Wetness } from './level3/Wetness.js';
 import { Wreck } from './level3/Wreck.js';
@@ -20,13 +21,18 @@ import { Fireflies } from './level3/Fireflies.js';
 import { Level3Sound } from './level3/sound.js';
 import { FightHUD } from '../ui/FightHUD.js';
 import { showLoseCard } from '../ui/EndCard.js';
+import { submit as submitRecord, clock } from '../core/records.js';
 import { TouchControls } from '../ui/TouchControls.js';
 import { StoryOverlay } from '../ui/StoryOverlay.js';
 import { StyleMeter } from './level3/StyleMeter.js';
 import { loadRig } from '../player/rig.js';
 import { loadPlayer, say } from '../player/roster.js';
 import { attachHorn, poseHorn, HORN_HAND } from '../intros/cast.js';
-import { SPEAKERS, ensureDialogueFont } from '../ui/dialogue.js';
+import { SPEAKERS, ensureDialogueFont, kaiThinks } from '../ui/dialogue.js';
+import { CardPickups } from '../cards/CardPickups.js';
+import { clueFor } from '../cards/cards.js';
+import { createClueBoard } from '../cards/clueSign.js';
+import { TrailMap } from '../ui/TrailMap.js';
 
 /**
  * Level 03 — FIGHT, "The Falls".
@@ -336,6 +342,18 @@ export class Level03 extends Level {
     super.init(scene, assets, input, state);
 
     this.arena = new ShrineArena(this.root, scene);
+    // the spirit cards hidden round the falls (cards/cards.js)
+    this._cards = new CardPickups(this.root, 'level03', (spot) => new THREE.Vector3(spot.x, 1.3, spot.z));
+    // on some days the clue is carved on a stone tablet at the courtyard's edge
+    const carved = clueFor('sign:level03');
+    if (carved) {
+      const tablet = createClueBoard(carved, { stone: true, width: 2.6, height: 1.5, raise: 0.5 });
+      tablet.position.set(9.5, 0, 4);
+      tablet.rotation.y = -Math.PI / 2 + 0.4;
+      this.root.add(tablet);
+      this.arena.obstacles?.push({ x: 9.5, z: 4, r: 1.2 });
+    }
+    this._clueThought = clueFor('think:level03');
     this.wreck = new Wreck(this.root, this.arena); // his car, washed over the falls with him
     const [kai, handler] = await Promise.all([
       loadPlayer(assets),
@@ -424,8 +442,35 @@ export class Level03 extends Level {
       this.sound?.play('shrinePulse', { volume: 0.7 });
       this.story.showLetter(`TORN PAGE  \u00b7  ${found} / ${TOTAL_PAGES} FOUND`, text);
     });
+    // A torn page drops mid-fight, and the storm's lightning strikes: until then nothing draws
+    // with their materials, so their shaders were built the first time each was seen (a hitch,
+    // mid-fight). A hidden stand-in of each, for Game.precompile to build them with the level
+    const standIns = new THREE.Group();
+    standIns.name = 'precompile-stand-ins';
+    standIns.visible = false;
+    // (positions only, like a bolt's ribbon: normals or uvs would make it a different shader)
+    const speck = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0], 3));
+    standIns.add(createTornPage(3), new THREE.Mesh(this.letters.beamGeo, this.letters.beamMat),
+      new THREE.Mesh(speck, this.storm.boltMat), new THREE.Mesh(speck, this.storm.glowMat));
+    this.root.add(standIns);
 
     this.hud = new FightHUD();
+    // the map of the falls, in the corner like the prologue's (N: bigger)
+    this.map = new TrailMap({
+      path: [],
+      title: 'THE FALLS',
+      bounds: { x0: -32, x1: 32, z0: -40, z1: 32 },
+      marks: [
+        { x: POOL.x, z: POOL.z, kind: 'landmark', label: 'THE POOL' },
+        { x: -7, z: -36, kind: 'landmark', label: 'THE FALLS' },
+        { x: 0, z: 0, kind: 'landmark', label: 'COURTYARD' },
+        { x: GIFT_SPOTS.vitality.x, z: GIFT_SPOTS.vitality.z, kind: 'stag', label: 'STAG SHRINE' },
+        { x: GIFT_SPOTS.strategy.x, z: GIFT_SPOTS.strategy.z, kind: 'camp', label: 'FOX SHRINE' },
+        { x: GIFT_SPOTS.power.x, z: GIFT_SPOTS.power.z, kind: 'fire', label: 'EMBER SHRINE' },
+      ],
+    });
+    this._mapHeading = Math.PI;
+    this._mapLast = new THREE.Vector3();
     this.style = new StyleMeter(this.hud);
     this.pauseTip = say(PAUSE_TIP); // main.js's shared pause menu shows it under the controls
     this.touch = new TouchControls(input, {
@@ -434,7 +479,7 @@ export class Level03 extends Level {
     });
     this._applyCamMode(true);
     ensureDialogueFont();
-    this.story = new StoryOverlay(undefined, { letterbox: false }); // full-frame cutscenes, no black bars
+    this.story = new StoryOverlay(); // full-frame cutscenes, no black bars
     this.story.onSkip = () => this._skip();
     this.sound = new Level3Sound(); // the fight's audio: cues, bed, theme
     this._applyGifts();
@@ -759,6 +804,7 @@ export class Level03 extends Level {
     const real = dt / Math.max(state.timeScale, 0.05);
     this.time += real;
     this.beatT += real;
+    if (this.mode === 'FIGHT' && !this._ended) this._fightTime = (this._fightTime || 0) + real; // the fight's clock, for its record
     // the pointer is only held while he's fighting in the follow view: cutscenes, cards and menus get it back
     const canvas = this.game.renderer.domElement;
     if (document.pointerLockElement === canvas && (this.mode !== 'FIGHT' || this._ended || this.camMode !== 'follow')) document.exitPointerLock();
@@ -798,12 +844,25 @@ export class Level03 extends Level {
     this._updatePointer();
     this.arena.updateOcclusion(real, this.game.camera.position, this._camLook, this.combat.root.position);
     this.arena.update(dt, this.time, this.game.camera);
+    this.arena.updateReflections(this.game.renderer, dt);
     this.storm.update(dt, real, this.game.camera, this.combat.root.position);
     this.hud.lightning(this.arena.flash);
     if (this.sound) this.sound.update(dt);
     const fighting = this.mode === 'FIGHT' || this.mode === 'REVEAL';
     const kp = this.combat.root.position;
     this.letters.update(dt, this.time, fighting ? kp : null);
+    this._cards?.update(dt, kp, 1.2);
+    if (this.map) {
+      const mdx = kp.x - this._mapLast.x, mdz = kp.z - this._mapLast.z;
+      if (Math.hypot(mdx, mdz) > 1e-3) this._mapHeading = Math.atan2(mdx, -mdz);
+      this._mapLast.copy(kp);
+      this.map.show(fighting);
+      this.map.update(kp.x, kp.z, this._mapHeading, 0);
+    }
+    if (this._clueThought && fighting && (this._clueT3 = (this._clueT3 || 0) + dt) > 25) {
+      kaiThinks(this._clueThought);
+      this._clueThought = null;
+    }
     this.gifts.setMarkersVisible(this.mode === 'FIGHT' && !this._ended);
     this.gifts.update(dt, this.time, fighting && !this.combat.dead ? kp : null, this.game.camera);
     if (fighting || this.mode === 'RISE') {
@@ -1263,6 +1322,10 @@ export class Level03 extends Level {
     this.finished = true;
     state.timeScale = 1;
     if (this._endKind === 'win') {
+      // the fight against its records (core/records.js), for the VICTORY card's tiles
+      const time = this._fightTime || 0;
+      const life = Math.max(0, Math.round((100 * state.health) / state.maxHealth));
+      this._won = { time, life, bestTime: submitRecord('l3.time', time), bestLife: submitRecord('l3.life', life) };
       this._startEpilogue();
       return;
     }
@@ -2593,9 +2656,14 @@ export class Level03 extends Level {
     this._enterBeat('END');
     this._shot = 'E0'; // keep the same slow circle going behind the card
     this.story.setCinematic(false);
+    const w = this._won;
     this.story.showEnd({
       title: 'VICTORY',
       sub: say('Baba Zwane is down, and the horn is {name}’s to carry home.'),
+      stats: w && [
+        { label: 'FIGHT TIME', value: clock(w.time), best: w.bestTime },
+        { label: 'LIFE LEFT', value: w.life, unit: '%', best: w.bestLife },
+      ],
       // on to the epilogue: Kai takes it back up the mountain to its stone
       action: { label: 'CONTINUE', key: 'ENTER', onClick: () => this.game.setLevel('epilogue') },
     });
@@ -2670,13 +2738,19 @@ export class Level03 extends Level {
     cam.position.add(this._shakeOff);
   }
 
+  /** Scenes drawn besides the level's own, for Game.precompile: KeyVision's pass to the screen (bent time). */
+  extraScenes() {
+    return this.vision ? [{ scene: this.vision.scene, camera: this.vision.camera, target: null }] : [];
+  }
+
   /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
   render(renderer, scene, camera) {
     if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);
-    else renderer.render(scene, camera);
+    else this.game.renderScene(scene, camera);
   }
 
   teardown() {
+    this.map?.dispose();
     this._loseCard?.destroy();
     this.zones?.dispose();
     this.squad?.dispose();

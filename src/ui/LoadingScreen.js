@@ -12,7 +12,9 @@ import { GAME_TITLE } from './brand.js';
  *   the horn itself, in 3D, turning slowly in the dark with fireflies round
  *   it; its cyan wakes as the level loads, until it is lit when the level is
  *   ready. Under it the chapter's name, a line from the story, and a thin
- *   gold bar.
+ *   gold bar. Loading the title is the exception: only black and the thin
+ *   line, so the landing's horn (ui/LandingHorn.js) is what comes out of the
+ *   dark and the opening isn't the same picture twice.
  *
  *   const loading = new LoadingScreen();
  *   loading.show('level01');   loading.progress(0.4);   loading.hide();
@@ -52,6 +54,11 @@ const CSS = THEME_CSS + `
 .ld-bar { width:min(320px, 64vw); height:2px; margin-top:26px; background:rgba(227,187,98,.2); overflow:hidden; }
 .ld-bar b { display:block; height:100%; width:0; background:linear-gradient(90deg, var(--gold-dim), var(--gold)); transition:width .2s; }
 .ld-pct { margin-top:8px; font:600 10px var(--sans); letter-spacing:.32em; color:var(--ink-dim); }
+/* loading the title: only black and the thin line, so the landing's horn is what comes out of the dark */
+.ld.boot { background:#000; }
+.ld.boot .ld-horn, .ld.boot .ld-kicker, .ld.boot .ld-title, .ld.boot .ld-lore, .ld.boot .ld-motes { display:none; }
+.ld.boot .ld-bar { margin-top:0; width:min(220px, 50vw); height:1px; }
+.ld.boot .ld-pct { margin-top:12px; color:rgba(184,170,138,.6); }
 `;
 
 export class LoadingScreen {
@@ -119,7 +126,7 @@ export class LoadingScreen {
   _frame(now) {
     if (!this.visible) return;
     requestAnimationFrame(this._frame);
-    if (!this.renderer) return;
+    if (!this.renderer || this._boot) return; // nothing to draw on the plain black one
     const c = this._canvas;
     const w = c.clientWidth, h = c.clientHeight;
     if (w && h && (c.width !== Math.round(w * this.renderer.getPixelRatio()))) {
@@ -141,6 +148,10 @@ export class LoadingScreen {
     this.kicker.textContent = c.kicker;
     this.title.textContent = c.title;
     this.lore.textContent = c.lore ? `“${c.lore}”` : '';
+    // loading the title (the game opening, or back to the menu) is just black and the line:
+    // the horn and the name are the landing's to show
+    this._boot = name === 'title';
+    this.el.classList.toggle('boot', this._boot);
     this.progress(0);
     this.el.classList.add('show');
     this.motes.start();

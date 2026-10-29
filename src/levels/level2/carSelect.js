@@ -1,4 +1,5 @@
 import { PAINTS } from './paint.js';
+import { CURRENCY, FREE_CAR, balance, owns } from '../../core/wallet.js';
 
 /**
  * Player cars. Every car trades something for something:
@@ -7,6 +8,10 @@ import { PAINTS } from './paint.js';
  *   handling  steering rate multiplier
  *   strength  armour + weight: damage taken is divided by it, and a heavier
  *             car is shoved less by the Handler and by traffic
+ *   price     Forest Lights to buy it (core/wallet.js), caught on the trail in
+ *             Level 1: the Bruiser is everyone's (first here, so it's the yard's
+ *             first too); a decent first run (100-150 lights of the ~390) buys a
+ *             cheap one, the Supercar takes several
  */
 // Models: Quaternius "Cars Bundle" (CC0) + "CAR Model" by Ignition Labs (CC BY 3.0).
 // `length` is the car's real-world length in metres; everything (lights,
@@ -15,15 +20,21 @@ import { PAINTS } from './paint.js';
 // the car's own frame, measured off the model side-on (see level1/carDoor.js).
 export const CARS = [
   {
+    // "Pickup Truck" by Quaternius, CC0
+    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3, price: 0,
+    blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
+    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
+  },
+  {
     // "Convertible" by Poly by Google, CC BY 3.0
-    id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9,
+    id: 'executive', name: 'Executive', path: 'level2/cars/executive.glb', length: 4.9, price: 90,
     blurb: 'All-rounder — quick, comfortable, nothing to prove', stats: { speed: 43, accel: 22, handling: 1.0, strength: 1.0 },
     door: { z: [-0.52, 0.63], y: [0.24, 1.04], depth: 0.37, interior: true, seat: { x: 0.62, y: 0.4 } },
   },
   {
     // "Toyota AE86" by IvOfficial, CC BY 3.0
     // white body painted into its texture: no separate paint colour to target, factory only
-    id: 'drifter', name: 'Drifter', path: 'level2/cars/drifter.glb', length: 4.2, paintable: false,
+    id: 'drifter', name: 'Drifter', path: 'level2/cars/drifter.glb', length: 4.2, paintable: false, price: 60,
     blurb: 'Light, nimble, born to slide — hold Q to drift', stats: { speed: 40, accel: 26, handling: 1.3, strength: 0.8 },
     door: { z: [-0.48, 0.55], y: [0.33, 1.22], depth: 0.32 },
   },
@@ -31,30 +42,24 @@ export const CARS = [
     // "Car" by theking1322, CC BY 3.0 (modelled side-on: turned to face +Z)
     // its body has stray vertices well below the tyres: stand it on the wheels,
     // which are separate meshes called Cylinder001-004
-    id: 'muscle', name: 'Muscle', path: 'level2/cars/muscle.glb', length: 4.8, yaw: Math.PI / 2,
+    id: 'muscle', name: 'Muscle', path: 'level2/cars/muscle.glb', length: 4.8, yaw: Math.PI / 2, price: 150,
     ground: /^Cylinder00[1-4]$/, wheels: /^Cylinder00[1-4]$/,
     blurb: 'Big engine, heavy body — wins the shoving matches', stats: { speed: 45, accel: 23, handling: 0.85, strength: 1.2 },
     door: { z: [-0.63, 0.5], y: [0.37, 1.25], depth: 0.32 },
   },
   {
-    id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4,
+    id: 'street-racer', name: 'Street Racer', path: 'level2/cars/street-racer.glb', length: 4.4, price: 220,
     blurb: 'Very fast, very fragile', stats: { speed: 48, accel: 25, handling: 1.0, strength: 0.75 },
     // deep enough to take the whole window, which leans in to 0.42 m at the top;
     // the seat in from the side, out from under where the roof slopes down to it
     door: { z: [-0.74, 0.72], y: [0.3, 1.23], depth: 0.45, seat: { x: 0.6 } },
   },
   {
-    id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb', length: 4.8,
+    id: 'supercar', name: 'Supercar', path: 'level2/cars/supercar.glb', length: 4.8, price: 350,
     blurb: 'Fastest car here — one bad PIT and it is in pieces', stats: { speed: 50, accel: 24, handling: 0.9, strength: 0.65 },
     // the window leans in a long way (0.54 m at the top): deep enough that it rises
     // with the door, out of his way; the seat under the top of its low roof
     door: { z: [-0.62, 0.85], y: [0.26, 1.08], depth: 0.5, swing: 'up', seat: { x: 0.7 } },
-  },
-  {
-    // "Pickup Truck" by Quaternius, CC0
-    id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3,
-    blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
-    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
   },
 ];
 
@@ -67,14 +72,19 @@ export const HANDLER_OPTIONS = { length: 4.9, wheels: /^Tire\d$/ };
 const KEY = 'blackout.level2.car';
 const PAINT_KEY = 'blackout.level2.paint';
 
+/** The car last driven, if it's still his; else the free one. */
 export function loadSavedCar() {
+  const free = Math.max(0, CARS.findIndex((car) => car.id === FREE_CAR));
   try {
     const index = CARS.findIndex((car) => car.id === localStorage.getItem(KEY));
-    return index >= 0 ? index : 0;
+    return index >= 0 && owns(CARS[index].id) ? index : free;
   } catch {
-    return 0;
+    return free;
   }
 }
+
+/** Is there a car he hasn't got that he could buy now? (Then Level 2 opens on the yard.) */
+export const canBuyACar = () => CARS.some((car) => !owns(car.id) && balance() >= car.price);
 
 export function saveCar(index) {
   try {
@@ -148,9 +158,17 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
         box-shadow:0 0 0 1px ${J.goldDim};transition:transform .15s, box-shadow .15s; }
       #car-picker .sw.sel { transform:scale(1.15);box-shadow:0 0 0 2px ${J.gold}, 0 0 10px rgba(217,180,90,.5); }
       #car-picker .lbl { color:${J.gold};font-family:${J.serif};font-size:10px;letter-spacing:3px;margin:0 0 6px; }
+      #car-picker .price { font-size:10.5px;letter-spacing:1px;color:#8ff0f6;text-shadow:0 0 8px rgba(79,214,224,.5);white-space:nowrap; }
+      #car-picker .price.short { color:${J.muted};text-shadow:none;opacity:.75; }
+      #car-picker .car.locked span:first-child { opacity:.8; }
+      #car-picker .wallet { text-align:center;margin:6px 0 0;font-size:11px;letter-spacing:2px;color:#8ff0f6;text-shadow:0 0 10px rgba(79,214,224,.45); }
+      #car-picker .go.buy { background:linear-gradient(180deg,#8ff0f6,#2fa8b4);border-color:#8ff0f6;box-shadow:0 0 18px rgba(79,214,224,.35); }
+      #car-picker .go.need { cursor:default;background:rgba(0,0,0,.3);border-color:${J.goldDim};color:${J.muted};box-shadow:none;font-size:12px;letter-spacing:2px; }
+      #car-picker .go.need:hover { filter:none;transform:none; }
     </style>
     <div style="text-align:center;font-family:${J.serif};color:${J.gold};font-size:12px;letter-spacing:5px">❦ THE RIVER ROAD ❦</div>
     <div style="text-align:center;font-family:${J.serif};font-size:19px;letter-spacing:3px;margin:3px 0 0;color:${J.text}">CHOOSE YOUR CAR</div>
+    <div class="wallet"></div>
     <div style="height:1px;margin:8px 0 10px;background:linear-gradient(90deg,transparent,${J.gold},transparent)"></div>
     <div class="cars"></div>
     <div class="blurb" style="margin:8px 2px 6px;color:${J.muted};font-size:11.5px;font-style:italic;min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
@@ -161,12 +179,12 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
       <button class="go">DRIVE</button>
     </div>
     <div style="margin-top:8px;color:${J.muted};font-size:10px;text-align:center">
-      A / D car · Q / E paint · Enter drive · V change car</div>`;
+      A / D car · Q / E paint · Enter buy / drive · V change car</div>`;
 
   const buttons = CARS.map((car, index) => {
     const button = document.createElement('button');
     button.className = 'car';
-    button.innerHTML = `<span>${car.name}</span>`;
+    button.innerHTML = `<span>${car.name}</span><span class="price"></span>`;
     button.addEventListener('click', () => onChange?.(index));
     root.querySelector('.cars').appendChild(button);
     return button;
@@ -204,7 +222,28 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
   root.addEventListener('click', () => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
   root.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); });
 
+  let current = startIndex;
+  const go = root.querySelector('.go');
+  /** Prices, what there is to spend, and DRIVE / BUY / NEED MORE for the car picked. */
+  function refresh() {
+    const have = balance();
+    root.querySelector('.wallet').textContent = `◆ ${have} ${CURRENCY} TO SPEND`;
+    CARS.forEach((car, i) => {
+      const mine = owns(car.id);
+      buttons[i].classList.toggle('locked', !mine);
+      const tag = buttons[i].querySelector('.price');
+      tag.textContent = mine ? '' : `◆ ${car.price}`;
+      tag.classList.toggle('short', !mine && have < car.price);
+    });
+    const car = CARS[current];
+    const mine = owns(car.id);
+    go.classList.toggle('buy', !mine && have >= car.price);
+    go.classList.toggle('need', !mine && have < car.price);
+    go.textContent = mine ? 'DRIVE' : have >= car.price ? `BUY · ${car.price}` : `NEED ${car.price - have} MORE`;
+  }
+
   function setIndex(index) {
+    current = index;
     buttons.forEach((b, i) => b.classList.toggle('sel', i === index));
     const car = CARS[index];
     root.querySelector('.blurb').textContent = car.blurb;
@@ -220,6 +259,7 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
       const [lo, hi] = RANGES[key];
       bars[key].style.width = `${Math.round(Math.max(0.05, Math.min(1, (car.stats[key] - lo) / (hi - lo))) * 100)}%`;
     }
+    refresh();
   }
 
   function setPaint(index) {
@@ -229,5 +269,5 @@ export function createCarPicker({ startIndex = 0, startPaint = 0, onChange, onPa
   setIndex(startIndex);
   setPaint(startPaint);
   document.body.appendChild(root);
-  return { setIndex, setPaint, destroy: () => root.remove() };
+  return { setIndex, setPaint, refresh, destroy: () => root.remove() };
 }
