@@ -2738,6 +2738,11 @@ export class Level03 extends Level {
     cam.position.add(this._shakeOff);
   }
 
+  /** Scenes drawn besides the level's own, for Game.precompile: KeyVision's pass to the screen (bent time). */
+  extraScenes() {
+    return this.vision ? [{ scene: this.vision.scene, camera: this.vision.camera, target: null }] : [];
+  }
+
   /** Game's draw call: straight to the screen, or through KeyVision while time is bent. */
   render(renderer, scene, camera) {
     if (this.vision?.active) this.vision.render(renderer, scene, camera, this.time);

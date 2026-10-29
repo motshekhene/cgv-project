@@ -417,10 +417,23 @@ export class Game {
       // a level's mirror and map (secondary cameras) and its overlays (the rain) draw straight to
       // the screen, not through PostFX: those are shaders of their own (tone-mapped, sRGB), built
       // the first time each thing turned up in the mirror or on the map
-      if (this.postfx.enabled && object === this.scene && (this.secondaryCameras.size || this.overlays.size)) {
+      if (object === this.scene && (this.secondaryCameras.size || this.overlays.size)) {
         r.setRenderTarget(null);
-        if (this.secondaryCameras.size) waits.push(r.compileAsync(object, this.camera, this.scene));
-        for (const { scene: s, camera: cam } of this.overlays.values()) waits.push(r.compileAsync(s, cam));
+        if (this.postfx.enabled && this.secondaryCameras.size) waits.push(r.compileAsync(object, this.camera, this.scene));
+        for (const { scene: s, camera: cam } of this.overlays.values()) waits.push(r.compileAsync(s, cam)); // always straight to the screen
+      }
+      // ...and on LOW (no PostFX, the frame straight to the screen) the other way round: a level's
+      // own render targets (Level 3's pool reflection, its slow-motion pass) still draw off-screen
+      if (!this.postfx.enabled && object === this.scene) {
+        r.setRenderTarget(this.postfx.sceneRT);
+        waits.push(r.compileAsync(object, this.camera, this.scene));
+      }
+      // scenes a level draws of its own (Level 3's slow-motion pass), where they draw to
+      if (object === this.scene) {
+        for (const x of this.level?.extraScenes?.() || []) {
+          r.setRenderTarget(x.target ?? null);
+          waits.push(r.compileAsync(x.scene, x.camera));
+        }
       }
       for (let i = lifted.length - 1; i >= 0; i--) lifted[i][0].parent.children.splice(lifted[i][1], 0, lifted[i][0]);
       lifted.length = 0;
