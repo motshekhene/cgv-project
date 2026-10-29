@@ -254,13 +254,14 @@ export function attachHornStrap(fighter, horn) {
   });
 
   // over his body: an ellipse in the plane of the diagonal on the chest bone (metres), from low
-  // on his back (-) over the top of the right shoulder (0) to low on his chest (+)
+  // on his back (-) over the top of the right shoulder (0) to low on his chest (+). It is Kai's
+  // chest; fitArc() moves each point onto whoever is wearing it
   const ELLIPSE = { y: -0.06, long: 0.29, deep: 0.124 };
-  const ARC = [-128, -100, -70, -40, -14, 0, 14, 40, 70, 100, 128].map((d) => (d * Math.PI) / 180);
-  const arcLocal = ARC.map((phi) => {
+  const ARC = Array.from({ length: 33 }, (_, i) => ((-128 + i * 8) * Math.PI) / 180);
+  const arcLocal = fitArc(fighter, spine, ARC.map((phi) => {
     const u = ELLIPSE.long * Math.cos(phi);
     return new THREE.Vector3(-0.7071 * u, ELLIPSE.y + 0.7071 * u, ELLIPSE.deep * Math.sin(phi) + 0.01);
-  });
+  }), new THREE.Vector3(0, ELLIPSE.y, 0.01));
 
   // the band: a flat leather strip, SEG segments long, a flattened 6-sided section
   const SEG = 56, SIDES = 6, WIDTH = 0.042, THICK = 0.008;
@@ -354,6 +355,70 @@ export function attachHornStrap(fighter, horn) {
   return strap;
 }
 const _sv = new THREE.Vector3();
+
+/**
+ * The strap's path fitted to whoever wears it. The ellipse is Kai's chest: on
+ * a deeper one (Naledi's, Bheki's) it ran inside the body, and it stood off a
+ * smaller one (Knox's). The strap is a loop round the body in the plane through
+ * the right shoulder and the left hip, so each point of `arc` (metres, in the
+ * chest bone's frame) moves out or in along its line from `centre` to just
+ * clear of the body there (the skin, or what's worn over it), measured off the
+ * mesh as it stands when the horn goes on; then it is pulled taut, so it spans
+ * a hollow instead of dipping into it. A point with nothing under it stays put.
+ */
+function fitArc(fighter, spine, arc, centre) {
+  const body = bodyPoints(fighter, spine);
+  if (!body.length) return arc;
+  const R2 = 0.025 * 0.025; // what lies under the band: about its width
+  const CLEAR = 0.008;
+  const dirs = arc.map((p) => p.clone().sub(centre).normalize());
+  const fit = arc.map((p, i) => {
+    const d = dirs[i];
+    let far = 0;
+    for (let k = 0; k < body.length; k += 3) {
+      const x = body[k] - centre.x, y = body[k + 1] - centre.y, z = body[k + 2] - centre.z;
+      const t = x * d.x + y * d.y + z * d.z;
+      if (t > far && x * x + y * y + z * z - t * t <= R2) far = t;
+    }
+    return far > 0 ? centre.clone().addScaledVector(d, far + CLEAR) : p.clone();
+  });
+  // taut: a point below the line between its neighbours comes up to it
+  for (let pass = 0; pass < 8; pass++) {
+    for (let i = 1; i < fit.length - 1; i++) {
+      const lift = _sv.copy(fit[i - 1]).add(fit[i + 1]).multiplyScalar(0.5).sub(fit[i]).dot(dirs[i]);
+      if (lift > 0) fit[i].addScaledVector(dirs[i], lift);
+    }
+  }
+  return fit;
+}
+
+// what the strap doesn't lie on: the arms (it rides over the shoulder, not the arm), the head and its hair, the legs
+const LIMB = /Arm|Hand|Palm|Finger|Thumb|Head|Leg|Foot|Toe/;
+
+/** The body's vertices as it stands, flat [x, y, z, ...] in metres in `spine`'s frame, limbs and head left out. */
+function bodyPoints(fighter, spine) {
+  fighter.root.updateMatrixWorld(true);
+  const toSpine = new THREE.Matrix4().copy(spine.matrixWorld).invert();
+  const m = spine.getWorldScale(new THREE.Vector3()).x || 1;
+  const v = new THREE.Vector3(), out = [];
+  fighter.root.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const { position, skinIndex: si, skinWeight: sw } = o.geometry.attributes;
+    if (!si || !sw) return;
+    const bones = o.skeleton.bones;
+    for (let i = 0; i < position.count; i++) {
+      // the bone that moves it most
+      let b = si.getX(i), w = sw.getX(i);
+      if (sw.getY(i) > w) { b = si.getY(i); w = sw.getY(i); }
+      if (sw.getZ(i) > w) { b = si.getZ(i); w = sw.getZ(i); }
+      if (sw.getW(i) > w) b = si.getW(i);
+      if (LIMB.test(bones[b]?.name || '')) continue;
+      o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld).applyMatrix4(toSpine).multiplyScalar(m);
+      out.push(v.x, v.y, v.z);
+    }
+  });
+  return out;
+}
 
 /**
  * The horn on Kai, the way he carries it from the stone on: slung at his hip
