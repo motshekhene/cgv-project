@@ -814,6 +814,11 @@ function outside(shapes, x, z) {
   return best;
 }
 
+/** How high a figure's root stands at (x, z): on top of the fire's trampled earth, or the floor. */
+function groundAt(x, z) {
+  return Math.hypot(x - FIRE.x, z - FIRE.z) < APRON.r ? APRON.y : 0;
+}
+
 /** An angle difference brought into -PI..PI, so turns go the short way round. */
 function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -2028,7 +2033,7 @@ export class Prologue extends Level {
     // ---- Baba Zwane, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
     this.zwane = new THREE.Group();
-    this.zwane.position.set(ZWANE_AT.x, APRON.y, ZWANE_AT.z); // standing on the fire's earth, not in it
+    this.zwane.position.set(ZWANE_AT.x, groundAt(ZWANE_AT.x, ZWANE_AT.z), ZWANE_AT.z); // standing on the fire's earth, not in it
     this.zwane.rotation.y = Math.PI;       // faces Kai across the flames
     this.root.add(this.zwane);
     const ing = this.zwaneF = makeHandler(this.zwane, cast.handler, { helmet: false });
@@ -2074,7 +2079,7 @@ export class Prologue extends Level {
 
     // He sits to the fire, and the log goes where he sits: measured off his
     // hips in the sitting clip, so he is on it and not floating over it.
-    this.kai.position.set(SEAT.x, 0, SEAT.z + 0.3);
+    this.kai.position.set(SEAT.x, groundAt(SEAT.x, SEAT.z + 0.3), SEAT.z + 0.3); // his feet on the fire's earth: the log is measured from here
     let seatY = 0.44, seatZ = SEAT.z + 0.35, seatX = SEAT.x;
     if (kai.actions.sitting) {
       kai.play('sitting', { fade: 0 });
@@ -2705,7 +2710,7 @@ export class Prologue extends Level {
     // cut on wherever he walks
     this.kai.visible = true;
     if (!shot) {
-      this.kai.position.set(this.px, 0, this.pz);
+      this.kai.position.set(this.px, groundAt(this.px, this.pz), this.pz);
       this.kai.rotation.y = this.heading;
     }
 
@@ -3294,7 +3299,7 @@ export class Prologue extends Level {
     g.ang += wrapAngle(want - g.ang) * (1 - Math.exp(-5 * dt));
     z.x += Math.sin(g.ang) * g.v * dt;
     z.z += Math.cos(g.ang) * g.v * dt;
-    z.y = Math.hypot(z.x - FIRE.x, z.z - FIRE.z) < APRON.r ? APRON.y : 0; // off the fire's earth, down onto the floor
+    z.y = groundAt(z.x, z.z); // off the fire's earth, down onto the floor
     this.zwane.rotation.y = Math.atan2(-Math.sin(g.ang), -Math.cos(g.ang));
     const far = Math.hypot(z.x - ZWANE_AT.x, z.z - ZWANE_AT.z);
     this.zwaneLampLight.intensity = 2.2 * Math.max(0.35, 1 - far / 28);
