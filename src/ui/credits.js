@@ -89,6 +89,8 @@ export const CREDIT_SECTIONS = [
         use: 'The wreck in the pool below the falls' },
       { title: '“Hut”', by: 'Jarlan Perez', licence: 'CC BY 3.0', url: 'https://poly.pizza/m/3OlnbRfwPLc',
         use: 'The ruined hut in the prologue’s valley' },
+      { title: 'Universal Base Characters', by: 'Quaternius', licence: 'CC0', url: 'https://quaternius.com/packs/universalbasecharacters.html',
+        use: 'The stand-in Kai and Marshal, only ever seen if the Mixamo characters can’t load' },
     ],
   },
   {
@@ -141,6 +143,9 @@ export const CREDIT_SECTIONS = [
       { title: 'Volumetric Light Scattering as a Post-Process', by: 'Kenny Mitchell, GPU Gems 3 ch. 13', licence: 'Technique',
         url: 'https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-13-volumetric-light-scattering-post-process',
         use: 'The god rays through the canopy' },
+      { title: 'The Book of Shaders: noise and fractal Brownian motion', by: 'Patricio Gonzalez Vivo and Jen Lowe', licence: 'Technique',
+        url: 'https://thebookofshaders.com/13/',
+        use: 'The value noise under the sky, the water, the waterfall and the light shafts' },
       { title: 'ACES Filmic tone curve (fitted)', by: 'Stephen Hill, via three.js', licence: 'MIT', url: 'https://threejs.org/',
         use: 'The tone curve, and its inverse that keeps the sky and fog true under post-processing' },
     ],
