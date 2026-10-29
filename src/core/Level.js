@@ -54,6 +54,8 @@ export function disposeObject(root) {
     if (obj.geometry) obj.geometry.dispose();
     // instanced meshes own their per-instance matrix buffers
     if (obj.isInstancedMesh) obj.dispose();
+    // ...and a skinned mesh's skeleton owns its bone-matrix texture (one per character or animal)
+    if (obj.isSkinnedMesh && obj.skeleton) obj.skeleton.dispose();
 
     // lights own a shadow map texture that nothing else will free
     if (obj.isLight && obj.shadow && obj.shadow.map) {
