@@ -924,6 +924,7 @@ export class Level03 extends Level {
 
     // the reveal shot holds Kai still for a beat; the key that skipped the intro doesn't also punch
     const controls = this.mode === 'FIGHT' && !this._muteInput ? input : NO_INPUT;
+    if (controls === NO_INPUT) this.combat.queued = null; // a press held for him doesn't go off in a cutscene
     this._muteInput = false;
     // after a perfect dodge Kai keeps (nearly) his own pace while everything else crawls; hit-stop still freezes him
     if (this._focusT > 0) this._focusT -= real;
@@ -940,6 +941,17 @@ export class Level03 extends Level {
     if (this._canRide && controls.pressed('interact')) this._startRide();
     if (this._ride) this._updateRide(kaiDt, controls, state);
     else if (this.mode !== 'STAGDOWN') this.combat.update(kaiDt, controls, state, { camYaw: this.camYaw, lockOn: this.lockOn, targetPos: fp, aim: this.camMode === 'follow' });
+    // what his presses made: a trick, named as it starts; a swing he hadn't the breath for
+    for (const e of this.combat.events) {
+      if (e.trick) {
+        this.hud.popup(e.trick, '#ffb347');
+        this.sound?.play('whoosh', { volume: 0.45, rate: 1.2 });
+      } else if (e.winded && this.time > (this._windedAt || 0)) {
+        this.hud.popup('WINDED', '#9aa3ad');
+        this._windedAt = this.time + 2.5;
+      }
+    }
+    this.combat.events.length = 0;
     this._updateTrail(kaiDt, focus);
     this.boss.counterOff = focus; // no counter-attacks out of bent time: that's Kai's window
 
@@ -947,11 +959,12 @@ export class Level03 extends Level {
     if (this.combat.consumeHit() && foe && foe.alive !== false && foe.state !== 'DOWN') {
       // the stag is a tonne of stone: a blow barely shifts it
       const shove = foe === this.stag ? 0.12 : 1;
+      const swing = this.combat.attackDef; // a wide one (the Whirlwind) lands beside and behind him too
       this._toBoss.set(fp.x - cp.x, 0, fp.z - cp.z);
       const dist = this._toBoss.length();
       if (dist > 0.001) this._toBoss.divideScalar(dist);
       const facing = Math.sin(this.combat.heading) * this._toBoss.x + Math.cos(this.combat.heading) * this._toBoss.z;
-      if (dist <= this.combat.attackRange && facing > 0.2) {
+      if (dist <= this.combat.attackRange && (swing.wide || facing > 0.2)) {
         const fin = this.combat.comboFinisher;
         // the blow straight after a parry, while he reels: the riposte
         const riposte = this._riposte && foe.vulnerable;
@@ -963,7 +976,7 @@ export class Level03 extends Level {
             if (m === foe) continue;
             const mx = m.root.position.x - cp.x, mz = m.root.position.z - cp.z;
             const md = Math.hypot(mx, mz);
-            if (md <= this.combat.attackRange + 0.4 && Math.sin(this.combat.heading) * mx + Math.cos(this.combat.heading) * mz > 0.2 * md) {
+            if (md <= this.combat.attackRange + 0.4 && (swing.wide || Math.sin(this.combat.heading) * mx + Math.cos(this.combat.heading) * mz > 0.2 * md)) {
               m.takeDamage(this.combat.attackDamage * 0.6);
             }
           }
@@ -1010,6 +1023,7 @@ export class Level03 extends Level {
           } else if (crit) this.hud.popup('CRITICAL', '#ffd23a');
           this._damageNumber(dealt, crit ? 'crit' : focus ? 'key' : fin ? 'big' : '', fp);
           this.style.add(fin ? 'finisher' : 'hit');
+          if (swing.trick) this.style.add('trick');
           if (crit) this.style.add('crit');
         }
       }
@@ -2146,6 +2160,7 @@ export class Level03 extends Level {
     // notes for the player, once FIGHT has been called
     this._fightToasts = [];
     this._fightToasts.push(['SPIRIT SHRINES', 'three spirits wait in the jungle \u00b7 the stag heals you, and wakes again', 5]);
+    this._fightToasts.push(['TRICKS', 'punch, punch, kick \u00b7 dodge, then punch \u00b7 mix them for more (the pause menu lists them)', 5.5]);
     if (this._eased < 1) {
       const pct = Math.round((1 - this._eased) * 100);
       this._fightToasts.push(['WEAKENED', `he still feels the last fight \u00b7 ${pct}% less health this time`, 4.5]);

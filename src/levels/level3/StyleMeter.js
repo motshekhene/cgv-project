@@ -1,6 +1,6 @@
 /**
- * StyleMeter — the D-to-S rank for fighting clean. Landing hits, parrying and
- * dodging (perfect dodges most of all) build it; taking a hit breaks it on
+ * StyleMeter — the D-to-S rank for fighting clean. Landing hits (tricks most),
+ * parrying and dodging (perfect dodges most of all) build it; taking a hit breaks it on
  * the spot; standing about lets it drain. The level reports what happened
  * (add / hurt), FightHUD.setStyle() shows it.
  *
@@ -14,7 +14,7 @@ const RANKS = [
   { need: 18, letter: 'A', word: 'AWESOME', color: '#f2934f' },
   { need: 26, letter: 'S', word: 'SAVAGE', color: '#6fe3ff' },
 ];
-const POINTS = { hit: 1, finisher: 2, crit: 1, dodge: 1, parry: 4, perfect: 4 };
+const POINTS = { hit: 1, finisher: 2, trick: 3, crit: 1, dodge: 1, parry: 4, perfect: 4 };
 const CAP = 34; // a little headroom past S, so one slip of decay doesn't drop the rank
 const IDLE = 3; // seconds without doing anything before it starts to drain
 const DRAIN = 1.6; // points a second

@@ -116,6 +116,12 @@ const LEVEL_CONTROLS = {
       { label: 'KICK', action: 'kick' },
       { label: 'BLOCK', action: 'block' },
       { label: 'DODGE', action: 'dodge' },
+      // tricks: the strings CombatController's TRICKS turns into special moves
+      { label: 'TRICK \u00b7 ONE-TWO KICK', keys: 'PUNCH, PUNCH, KICK' },
+      { label: 'TRICK \u00b7 SWITCH HOOK', keys: 'KICK, KICK, PUNCH' },
+      { label: 'TRICK \u00b7 WHIRLWIND', keys: 'PUNCH, KICK, PUNCH, KICK' },
+      { label: 'TRICK \u00b7 SLIP COUNTER', keys: 'DODGE, PUNCH' },
+      { label: 'TRICK \u00b7 SNAP KICK', keys: 'DODGE, KICK' },
       { label: 'THE HORN \u00b7 SLOW TIME', action: 'ability' },
       { label: 'CAMERA \u00b7 LOCK ON', action: 'lockOn' },
       { label: 'NEXT LINE', action: 'skip' },
