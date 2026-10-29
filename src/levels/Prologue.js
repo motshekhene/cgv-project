@@ -120,6 +120,7 @@ import {
 // once he has the horn, is the trail east and nothing else.
 const SEAT = { x: 0, z: 10.8 };            // on the log, feet to the fire
 const FIRE = { x: 0, z: 7.9 };
+const APRON = { r: 3.4, y: 0.02 };         // the trampled earth round the fire: how far it reaches, and its top
 const ZWANE_AT = { x: -1.0, z: 6.3 };     // across the flames, off the fire line
 const WALKOFF = { x: -9.6, z: 3.2 };       // the way Baba Zwane leaves the fire: past here, into the forest
 const ZWANE_WALK = 1.5;                    // m/s, his pace as he goes
@@ -128,6 +129,7 @@ const _follow = new THREE.Vector3();
 const _frustum = new THREE.Frustum();
 const _viewProj = new THREE.Matrix4();
 const _zSphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
+const _foot = new THREE.Vector3();
 const CAMP = { x: 0, z: 8.4, r: 6.0 };
 const PATH_HW = 1.6;                       // half-width of the walkable path
 const GLADE = { x: 0, z: PATH_END_Z - 4.6, r: 5.0 };
@@ -1208,9 +1210,9 @@ export class Prologue extends Level {
     this.root.add(run);
 
     // the trampled ground around the fire, where the ground is just earth
-    const apron = new THREE.Mesh(new THREE.CircleGeometry(3.4, 24), this.mats.trail);
+    const apron = new THREE.Mesh(new THREE.CircleGeometry(APRON.r, 24), this.mats.trail);
     apron.rotation.x = -Math.PI / 2;
-    apron.position.set(FIRE.x, 0.02, FIRE.z);
+    apron.position.set(FIRE.x, APRON.y, FIRE.z);
     apron.receiveShadow = true;
     this.root.add(apron);
 
@@ -2026,7 +2028,7 @@ export class Prologue extends Level {
     // ---- Baba Zwane, across the fire. Lit by the flames — this is the one
     //      clear look the player gets, so he is NOT a silhouette here. ----
     this.zwane = new THREE.Group();
-    this.zwane.position.set(ZWANE_AT.x, 0, ZWANE_AT.z);
+    this.zwane.position.set(ZWANE_AT.x, APRON.y, ZWANE_AT.z); // standing on the fire's earth, not in it
     this.zwane.rotation.y = Math.PI;       // faces Kai across the flames
     this.root.add(this.zwane);
     const ing = this.zwaneF = makeHandler(this.zwane, cast.handler, { helmet: false });
@@ -2120,8 +2122,9 @@ export class Prologue extends Level {
   /**
    * Baba Zwane borrows clips from Kai (Kai's own build: see _buildFigures). Both are on the same Mixamo skeleton,
    * so he takes the rotations (not the hip travel — the two builds are not
-   * the same size): the walk the monk build lacks, and with `replace` the
-   * relaxed idle in place of his fighting guard.
+   * the same size; _groundZwane stands him on his feet instead): the walk
+   * the monk build lacks, and with `replace` the relaxed idle in place of his
+   * fighting guard.
    */
   _lend(from, to, name, replace = false) {
     if ((to.actions[name] && !replace) || !from.actions[name] || !to.mixer) return;
@@ -2135,6 +2138,47 @@ export class Prologue extends Level {
       if (to.current === old) { to.current = null; to.currentName = null; }
     }
     to.actions[name] = to.mixer.clipAction(new THREE.AnimationClip(name, clip.duration, tracks));
+  }
+
+  /**
+   * Baba Zwane's soles on the ground under him, every frame. His clips are
+   * Kai's rotations on the monk build (_lend) and his hips stay at the build's
+   * rest height, so his feet went through the ground: 4 cm standing, in and
+   * out of it as he walked (Kai's own hips drop as his legs spread; his
+   * didn't), 7 cm as he turned from standing into the walk. So once the mixer
+   * has posed him, the lowest point of his feet is found, off the feet
+   * themselves (the skinned vertices: his own shoes, not a guess from the
+   * ankle), and his whole body lifted or lowered onto the ground.
+   */
+  _groundZwane() {
+    const f = this.zwaneF;
+    if (!this.zwane.visible || !f.model) return;
+    // the vertices his feet carry, those a foot or toe bone has the most say over: found once
+    if (!this._zwaneFeet) {
+      this._zwaneFeet = [];
+      f.model.traverse((o) => {
+        if (!o.isSkinnedMesh) return;
+        const foot = o.skeleton.bones.map((b) => /Foot|Toe/.test(b.name));
+        const si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight;
+        const list = [];
+        for (let i = 0; i < si.count; i++) {
+          let top = 0;
+          for (let j = 1; j < 4; j++) if (sw.getComponent(i, j) > sw.getComponent(i, top)) top = j;
+          if (foot[si.getComponent(i, top)]) list.push(i);
+        }
+        if (list.length) this._zwaneFeet.push({ mesh: o, list });
+      });
+    }
+    f.root.updateWorldMatrix(true, false);
+    f.root.updateMatrixWorld(true); // updateWorldMatrix alone leaves a skinned mesh's bind inverse a frame behind
+    let low = Infinity;
+    for (const { mesh, list } of this._zwaneFeet) {
+      for (const i of list) {
+        _foot.fromBufferAttribute(mesh.geometry.attributes.position, i);
+        low = Math.min(low, mesh.applyBoneTransform(i, _foot).applyMatrix4(mesh.matrixWorld).y);
+      }
+    }
+    if (low < Infinity) f.root.position.y += this.zwane.getWorldPosition(_foot).y - low;
   }
 
   /* ==================================================== hud */
@@ -2760,6 +2804,7 @@ export class Prologue extends Level {
     this.kaiF.update(dt);
     this.zwaneF.update(dt);
     this._tickZwaneLeaving(dt);
+    this._groundZwane();
 
     // heartbeat, from the first touch of the horn
     if (this.phase === 'take' || this.phase === 'taken' || this.phase === 'wide' || this.phase === 'flee') {
@@ -3249,6 +3294,7 @@ export class Prologue extends Level {
     g.ang += wrapAngle(want - g.ang) * (1 - Math.exp(-5 * dt));
     z.x += Math.sin(g.ang) * g.v * dt;
     z.z += Math.cos(g.ang) * g.v * dt;
+    z.y = Math.hypot(z.x - FIRE.x, z.z - FIRE.z) < APRON.r ? APRON.y : 0; // off the fire's earth, down onto the floor
     this.zwane.rotation.y = Math.atan2(-Math.sin(g.ang), -Math.cos(g.ang));
     const far = Math.hypot(z.x - ZWANE_AT.x, z.z - ZWANE_AT.z);
     this.zwaneLampLight.intensity = 2.2 * Math.max(0.35, 1 - far / 28);
