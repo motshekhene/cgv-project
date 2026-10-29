@@ -1209,7 +1209,7 @@ export class Level03 extends Level {
     b.restFor = VS_TIME + 0.4;
     this.squad?.hideZones();
     this.hud.setBossName(WHO.handler.name);
-    this.hud.versus(WHO.kai.name, WHO.handler.name);
+    this.hud.versus(say(WHO.kai.name), WHO.handler.name);
     this._fightCall = VS_TIME;
     this._fightToasts = [];
     this.sound?.play('handoff', { volume: 0.6 });
@@ -1324,7 +1324,7 @@ export class Level03 extends Level {
     this.hud.setVisible(true);
     this.touch.setVisible(true);
     this.hud.setBossName(STAG_NAME);
-    this.hud.versus(WHO.kai.name, STAG_NAME);
+    this.hud.versus(say(WHO.kai.name), STAG_NAME);
     this._fightCall = VS_TIME;
     this.stag.begin();
     this.stag.restFor = VS_TIME + 0.4;
@@ -2151,9 +2151,9 @@ export class Level03 extends Level {
       b.root.position.copy(BOSS_WATCH);
       this.squad.arrive(MEN_LAND);
       this.hud.setBossName(MEN_NAME);
-      this.hud.versus(WHO.kai.name, MEN_NAME);
+      this.hud.versus(say(WHO.kai.name), MEN_NAME);
       this._barkOnce('menIn');
-    } else this.hud.versus(WHO.kai.name, WHO.handler.name);
+    } else this.hud.versus(say(WHO.kai.name), WHO.handler.name);
     this._fightCall = VS_TIME;
     this.sound?.play('handoff', { volume: 0.6 });
     this.letters.spawn('l3-1', LETTER_SPOTS['l3-1']);

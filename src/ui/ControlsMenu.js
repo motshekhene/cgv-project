@@ -44,6 +44,7 @@ const CSS = THEME_CSS + `
 .km-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:8px 6px; border-bottom:1px solid rgba(239,228,200,.07);
   animation:km-in .35s ease backwards; animation-delay:calc(var(--i) * 28ms); }
 .km-row:hover { background:rgba(227,187,98,.05); }
+.km-sub { margin:16px 0 2px; padding:0 6px; font:700 11px var(--sans); letter-spacing:.3em; color:var(--gold); animation:km-in .35s ease backwards; animation-delay:calc(var(--i) * 28ms); }
 .km-what { font:600 12px var(--sans); letter-spacing:.2em; color:var(--ink); }
 .km-keys { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:5px; font:italic 13px ${DIALOGUE_FONT}; color:var(--ink-dim); }
 .km-keys kbd { display:inline-block; min-width:16px; padding:4px 8px 5px; text-align:center; font:700 11px var(--sans); letter-spacing:.08em; color:#f6e7c1;
@@ -120,8 +121,10 @@ export class ControlsMenu {
     this.tab = id;
     for (const t of this.el.querySelectorAll('.km-tab')) t.classList.toggle('on', t.dataset.tab === id);
     this.lead.textContent = CHAPTERS.find(([c]) => c === id)?.[2] || '';
-    // the live bindings, read now (a binding can change between visits)
+    // the live bindings, read now (a binding can change between visits); a group (TRICKS) under its name
+    let group = '';
     this.list.innerHTML = controlRows(this.game, id).map((r, i) =>
+      (r.group && r.group !== group ? `<div class="km-sub" style="--i:${i}">${(group = r.group)}</div>` : '') +
       `<div class="km-row" style="--i:${i}"><span class="km-what">${r.label}</span><span class="km-keys">${keycaps(r.keys)}</span></div>`).join('');
     this.list.scrollTop = 0;
   }

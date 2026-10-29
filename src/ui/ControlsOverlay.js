@@ -116,18 +116,18 @@ const LEVEL_CONTROLS = {
       { label: 'KICK', action: 'kick' },
       { label: 'BLOCK', action: 'block' },
       { label: 'DODGE', action: 'dodge' },
-      // tricks: the strings CombatController's TRICKS turns into special moves
-      { label: 'TRICK \u00b7 ONE-TWO KICK', keys: 'PUNCH, PUNCH, KICK' },
-      { label: 'TRICK \u00b7 SWITCH HOOK', keys: 'KICK, KICK, PUNCH' },
-      { label: 'TRICK \u00b7 WHIRLWIND', keys: 'PUNCH, KICK, PUNCH, KICK' },
-      { label: 'TRICK \u00b7 SLIP COUNTER', keys: 'DODGE, PUNCH' },
-      { label: 'TRICK \u00b7 SNAP KICK', keys: 'DODGE, KICK' },
       { label: 'THE HORN \u00b7 SLOW TIME', action: 'ability' },
       { label: 'CAMERA \u00b7 LOCK ON', action: 'lockOn' },
       { label: 'NEXT LINE', action: 'skip' },
       { label: 'SHRINES · PAGES', keys: 'WALK INTO THEM' },
       { label: 'MAP (BIGGER · SMALLER)', keys: 'N' },
       { label: 'RESTART', action: 'restart' },
+      // tricks: the strings CombatController's TRICKS turns into special moves
+      { label: 'ONE-TWO KICK', keys: 'PUNCH, PUNCH, KICK', group: 'TRICKS' },
+      { label: 'SWITCH HOOK', keys: 'KICK, KICK, PUNCH', group: 'TRICKS' },
+      { label: 'WHIRLWIND', keys: 'PUNCH, KICK, PUNCH, KICK', group: 'TRICKS' },
+      { label: 'SLIP COUNTER', keys: 'DODGE, PUNCH', group: 'TRICKS' },
+      { label: 'SNAP KICK', keys: 'DODGE, KICK', group: 'TRICKS' },
     ],
   },
 };
@@ -138,10 +138,14 @@ const SHARED_ROWS = [
   { label: 'PAUSE', action: 'pause' },
 ];
 
-/** The rows for one level, keys resolved from the live bindings: what the pause menu lists too. */
+/**
+ * The rows for one level, keys resolved from the live bindings: what the pause menu lists too.
+ * Rows in a `group` (Level 3's TRICKS) come last, under its name: the pause menu gives it a column of its own.
+ */
 export function controlRows(game, levelName) {
   const spec = LEVEL_CONTROLS[levelName] || { title: 'CONTROLS', rows: [] };
-  return [...spec.rows, ...SHARED_ROWS].map((row) => ({ label: row.label, keys: keysFor(game, row) }));
+  const rows = [...spec.rows.filter((r) => !r.group), ...SHARED_ROWS, ...spec.rows.filter((r) => r.group)];
+  return rows.map((row) => ({ label: row.label, keys: keysFor(game, row), group: row.group || '' }));
 }
 
 /**
