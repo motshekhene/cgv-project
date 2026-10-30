@@ -8,7 +8,7 @@ import { CarLights, PoliceLights } from './level2/carLights.js';
 import { Traffic } from './level2/traffic.js';
 import { Skids, Smoke, TyreTracks } from './level2/skids.js';
 import { CarDamage } from './level2/CarDamage.js';
-import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint, canBuyACar } from './level2/carSelect.js';
+import { CARS, ESCAPE_CAR, HANDLER_MODEL, HANDLER_OPTIONS, createCarPicker, loadSavedCar, saveCar, loadSavedPaint, savePaint, canBuyACar } from './level2/carSelect.js';
 import { CURRENCY, balance, owns, buy } from '../core/wallet.js';
 import { PAINTS, applyPaint, detectPaint } from './level2/paint.js';
 import { createLevel2Hud } from './level2/hud.js';
@@ -263,6 +263,12 @@ export class Level02 extends Level {
       [HANDLER_MODEL, ...CARS.map((c) => c.path)].map((p) => assets.model(p))
     );
 
+    // straight from the drive-out scene he's in the Bruiser it showed, in its factory paint: kept
+    // as the car he's in, so the yard (if it opens) starts on it and a RETRY puts him back in it
+    if (this.fromIntro) {
+      saveCar(ESCAPE_CAR);
+      savePaint(0);
+    }
     this._carIndex = loadSavedCar();
     this._paintIndex = loadSavedPaint();
     this._paintInfo = new Map();                  // detected factory colour per model file

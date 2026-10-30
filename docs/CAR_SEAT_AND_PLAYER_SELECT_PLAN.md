@@ -80,7 +80,7 @@ Leaning him back in the Supercar, as first planned, turned out not to help: his 
 
 ### Testing
 
-- **Pick the car:** in DevTools run `localStorage.setItem('blackout.level2.car', 'supercar')` and reload. The ids are `executive`, `drifter`, `muscle`, `street-racer`, `supercar` and `bruiser`.
+- **The car:** the finish scene is always the Bruiser now (`ESCAPE_CAR` in [`carSelect.js`](../src/levels/level2/carSelect.js)), whatever car was driven in Level 2. The other cars' seats were fitted as above, but the bay no longer shows them. To try one there again, set `ESCAPE_CAR` to its index for the test.
 - **Get to the bay quickly:** open `/?level=level01`, wait for the run to start, then in the console run `game.level.z = -4455.5`. The finale starts on the next frame.
 - **Watch** the "door" shot (him getting in) and the orbit under the ESCAPED card, where the car is seen from every side.
 

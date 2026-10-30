@@ -8,8 +8,7 @@ import { attachModel } from '../../levels/level2/attachModel.js';
 import { CarLights, PoliceLights } from '../../levels/level2/carLights.js';
 import { spinWheels } from '../../levels/level2/wheels.js';
 import { TyreTracks } from '../../levels/level2/skids.js';
-import { CARS, HANDLER_MODEL, HANDLER_OPTIONS, loadSavedCar, loadSavedPaint } from '../../levels/level2/carSelect.js';
-import { PAINTS, applyPaint, detectPaint } from '../../levels/level2/paint.js';
+import { CARS, ESCAPE_CAR, HANDLER_MODEL, HANDLER_OPTIONS } from '../../levels/level2/carSelect.js';
 
 /**
  * Between Level 1 and Level 2, "Out of the jungle" (~10.4 s).
@@ -125,7 +124,7 @@ export class DriveOutIntro extends Cutscene {
   }
 
   async build(assets) {
-    const carDef = CARS[loadSavedCar()];
+    const carDef = CARS[ESCAPE_CAR];
     const [kit, mats] = await Promise.all([
       loadJungleKit(assets),
       createJungleMaterials(assets, 200),
@@ -146,7 +145,7 @@ export class DriveOutIntro extends Cutscene {
     sign.rotation.y = Math.PI + 0.25;
     this.root.add(sign);
 
-    // the car Level 2 hands you, in its paint
+    // the Bruiser he escaped Level 1 in (ESCAPE_CAR), as it was in the bay
     this.car = new THREE.Group();
     this.root.add(this.car);
     this.carModel = await attachModel(assets, this.car, carDef.path, {
@@ -154,8 +153,6 @@ export class DriveOutIntro extends Cutscene {
     });
     if (!this.scene) return;
     if (this.carModel) {
-      const paint = PAINTS[loadSavedPaint()];
-      if (carDef.paintable !== false && paint) applyPaint(this.carModel, paint.color, detectPaint(this.carModel));
       this.lights = new CarLights(this.car);
       this.lights.fit(this.carModel.userData.bounds, this.carModel);
     }

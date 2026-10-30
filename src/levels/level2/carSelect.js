@@ -23,7 +23,9 @@ export const CARS = [
     // "Pickup Truck" by Quaternius, CC0
     id: 'bruiser', name: 'Bruiser', path: 'level2/traffic/pickup.glb', length: 5.3, price: 0,
     blurb: 'Pickup truck: slow, heavy, shrugs off rams — and shoves back', stats: { speed: 37, accel: 17, handling: 0.8, strength: 1.6 },
-    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.3, seat: { y: 0.98 } },
+    // deep enough to take the whole window, which leans in to 0.31 m at the top (a sliver of
+    // its frame stayed over the doorway at 0.3, and heads brushed it coming in)
+    door: { z: [-0.32, 0.92], y: [0.62, 1.82], depth: 0.34, seat: { y: 0.98 } },
   },
   {
     // "Convertible" by Poly by Google, CC BY 3.0
@@ -68,6 +70,14 @@ export const CARS = [
 // Its wheels are Tire1-4 (the "Spare Tire" on the back door must not spin).
 export const HANDLER_MODEL = 'level2/handler-ranger.glb';
 export const HANDLER_OPTIONS = { length: 4.9, wheels: /^Tire\d$/ };
+
+/**
+ * The car every run escapes Level 1 in and drives out onto the River Road in:
+ * the Bruiser, in its factory paint, whatever was driven last time. Its cab is
+ * tall enough for every player to sit up in (Knox's head went through the
+ * Supercar's roof). The yard's choice is Level 2's alone, from there on.
+ */
+export const ESCAPE_CAR = Math.max(0, CARS.findIndex((car) => car.id === FREE_CAR));
 
 const KEY = 'blackout.level2.car';
 const PAINT_KEY = 'blackout.level2.paint';

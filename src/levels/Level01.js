@@ -10,7 +10,7 @@ import { createClueBoard } from "../cards/clueSign.js";
 import { Level } from "../core/Level.js";
 import { createJungleSpeedWarpMaterial, updateJungleSpeedWarp } from "../shaders/jungleSpeedWarpShader.js";
 import { AudioSystem } from "../audio/audioSystem.js";
-import { CARS, HANDLER_MODEL, loadSavedCar, loadSavedPaint } from "./level2/carSelect.js";
+import { CARS, ESCAPE_CAR, HANDLER_MODEL } from "./level2/carSelect.js";
 import { attachModel } from "./level2/attachModel.js";
 import { CarLights } from "./level2/carLights.js";
 import { CarDoor } from "./level1/carDoor.js";
@@ -27,7 +27,6 @@ import { kaiThinks, clearThoughts, DIALOGUE_FONT } from "../ui/dialogue.js";
 import { loadCast, makeKai, makeHandler } from "../intros/cast.js";
 import { say } from "../player/roster.js";
 import { dotTexture } from "../intros/fx.js";
-import { PAINTS, applyPaint, detectPaint } from "./level2/paint.js";
 import {
   loadJungleKit,
   createJungleMaterials,
@@ -3484,22 +3483,20 @@ export class Level01 extends Level {
     this._setBayLights(0);
     this._workLight = workLight;
     this.root.add(camp);
-    // the car Level 2 hands you, in its paint, so the bay's car is the one he
-    // drives out in. Loaded in the background: the blue van stands in for it
-    // until it arrives, and for good if it can't be loaded.
+    // the Bruiser (ESCAPE_CAR), the car he drives out in every run, whatever the
+    // yard sold him last time. Loaded in the background: the blue van stands in
+    // for it until it arrives, and for good if it can't be loaded.
     this._attachBayCar(vehicle);
   }
 
   async _attachBayCar(vehicle) {
-    const def = CARS[loadSavedCar()] || CARS[0];
+    const def = CARS[ESCAPE_CAR];
     if (!def || !this.assets) return;
     const model = await attachModel(this.assets, vehicle, def.path, {
       length: def.length, yaw: def.yaw || 0, ground: def.ground || null, wheels: def.wheels || null,
       keepPlaceholder: true,
     });
     if (!model || !this.serviceVehicle) return; // failed, or torn down meanwhile
-    const paint = PAINTS[loadSavedPaint()];
-    if (def.paintable !== false && paint) applyPaint(model, paint.color, detectPaint(model));
     model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     for (const m of this._bayBox) m.visible = false;
     this._bayCar = { model, bounds: model.userData.bounds };
@@ -3890,7 +3887,7 @@ export class Level01 extends Level {
     // The driver's door is on the car's right-hand side (it faces +z in its
     // own frame, so that is min.x): cut out of the body so it can open
     // (level1/carDoor.js). The blue stand-in van has no model to cut.
-    const def = this._bayCar.model ? CARS[loadSavedCar()] || CARS[0] : null;
+    const def = this._bayCar.model ? CARS[ESCAPE_CAR] : null;
     const carDoor = def ? this._bayDoor || new CarDoor(this.game.renderer, vehicle, this._bayCar.model, this._bayCar.bounds, def.door) : null;
     this._bayDoor = null;
     const sit = this._sitting();
@@ -4061,8 +4058,9 @@ export class Level01 extends Level {
    * The getting-in, laid over the clips each frame (after _bendKai): his right
    * hand to the handle and with the door for the first of its swing, his left
    * down at his side; from sitting, his head kept under the top of the opening
-   * and then the roof, leaning back into the seat as far as that takes (the
-   * way anyone gets into a low car); his feet planted outside while he sits,
+   * and then the roof, stooping as he sits in and leaning back into the seat
+   * once he's round, as far as that takes (the way anyone gets into a car
+   * that's low for them); his feet planted outside while he sits,
    * lifted over the sill as he swings round, and out along the floor in front
    * of him; his hands on the wheel.
    */
@@ -4098,8 +4096,11 @@ export class Level01 extends Level {
     }
     if (!F.sits || f < FINALE_SIT) return;
 
-    // ---- his head, first (his hands then go to the wheel from where his shoulders end up):
-    // past the car's side, the top of it under what's over it there, leaning back till it is
+    // ---- his head, first (his hands then go to the wheel from where his shoulders end up): the
+    // top of it under what's over it, the top of the opening as it comes through the doorway and
+    // the roof once it's in. The least bend that does it: stooping on (his head kept low, and out
+    // of the doorway till he's further in) while he's getting in, leaning back into the seat once
+    // he's round
     const hipsW = ik.hips.getWorldPosition(F.ikH);
     const headW = (kai.bone("HeadTop_End") || ik.head).getWorldPosition(F.ikT);
     const facing = F.ikF.set(Math.sin(h), 0, Math.cos(h));
@@ -4108,21 +4109,28 @@ export class Level01 extends Level {
     const hipsL = vehicle.worldToLocal(F.ikL.copy(hipsW));
     const headL = vehicle.worldToLocal(F.ikP.copy(headW));
     const fl = F.ikT.copy(facing).transformDirection(F.toCar.copy(vehicle.matrixWorld).invert()); // his facing, in the car's frame
+    // his lean t (forward of upright) fits: the top of his head under what's over it there; the
+    // opening's top only over the doorway itself, nothing over his head well outside the car
+    const fits = (t) => {
+      const z = hipsL.z + fl.z * r * Math.sin(t), x = hipsL.x + fl.x * r * Math.sin(t), y = hipsL.y + r * Math.cos(t);
+      const doorway = f < FINALE_SWING && x > F.sideX - 0.12 && x < F.sideX + 0.3;
+      return y <= Math.min(this._finaleRoof(F, z), doorway ? F.openTop : Infinity) - 0.06;
+    };
+    // F.duck: + leaning back, - stooping. (Only what the seat couldn't do: CarDoor.fit has already
+    // sat him as low as the car lets him.) Looked for from a head's length out
     let want = 0;
-    if (headL.x > F.sideX - 0.12) {
-      const fits = (t) => {
-        const z = hipsL.z + fl.z * r * Math.sin(t), x = hipsL.x + fl.x * r * Math.sin(t), y = hipsL.y + r * Math.cos(t);
-        const over = Math.min(this._finaleRoof(F, z), f < FINALE_SWING && x < F.sideX + 0.3 ? F.openTop : Infinity);
-        return y <= over - 0.06;
-      };
-      // (only what the seat couldn't do: CarDoor.fit has already sat him as low as the car lets him)
-      let t = lean;
-      while (t > lean - 0.75 && !fits(t)) t -= 0.03;
-      want = lean - t;
+    if (headL.x > F.sideX - 0.4) {
+      want = 0.75; // nothing fits: as far back as he goes
+      const ways = f < FINALE_SWING ? [-1, 1] : [1, -1];
+      look: for (let k = 0; k <= 25; k++) {
+        for (const s of ways) if (fits(lean - s * k * 0.03)) { want = s * k * 0.03; break look; }
+      }
     }
-    // straight down to what's needed, back up only slowly
-    F.duck = want > F.duck ? want : F.duck + (want - F.duck) * (1 - Math.exp(-4 * dt));
-    if (F.duck > 0.002) this._bendKai(kai, -F.duck);
+    // into it briskly while his head is where it doesn't fit (all at once, he lurched as much as
+    // 40° in a frame), and only slowly once it does
+    const d = want - F.duck;
+    F.duck += fits(lean - F.duck) ? d * (1 - Math.exp(-4 * dt)) : Math.sign(d) * Math.min(Math.abs(d), 5 * dt);
+    if (Math.abs(F.duck) > 0.002) this._bendKai(kai, -F.duck);
     left.set(Math.cos(h), 0, -Math.sin(h));
 
     // ---- his feet: planted outside while he sits, then up over the sill as he swings round, and
